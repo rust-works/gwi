@@ -1,0 +1,51 @@
+scopes:
+  - name: "ci"
+    description: "CI/CD pipelines and GitHub Actions workflows"
+    examples: ["ci: add commit validation workflow", "ci: fix release pipeline"]
+    file_patterns: [".github/**"]
+  - name: "cli"
+    description: "Command-line interface and argument parsing"
+    examples: ["cli: add gmail search flags", "cli: improve help text"]
+    file_patterns: ["src/cli.rs", "src/cli/**", "src/main.rs"]
+  - name: "docs"
+    description: "Documentation, ADRs and guides"
+    examples: ["docs: add shared-infrastructure ADR", "docs: fix quickstart link"]
+    file_patterns: ["docs/**", "README.md", "CONTRIBUTING.md"]
+  - name: "changelog"
+    description: "Changelog entries"
+    examples: ["changelog: note the new drive command"]
+    file_patterns: ["CHANGELOG.md"]
+  - name: "gmail"
+    description: "Gmail client, engines and CLI surface"
+    examples: ["gmail: add label filter", "gmail: fix thread pagination"]
+    file_patterns: ["src/gmail.rs", "src/gmail/**", "src/cli/gmail.rs", "src/cli/gmail/**"]
+  - name: "drive"
+    description: "Drive, Docs, Sheets and Slides clients and CLI surface"
+    examples: ["drive: add trash command", "drive: tighten write gate"]
+    file_patterns: ["src/drive.rs", "src/drive/**", "src/cli/drive.rs", "src/cli/drive/**"]
+  - name: "mcp"
+    description: "MCP server and tools"
+    examples: ["mcp: register gmail tools"]
+    file_patterns: ["src/mcp.rs", "src/mcp/**"]
+  - name: "workflows"
+    description: "GitHub Actions workflow files"
+    examples: ["workflows: add release workflow"]
+    file_patterns: [".github/workflows/**"]
+
+# Paths that legitimately belong to no scope.
+allow:
+  - "src/lib.rs"
+  - "src/utils.rs"
+  - "src/utils/**"
+  - "src/test_support.rs"
+  - "src/main.rs"
+  - "LICENSE"
+  - "CODE_OF_CONDUCT.md"
+  - "Cargo.toml"
+  - "Cargo.lock"
+  - "clippy.toml"
+  - "rustfmt.toml"
+  - "deny.toml"
+  - ".gitignore"
+  - "CLAUDE.md"
+  - "AGENTS.md"

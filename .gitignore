@@ -1,0 +1,36 @@
+# Rust
+/target
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+._*
+Thumbs.db
+
+# Logs and temp files
+*.log
+*.bak
+*.tmp
+
+# Environment variables and credentials
+.env
+.env.*
+
+# Coverage and profiling
+lcov.info
+*.profraw
+*.profdata
+*.prof
+perf.data*
+
+# Local configuration overrides (personal settings)
+.omni-dev/local/
+
+# Git worktrees
+/.work/

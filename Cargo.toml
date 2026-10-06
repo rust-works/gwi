@@ -1,0 +1,17 @@
+[package]
+name = "gwi"
+version = "0.0.1"
+edition = "2021"
+authors = ["John Ky <newhoggy@gmail.com>"]
+license = "BSD-3-Clause"
+description = "Google Workspace Interface: Gmail, Drive, Docs, Sheets and Slides from the command line and MCP."
+repository = "https://github.com/rust-works/gwi"
+homepage = "https://github.com/rust-works/gwi"
+readme = "README.md"
+keywords = ["google", "gmail", "drive", "workspace", "mcp"]
+categories = ["command-line-utilities"]
+rust-version = "1.88.0"
+
+[[bin]]
+name = "gwi"
+path = "src/main.rs"
