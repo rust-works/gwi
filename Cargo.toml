@@ -11,6 +11,10 @@ readme = "README.md"
 keywords = ["google", "gmail", "drive", "workspace", "mcp"]
 categories = ["command-line-utilities"]
 rust-version = "1.88.0"
+# The omni-dev history under tests/ and src/ was imported before it is wired
+# in; Cargo would otherwise compile tests/*.rs against dependencies gwi does
+# not have yet. Declare each test with [[test]] as it is brought up.
+autotests = false
 
 [[bin]]
 name = "gwi"
