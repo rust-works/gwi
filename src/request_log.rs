@@ -1,0 +1,4352 @@
+//! Append-only, local invocation + HTTP request log (`log.jsonl`).
+//!
+//! Every `gwi` invocation appends one `kind: "invocation"` line; every
+//! outbound HTTP request made by one of the integration clients appends one
+//! `kind: "http"` line correlated to it by a shared `invocation_id`. The log
+//! is **local-machine state** written under the platform state/data directory
+//! (`0700` dir / `0600` file, the same posture as [`crate::utils::fs`]).
+//!
+//! Design invariants:
+//!
+//! - **Best effort.** [`record`] swallows every error (logging only at
+//!   `tracing::debug`); a logging failure can never change the program's exit
+//!   code. Honors `GWI_LOG_DISABLE=1` for an absolute opt-out of this
+//!   log only — [`record_audit`]'s fail-closed sink is deliberately exempt
+//!   (see its own doc comment).
+//! - **No secrets.** Auth headers/tokens are never written; only a non-secret
+//!   `auth_principal` identity is kept. Headers are redacted centrally
+//!   ([`redact_headers`]), secret-bearing URL query/fragment parameter values
+//!   are redacted (`redact_url`) before writing, and request/response bodies
+//!   are opt-in via `GWI_LOG_BODIES=1`.
+//! - **Forward compatible.** A single [`LogRecord`] is used for both writing
+//!   and reading: every field is `#[serde(default)]`, and every optional field
+//!   is `skip_serializing_if`, so a newer reader never chokes on an older line
+//!   and an older reader never chokes on a newer one — the same forward-rolling
+//!   contract the daemon wire types use.
+
+use std::collections::BTreeMap;
+use std::io::Write;
+use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
+use std::time::{Duration, Instant};
+
+use chrono::{DateTime, SecondsFormat, Utc};
+use serde::{Deserialize, Serialize};
+
+use crate::utils::env::{non_empty_var, truthy_var, EnvSource, SystemEnv};
+
+/// Default log file name under the runtime directory.
+const LOG_FILE_NAME: &str = "log.jsonl";
+
+/// Default audit log file name under the runtime directory — a sibling of
+/// [`LOG_FILE_NAME`] ([ADR-0080](../docs/adrs/adr-0080.md) §11). Distinctness
+/// from the default `log.jsonl` path is enforced at write time by
+/// [`record_audit`], not merely implied by having a different constant.
+const AUDIT_FILE_NAME: &str = "audit.jsonl";
+
+/// Number of rotated log files kept by default when
+/// [`GWI_LOG_MAX_SIZE`](rotation_config) enables rotation but
+/// `GWI_LOG_KEEP_FILES` is unset. (Rotation on write is unix-only.)
+#[cfg(unix)]
+const DEFAULT_KEEP_FILES: u32 = 3;
+
+/// Which kind of record a line holds. Unknown future kinds deserialize to
+/// [`RecordKind::Unknown`] rather than failing the read.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum RecordKind {
+    /// One per process invocation (or per MCP tool call).
+    #[default]
+    Invocation,
+    /// One per outbound HTTP request.
+    Http,
+    /// One per Drive/Sheets/Docs content-mutating attempt — `create`,
+    /// `upload`, `edit`, `rename`, `move`, and every Sheets/Docs write,
+    /// structural, delete or protection verb — including a refused
+    /// `Blocked` attempt for any of them, where the refusal itself is the
+    /// security-relevant event. Covers every operation via `command`/
+    /// `context`, rather than one kind per verb. See `crate::drive`.
+    DriveMutation,
+    /// One per leased-write lifecycle event — lease acquire, a write under
+    /// a lease, expiry/release, restore, and every refusal along the way —
+    /// written to the separate, fail-closed `audit.jsonl` sink rather than
+    /// this log ([ADR-0080](../docs/adrs/adr-0080.md) §11). Distinct from
+    /// [`RecordKind::DriveMutation`], which stays the best-effort record
+    /// written here for the same underlying API call: a leased write
+    /// produces both, correlated by `invocation_id`. See
+    /// [`record_audit`]/[`audit_file_path`].
+    Audit,
+    /// A kind written by a newer version that this reader does not know.
+    #[serde(other)]
+    Unknown,
+}
+
+impl RecordKind {
+    /// Stable lowercase name, used for display and JSON map keys (matches the
+    /// `serde(rename_all = "lowercase")` wire form).
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Invocation => "invocation",
+            Self::Http => "http",
+            Self::DriveMutation => "drivemutation",
+            Self::Audit => "audit",
+            Self::Unknown => "unknown",
+        }
+    }
+}
+
+/// What drove an invocation. Unknown future sources deserialize to
+/// [`Source::Unknown`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Source {
+    /// A direct `gwi` CLI invocation.
+    #[default]
+    Cli,
+    /// An `gwi-mcp` tool call.
+    Mcp,
+    /// Work performed inside the long-lived daemon process.
+    Daemon,
+    /// A source written by a newer version that this reader does not know.
+    #[serde(other)]
+    Unknown,
+}
+
+/// One line of the log. Used for both writing and reading; every field is
+/// `#[serde(default)]` (tolerant reads) and every optional field is
+/// `skip_serializing_if` (compact, forward-compatible writes).
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct LogRecord {
+    // --- Core fields (present on every record) ---
+    /// Per-record, time-sortable id (see [`new_id`]).
+    #[serde(default)]
+    pub id: String,
+    /// Shared by an invocation record and every HTTP record it spawned.
+    #[serde(default)]
+    pub invocation_id: String,
+    /// Discriminates the record type.
+    #[serde(default)]
+    pub kind: RecordKind,
+    /// RFC3339 timestamp with milliseconds.
+    #[serde(default)]
+    pub timestamp: String,
+    /// Host the record was written on.
+    #[serde(default)]
+    pub hostname: String,
+    /// Writing process id.
+    #[serde(default)]
+    pub pid: u32,
+    /// `gwi` version that wrote the record.
+    #[serde(default)]
+    pub gwi_version: String,
+    /// Working directory at write time.
+    #[serde(default)]
+    pub cwd: String,
+    /// OS user that owns the process.
+    #[serde(default)]
+    pub system_user: String,
+
+    // --- `kind: "invocation"` fields ---
+    /// Resolved clap subcommand path, e.g. `["jira","read"]`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub command: Vec<String>,
+    /// Full argv.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub command_line: Vec<String>,
+    /// Process exit code (0 success, 1 error — matches `die`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub exit_code: Option<i32>,
+    /// Wall time of the whole invocation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub duration_ms: Option<u64>,
+    /// Whitelisted, non-secret `GWI_*` env snapshot.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub env: BTreeMap<String, String>,
+    /// What drove the run (`cli`/`mcp`/`daemon`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<Source>,
+    /// When `source = mcp`, the tool name that drove the run.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mcp_tool: Option<String>,
+
+    // --- `kind: "http"` fields ---
+    /// Coarse service tag (`jira`/`confluence`/`datadog`/…) for fast filtering.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub service: Option<String>,
+    /// HTTP method.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub method: Option<String>,
+    /// Request URL.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
+    /// Response status; absent on a network/transport error.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub status_code: Option<u16>,
+    /// Elapsed time of the request.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub elapsed_ms: Option<u64>,
+    /// True when the request ran inside the daemon (bridge/Snowflake pool).
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub via_daemon: bool,
+    /// Which pooled daemon session served the request.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub daemon_session_id: Option<String>,
+    /// Non-secret identity actually used (token id / OAuth principal) — never
+    /// the secret itself.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub auth_principal: Option<String>,
+    /// Redacted request headers (only when `GWI_LOG_HEADERS=1`).
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub request_headers: BTreeMap<String, String>,
+    /// Redacted response headers (only when `GWI_LOG_HEADERS=1`).
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub response_headers: BTreeMap<String, String>,
+    /// Request body (only when `GWI_LOG_BODIES=1`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub request_body: Option<String>,
+    /// Response body (only when `GWI_LOG_BODIES=1`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub response_body: Option<String>,
+    /// Free-form correlation tags.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub context: BTreeMap<String, String>,
+
+    // --- shared optional ---
+    /// Top-level error chain (invocation) or per-request error (http).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+/// `skip_serializing_if` predicate for `bool` fields that default to `false`.
+#[allow(clippy::trivially_copy_pass_by_ref)] // serde requires `fn(&T) -> bool`
+fn is_false(b: &bool) -> bool {
+    !*b
+}
+
+impl LogRecord {
+    /// Builds a record carrying only the always-present core fields.
+    fn new(kind: RecordKind, invocation_id: String) -> Self {
+        Self {
+            id: new_id(),
+            invocation_id,
+            kind,
+            timestamp: now_rfc3339_millis(),
+            hostname: hostname(),
+            pid: std::process::id(),
+            gwi_version: crate::VERSION.to_string(),
+            cwd: cwd(),
+            system_user: system_user(),
+            ..Self::default()
+        }
+    }
+}
+
+/// The per-invocation context every record is stamped with.
+///
+/// Held once per process in `GLOBAL` (CLI) and overridden per task in
+/// [`CTX`] (the multiplexed MCP server), so HTTP records can find their parent
+/// invocation without threading state through every call site.
+#[derive(Debug, Clone)]
+pub struct RequestLogContext {
+    /// Shared id linking an invocation to the HTTP it spawned.
+    pub invocation_id: String,
+    /// What drove the run.
+    pub source: Source,
+    /// MCP tool name when `source = mcp`.
+    pub mcp_tool: Option<String>,
+}
+
+impl Default for RequestLogContext {
+    fn default() -> Self {
+        Self {
+            invocation_id: new_id(),
+            source: Source::Cli,
+            mcp_tool: None,
+        }
+    }
+}
+
+impl RequestLogContext {
+    /// A CLI context with a freshly minted invocation id.
+    pub fn cli() -> Self {
+        Self {
+            invocation_id: new_id(),
+            source: Source::Cli,
+            mcp_tool: None,
+        }
+    }
+
+    /// An MCP context for a single tool call.
+    pub fn mcp(tool: impl Into<String>) -> Self {
+        Self {
+            invocation_id: new_id(),
+            source: Source::Mcp,
+            mcp_tool: Some(tool.into()),
+        }
+    }
+}
+
+static GLOBAL: OnceLock<RequestLogContext> = OnceLock::new();
+
+tokio::task_local! {
+    /// Per-task context override, set around each MCP tool dispatch.
+    pub static CTX: RequestLogContext;
+}
+
+/// Installs the process-global context. The first call wins (the CLI/daemon
+/// shell sets it once, very early); later calls are ignored.
+pub fn set_global(ctx: RequestLogContext) {
+    let _ = GLOBAL.set(ctx);
+}
+
+/// Resolves the active context: task-local override first, then the
+/// process-global default, then a synthesized fallback.
+pub fn current_context() -> RequestLogContext {
+    if let Ok(ctx) = CTX.try_with(RequestLogContext::clone) {
+        return ctx;
+    }
+    if let Some(ctx) = GLOBAL.get() {
+        return ctx.clone();
+    }
+    RequestLogContext::default()
+}
+
+/// Runs `fut` with the active context's `invocation_id` replaced by
+/// `origin_id`, preserving `source` and `mcp_tool`.
+///
+/// The daemon and the browser bridge scope this around a request they serve on
+/// behalf of a CLI/MCP client, so the HTTP records that request spawns
+/// correlate to the *originating* invocation rather than the server's own
+/// (#1198). `source` is deliberately preserved: a request served inside the
+/// daemon keeps `source = Daemon`, so `via_daemon` detection is unaffected while
+/// `invocation_id` now points at the caller's invocation record.
+pub async fn scope_origin_id<F, T>(origin_id: String, fut: F) -> T
+where
+    F: std::future::Future<Output = T>,
+{
+    let mut ctx = current_context();
+    ctx.invocation_id = origin_id;
+    CTX.scope(ctx, fut).await
+}
+
+/// Whether logging is disabled entirely (`GWI_LOG_DISABLE=1`).
+pub fn disabled() -> bool {
+    disabled_with(&SystemEnv)
+}
+
+/// [`disabled`], reading through an injected [`EnvSource`] (STYLE-0028).
+fn disabled_with(env: &impl EnvSource) -> bool {
+    truthy_var(env, "GWI_LOG_DISABLE")
+}
+
+/// Whether request/response bodies may be recorded (`GWI_LOG_BODIES=1`).
+pub fn bodies_enabled() -> bool {
+    bodies_enabled_with(&SystemEnv)
+}
+
+/// [`bodies_enabled`], reading through an injected [`EnvSource`] (STYLE-0028).
+fn bodies_enabled_with(env: &impl EnvSource) -> bool {
+    truthy_var(env, "GWI_LOG_BODIES")
+}
+
+/// Whether (redacted) headers may be recorded (`GWI_LOG_HEADERS=1`).
+pub fn headers_enabled() -> bool {
+    truthy_var(&SystemEnv, "GWI_LOG_HEADERS")
+}
+
+/// The default location of an gwi runtime file: `state_dir` (falling
+/// back to `data_dir`) joined with `gwi/<component>`. `pub(crate)`
+/// rather than private: the Drive lease ledger and its default backup
+/// directory (`drive::lease::ledger::ledger_path`,
+/// `cli::drive::lease::default_backup_dir`) resolve their own location the
+/// same way and share this rather than re-deriving it.
+pub(crate) fn gwi_state_subpath(component: &str) -> Option<PathBuf> {
+    let base = dirs::state_dir().or_else(dirs::data_dir)?;
+    Some(base.join("gwi").join(component))
+}
+
+/// Resolves the log file path: `GWI_LOG_FILE` override, else
+/// `state_dir` (falling back to `data_dir`) joined with `gwi/log.jsonl`.
+pub fn log_file_path() -> Option<PathBuf> {
+    log_file_path_with(&SystemEnv)
+}
+
+/// [`log_file_path`], reading through an injected [`EnvSource`]
+/// (STYLE-0028). `pub(crate)` rather than private: `cli::log`'s
+/// `LogCommand::resolve_path_with` needs it for its own env-injected test.
+///
+/// Refuses (returns `None`) when the resolved path names the same file as
+/// [`audit_file_path_with`] — an `GWI_LOG_FILE` misconfiguration that
+/// would otherwise let ordinary best-effort records
+/// (`try_record`/`append_with_rotation`) and `prune` reach the fail-closed
+/// audit sink, since none of those consumers get a chance to guard against
+/// it themselves once a colliding path has already resolved
+/// ([#1747](https://github.com/rust-works/gwi/issues/1747), ADR-0080
+/// §11). Centralizing the refusal here — rather than relying on each
+/// consumer's own check, as `prune` and `append_with_rotation` still do for
+/// defense in depth against a caller that bypasses this resolver — means
+/// every future consumer of [`log_file_path`] is covered automatically.
+pub(crate) fn log_file_path_with(env: &impl EnvSource) -> Option<PathBuf> {
+    let path = non_empty_var(env, "GWI_LOG_FILE")
+        .map(PathBuf::from)
+        .or_else(|| gwi_state_subpath(LOG_FILE_NAME))?;
+    if resolves_to_audit_file_with(&path, env) {
+        tracing::warn!(
+            "request_log: GWI_LOG_FILE resolves to the audit log ({}); refusing to use it \
+             as the request log path — set GWI_LOG_FILE and/or GWI_AUDIT_LOG_FILE to \
+             distinct paths",
+            path.display()
+        );
+        return None;
+    }
+    Some(path)
+}
+
+/// Resolves the audit log file path.
+///
+/// `GWI_AUDIT_LOG_FILE` override, else `state_dir` (falling back to
+/// `data_dir`) joined with `gwi/audit.jsonl` — a sibling of
+/// [`log_file_path`]'s default, resolved through the same two helpers so
+/// the two sinks' policy can't drift apart. Since either can be redirected
+/// independently via its own env override, nothing here *guarantees* the
+/// two stay distinct; [`record_audit`] checks that at write time instead
+/// of merely assuming it.
+///
+/// The body is the same in every build; only `test_audit_file_override`
+/// differs. In a release build it is always `None`, so the env override
+/// and the real default are all there is. In a test build it routes
+/// **per thread** (see that function): a thread that opted into nothing
+/// is pinned to a shared scratch file and never sees the env var or the
+/// real default, so no test can pollute another's file — or the machine's
+/// — by omission.
+pub fn audit_file_path() -> Option<PathBuf> {
+    test_audit_file_override().or_else(|| audit_file_path_with(&SystemEnv))
+}
+
+/// The pure override-or-default half of [`audit_file_path`]: honors
+/// `GWI_AUDIT_LOG_FILE` through an injected [`EnvSource`] (STYLE-0028),
+/// deliberately **not** consulting `TEST_AUDIT_ROUTE` — that per-thread
+/// routing is a test-build-only safety net for the *ambient* entry point,
+/// orthogonal to this function's own override-or-default algorithm.
+/// `pub(crate)` rather than private: `cli::log`'s `LogCommand::resolve_path_with`
+/// needs it for its own env-injected test.
+pub(crate) fn audit_file_path_with(env: &impl EnvSource) -> Option<PathBuf> {
+    non_empty_var(env, "GWI_AUDIT_LOG_FILE")
+        .map(PathBuf::from)
+        .or_else(default_audit_file_path)
+}
+
+/// Collapses `.`/`..` components **syntactically**, with no filesystem
+/// access — so `a/sub/../b` becomes `a/b` even when `sub` does not exist on
+/// disk. [`normalize`] needs this pass before it ever calls
+/// [`std::fs::canonicalize`]: canonicalizing a parent directory (its
+/// fallback for a path that doesn't exist yet) itself requires that parent
+/// to exist, and a `..` segment routed through a nonexistent intermediate
+/// directory would otherwise never resolve — exactly the `..`-spelling
+/// [`same_file()`] exists to catch. A leading `..` (or one immediately after
+/// a root/prefix) has nothing to pop, so it is kept as-is.
+fn lexically_normalize(path: &Path) -> PathBuf {
+    use std::path::Component;
+
+    let mut out = PathBuf::new();
+    for component in path.components() {
+        match component {
+            Component::CurDir => {}
+            Component::ParentDir => match out.components().next_back() {
+                Some(Component::Normal(_)) => {
+                    out.pop();
+                }
+                _ => out.push(".."),
+            },
+            other => out.push(other.as_os_str()),
+        }
+    }
+    out
+}
+
+/// Bounds how many symlinks [`normalize`] follows by hand, purely so a
+/// symlink cycle can't loop forever; a real cycle already fails
+/// `canonicalize` and is vanishingly unlikely to matter here, but the
+/// budget makes termination structural rather than assumed.
+const MAX_HAND_FOLLOWED_SYMLINK_HOPS: u32 = 8;
+
+/// Resolves `path` as close to a canonical form as possible without
+/// requiring it to exist. Lexically collapses `.`/`..` first
+/// ([`lexically_normalize`]), then tries [`std::fs::canonicalize`] (an
+/// existing file, with every symlink in the chain followed); a target that
+/// does not exist yet fails that outright, so a symlink is then followed by
+/// hand — load-bearing for a `GWI_LOG_FILE` symlink whose target
+/// `audit.jsonl` has not been created yet, since a plain "canonicalize the
+/// parent" would otherwise compare the link's own name against the target's
+/// and answer "different" right up until the first write creates the target
+/// through the link. Falls back to canonicalizing the parent and rejoining
+/// the file name, and finally to the lexically-normalized path unchanged
+/// when even that has nothing to canonicalize (`file_name()` is `None` for
+/// `/`, `.`, a bare `..`, …).
+///
+/// This only exists for [`same_file()`]'s not-yet-existing-target fallback —
+/// when both paths already exist, `same_file::is_same_file` handles
+/// symlinks (and Windows file identity) itself and this is never reached.
+fn normalize(path: &Path) -> PathBuf {
+    normalize_with_budget(&lexically_normalize(path), MAX_HAND_FOLLOWED_SYMLINK_HOPS)
+}
+
+/// The recursive body of [`normalize`]. `path` is always already lexically
+/// normalized on entry (both the initial call and the recursive one below
+/// maintain that). Each `if let Ok(..)` below falls through to the next,
+/// weaker resolution strategy on any error — expected and unremarkable here
+/// (`NotFound` is the common case, since this only runs once
+/// `same_file::is_same_file` has already failed to resolve one side), so
+/// none of them are worth logging.
+fn normalize_with_budget(path: &Path, hops: u32) -> PathBuf {
+    if let Ok(canon) = std::fs::canonicalize(path) {
+        return canon;
+    }
+    if hops > 0 {
+        if let Ok(meta) = std::fs::symlink_metadata(path) {
+            if meta.file_type().is_symlink() {
+                if let Ok(target) = std::fs::read_link(path) {
+                    let resolved = if target.is_absolute() {
+                        target
+                    } else {
+                        path.parent()
+                            .filter(|p| !p.as_os_str().is_empty())
+                            .unwrap_or_else(|| Path::new("."))
+                            .join(target)
+                    };
+                    return normalize_with_budget(&lexically_normalize(&resolved), hops - 1);
+                }
+            }
+        }
+    }
+    let Some(file_name) = path.file_name() else {
+        return path.to_path_buf();
+    };
+    let parent = path
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+    match std::fs::canonicalize(parent) {
+        Ok(canon_parent) => canon_parent.join(file_name),
+        Err(_) => path.to_path_buf(),
+    }
+}
+
+/// Whether `a` and `b` name the same file, robust to `..` segments,
+/// relative-vs-absolute spellings, and symlinks — unlike a raw `PathBuf`
+/// compare, which [`record_audit`]'s collision guard used to rely on and
+/// which all three pass straight through.
+///
+/// Delegates to the [`same_file`](mod@same_file) crate's `is_same_file`
+/// first — real file-identity comparison (inode on unix, a file handle on
+/// Windows), rather than a hand-rolled `(dev, ino)` check that would have
+/// no non-unix equivalent. That call requires both paths to exist, though,
+/// so it fails for the case that actually motivated this function: a
+/// `GWI_LOG_FILE` symlink whose target `audit.jsonl` has not been
+/// created yet. [`normalize`] is the fallback for exactly that gap.
+fn same_file(a: &Path, b: &Path) -> bool {
+    if let Ok(same) = same_file::is_same_file(a, b) {
+        return same;
+    }
+    normalize(a) == normalize(b)
+}
+
+/// Whether `path` resolves to the same file as [`audit_file_path`] — the
+/// check [`prune`] and [`append_with_rotation`] refuse on, so neither
+/// destructive operation can be pointed at the fail-closed audit sink by a
+/// `..`-spelled, relative, or symlinked `GWI_LOG_FILE` (ADR-0080 §11).
+///
+/// Both callers check this once, before reading/rewriting `path`, not
+/// through a handle held across the whole operation — a symlink at `path`
+/// repointed to the audit file in the narrow window between this check and
+/// the subsequent read still slips through (an attacker able to time that
+/// swap already needs write access to the log directory, i.e. this same
+/// user's own account). This narrows that window, it does not close it —
+/// the same "narrows, does not close" shape as
+/// [`crate::utils::fs::try_lock_file_exclusive`]'s own inode re-check.
+fn resolves_to_audit_file(path: &Path) -> bool {
+    audit_file_path().is_some_and(|audit| same_file(path, &audit))
+}
+
+/// [`resolves_to_audit_file`], reading the audit path through an injected
+/// [`EnvSource`] instead of the ambient [`audit_file_path`] — the
+/// [`log_file_path_with`] guard needs to compare against
+/// [`audit_file_path_with`] (same env, same test seam), not the ambient
+/// function's per-thread test override, which is orthogonal to this
+/// comparison. Deliberately does **not** short-circuit via `?` on a
+/// non-resolving audit path: an audit path that can't be resolved at all
+/// means there is nothing to collide with, not that the request-log path
+/// should be refused.
+fn resolves_to_audit_file_with(path: &Path, env: &impl EnvSource) -> bool {
+    audit_file_path_with(env).is_some_and(|audit| same_file(path, &audit))
+}
+
+/// Release builds have no per-thread override.
+#[cfg(not(test))]
+fn test_audit_file_override() -> Option<PathBuf> {
+    None
+}
+
+/// The per-thread routing a test build applies before falling back to the
+/// scratch default (`crate::test_support::AuditLogGuard` sets it).
+///
+/// Per thread rather than via an env var, and defaulting to the scratch
+/// file rather than to the real machine default, both on purpose. Dozens of
+/// engine tests exercise a leased write without caring about the audit
+/// record it writes; if those fell through to the real default, any of them
+/// would silently write into the machine's actual `audit.jsonl`. So an
+/// un-opted thread is pinned to the scratch file unconditionally, and only
+/// a thread holding an [`crate::test_support::AuditLogGuard`] sees its own
+/// isolated path. A test that wants to observe `GWI_AUDIT_LOG_FILE`
+/// honoring an override calls [`audit_file_path_with`] directly with an
+/// injected [`EnvSource`] instead of going through this ambient routing at
+/// all (STYLE-0028).
+///
+/// Being per-thread does mean the writes a test wants to observe must
+/// happen on the test's own thread: `#[tokio::test]`'s current-thread
+/// runtime and even a `multi_thread` runtime's root future both run
+/// there, but a `spawn_blocking`/`tokio::spawn`ed write lands in the
+/// shared scratch file instead.
+#[cfg(test)]
+fn test_audit_file_override() -> Option<PathBuf> {
+    TEST_AUDIT_ROUTE
+        .with(|slot| slot.borrow().clone())
+        .or_else(default_audit_file_path)
+}
+
+#[cfg(test)]
+thread_local! {
+    pub(crate) static TEST_AUDIT_ROUTE: std::cell::RefCell<Option<PathBuf>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// Where [`audit_file_path`] lands when `GWI_AUDIT_LOG_FILE` is unset.
+#[cfg(not(test))]
+fn default_audit_file_path() -> Option<PathBuf> {
+    gwi_state_subpath(AUDIT_FILE_NAME)
+}
+
+/// Test-build variant of the function above: one shared scratch path for
+/// the whole test binary's process lifetime, never the real machine's
+/// default. Reached for any un-opted thread, via `test_audit_file_override`.
+///
+/// ADR-0080 §9/§11 made `check_and_lock_lease` (and `drive lease acquire`)
+/// write an audit record on essentially every lease-checking code path, so
+/// *any* test anywhere in the crate that exercises a leased write or an
+/// acquire without itself redirecting the audit log would otherwise
+/// silently write real-looking rows into a developer's or CI runner's
+/// actual `audit.jsonl` — which is exactly what happened before this
+/// fallback existed. A test that wants to inspect its *own* audit output
+/// redirects explicitly (`crate::test_support::AuditLogGuard`) rather than
+/// rely on this shared fallback, which many tests write into concurrently
+/// — and which is why a fail-closed intent write to it never fails
+/// (nothing ever makes it unwritable, unlike a test's own redirected
+/// path). The `tempdir` is deliberately never cleaned up (`mem::forget`)
+/// — a `cargo test` process is short-lived, and the alternative is the
+/// actual risk this function exists to close off.
+#[cfg(test)]
+#[allow(clippy::expect_used)]
+fn default_audit_file_path() -> Option<PathBuf> {
+    use std::sync::OnceLock;
+    static PATH: OnceLock<PathBuf> = OnceLock::new();
+    Some(
+        PATH.get_or_init(|| {
+            let dir =
+                tempfile::tempdir().expect("failed to create a scratch dir for test audit logs");
+            let path = dir.path().join(AUDIT_FILE_NAME);
+            std::mem::forget(dir);
+            path
+        })
+        .clone(),
+    )
+}
+
+/// Appends one record. Best effort: every error is swallowed (logged at
+/// `tracing::debug`) so logging can never affect the caller's exit code.
+pub fn record(entry: &LogRecord) {
+    if disabled() {
+        return;
+    }
+    if let Err(e) = try_record(entry) {
+        tracing::debug!("request_log: failed to append record: {e}");
+    }
+}
+
+/// The fallible append used by [`record`]; all errors flow back to be swallowed.
+///
+/// Refuses a [`RecordKind::Audit`] entry outright: that kind belongs to the
+/// fail-closed sink only ([`record_audit`]), and routing it through this
+/// best-effort path would silently subject a forensic record to
+/// `GWI_LOG_DISABLE`, rotation and `prune`.
+fn try_record(entry: &LogRecord) -> anyhow::Result<()> {
+    use anyhow::{ensure, Context};
+
+    ensure!(
+        entry.kind != RecordKind::Audit,
+        "an audit-kind record must go through record_audit(), not record()"
+    );
+    let path = log_file_path().context("could not resolve the log file path")?;
+    append_record_to(&path, entry, append_line)
+}
+
+/// Appends one record to the fail-closed audit sink (`audit.jsonl`), for a
+/// leased-write lifecycle event or refusal
+/// ([ADR-0080](../docs/adrs/adr-0080.md) §11).
+///
+/// Unlike [`record`], this is **not** best-effort: it is not gated on
+/// [`disabled`] (`GWI_LOG_DISABLE` has no effect here — exemption from
+/// that switch is the point of a forensic log), takes no part in rotation or
+/// [`prune`], and returns every error to the caller instead of swallowing
+/// it. A caller whose write-ahead intent record fails to land here must not
+/// perform the mutation it was about to audit — that is what "fail-closed"
+/// means for this sink; see `record`'s own doc comment for the contrasting,
+/// deliberately best-effort contract every other record in this module
+/// keeps.
+///
+/// Refuses outright if `entry.kind` isn't [`RecordKind::Audit`]. The reverse
+/// misconfiguration — `GWI_LOG_FILE` naming the audit file, which would
+/// otherwise let best-effort records land in the fail-closed sink — no
+/// longer needs a check here: [`log_file_path`] itself now refuses to
+/// resolve a path that aliases [`audit_file_path`]
+/// ([#1747](https://github.com/rust-works/gwi/issues/1747), ADR-0080
+/// §11), so no request-log path this function could be handed ever collides
+/// with `path` in the first place.
+///
+/// The appended line is `fsync`ed (`sync_data`, then the parent directory
+/// on unix so a freshly created file's entry is durable too) before this
+/// returns — the one place in the module that pays for it. "Durably
+/// written before the mutating call" (ADR-0080 §11) has to survive more
+/// than the process dying: a plain `write` only reaches the page cache,
+/// which an OS crash or power loss between this return and the mutating
+/// call would discard, leaving a mutation with no intent record — the
+/// exact gap the sink exists to make impossible. Two syncs per leased
+/// write are cheap; the best-effort request log deliberately pays neither.
+pub fn record_audit(entry: &LogRecord) -> anyhow::Result<()> {
+    use anyhow::Context;
+
+    let path = audit_file_path().context("could not resolve the audit log file path")?;
+    record_audit_to(path, entry)
+}
+
+/// [`record_audit`], reading through an injected [`EnvSource`] (STYLE-0028)
+/// instead of the ambient, thread-local-routed [`audit_file_path`] /
+/// [`log_file_path`] — a `MapEnv`-driven seam for tests that want to assert
+/// on the write itself without process-global env mutation or the
+/// scratch-file safety net getting in the way. No production caller needs
+/// this: every ambient caller wants the scratch-pin safety net, so this
+/// seam only exists for direct unit testing.
+#[cfg(test)]
+fn record_audit_with(env: &impl EnvSource, entry: &LogRecord) -> anyhow::Result<()> {
+    use anyhow::Context;
+
+    let path = audit_file_path_with(env).context("could not resolve the audit log file path")?;
+    record_audit_to(path, entry)
+}
+
+/// Shared write path for [`record_audit`] and `record_audit_with`: `path` is
+/// already resolved, so this only validates and appends.
+fn record_audit_to(path: PathBuf, entry: &LogRecord) -> anyhow::Result<()> {
+    use anyhow::ensure;
+
+    ensure!(
+        entry.kind == RecordKind::Audit,
+        "record_audit() requires a RecordKind::Audit entry, got {:?}",
+        entry.kind
+    );
+    append_record_to(&path, entry, append_line_synced)
+}
+
+/// Serializes `entry` and appends it to `path` via `append`, creating a
+/// missing `0700` parent directory first. Shared by [`try_record`] (passing
+/// [`append_line`], which opts into rotation when configured) and
+/// [`record_audit`] (passing [`append_line_synced`], which never rotates
+/// regardless of `GWI_LOG_MAX_SIZE` and syncs the line to disk) — the
+/// two differ only in path resolution and which appender they hand in, not
+/// in how a line actually gets written.
+fn append_record_to(
+    path: &Path,
+    entry: &LogRecord,
+    append: fn(&Path, &str) -> anyhow::Result<()>,
+) -> anyhow::Result<()> {
+    use anyhow::Context;
+
+    // Only create and tighten the parent when it's missing — re-`chmod`ing an
+    // existing dir (e.g. a user-chosen GWI_LOG_FILE location, or a shared
+    // temp dir) is both wrong and may fail; the file itself is always 0600.
+    if let Some(parent) = path.parent() {
+        if !parent.as_os_str().is_empty() && !parent.exists() {
+            crate::utils::fs::ensure_dir_0700(parent)?;
+        }
+    }
+    let mut line = serde_json::to_string(entry).context("failed to serialize record")?;
+    line.push('\n');
+    append(path, &line)?;
+    Ok(())
+}
+
+/// Appends a single line with `O_APPEND | O_CREATE`, creating the file `0600`.
+/// A pre-existing looser-perm file (an older version's, or a user-set
+/// `GWI_LOG_FILE` target) is re-tightened to `0600` on every open, via
+/// the handle so there is no path race (#1139).
+/// When bodies are enabled (lines may exceed the atomic-write size) an advisory
+/// exclusive lock guards the write; the common no-body path relies on
+/// `O_APPEND` single-write atomicity and takes no lock.
+///
+/// `log.jsonl`'s own writer — opts into size-capped rotation
+/// ([`rotation_config`]) when configured. The audit sink deliberately does
+/// **not** call this; see [`append_line_no_rotation`].
+#[cfg(unix)]
+fn append_line(path: &std::path::Path, line: &str) -> anyhow::Result<()> {
+    // Opt-in size-capped rotation takes over the write: it must stat, maybe
+    // rotate, then open a fresh file, all under a stable-path lock (#1121).
+    if let Some(cfg) = rotation_config() {
+        return append_with_rotation(path, line, &cfg);
+    }
+    append_line_no_rotation(path, line)
+}
+
+/// The same append as [`append_line`], minus the `GWI_LOG_MAX_SIZE`
+/// rotation check — used directly by the audit sink
+/// ([ADR-0080](../docs/adrs/adr-0080.md) §11: exempt from rotation by
+/// design, not merely by leaving `GWI_LOG_MAX_SIZE` unset) and by
+/// [`append_line`] itself once rotation is confirmed inactive.
+#[cfg(unix)]
+fn append_line_no_rotation(path: &std::path::Path, line: &str) -> anyhow::Result<()> {
+    append_line_unrotated(path, line, false)
+}
+
+/// [`append_line_no_rotation`] plus a `sync_data` on the handle before it
+/// closes, so the line is on disk (not merely in the page cache) when this
+/// returns, and — for the append that *created* the file — an `fsync` of
+/// the parent directory too: creating a file does not persist its new
+/// directory entry, so without that a crash right after the first leased
+/// write could lose the whole file, not just the line. The audit sink's
+/// appender — see [`record_audit`] for why it is the one writer that pays
+/// for either.
+///
+/// One function for both platforms, unlike its `append_line`/
+/// `append_line_no_rotation` neighbours: the platform difference (off unix
+/// there is no directory sync at all, since a directory cannot be opened as
+/// a `File` there) lives entirely in [`append_line_unrotated`], so a
+/// separate `#[cfg(not(unix))]` twin here would only be a second place to
+/// keep in step.
+fn append_line_synced(path: &std::path::Path, line: &str) -> anyhow::Result<()> {
+    append_line_unrotated(path, line, true)
+}
+
+#[cfg(unix)]
+fn append_line_unrotated(path: &std::path::Path, line: &str, sync: bool) -> anyhow::Result<()> {
+    use std::os::unix::fs::OpenOptionsExt;
+
+    let file = std::fs::OpenOptions::new()
+        .append(true)
+        .create(true)
+        .mode(0o600)
+        .open(path)?;
+    crate::utils::fs::ensure_handle_0600(&file)?;
+
+    // Whether this append needs the parent-directory `fsync` below, decided
+    // from the handle we already hold: an empty file is one this call may
+    // just have created, so it pays for the sync; a file with content was
+    // created by an earlier append, which synced the directory itself.
+    // An existing-but-empty file costs one spare `fsync`. The one case
+    // where this skips a sync the entry still needs is the concurrent
+    // window described below. Before issue #1697 every append paid it, so
+    // a 2,000-row `drive lease prune` cost 2,000 directory syncs to persist
+    // one directory entry.
+    //
+    // Deliberately *not* an `O_CREAT | O_EXCL` probe, which would report
+    // creation exactly rather than conservatively: `O_EXCL` refuses to
+    // follow a symlink, so an `GWI_AUDIT_LOG_FILE` pointing at one
+    // would start failing `ENOENT` — and in a fail-closed sink a failed
+    // append refuses the write it was auditing. Both approaches leave the
+    // same residue anyway, so the exact answer buys nothing. That residue
+    // is the window between the creating append's data sync and its
+    // directory sync: a creator that dies inside it leaves a file no later
+    // append re-syncs, and a *concurrent* appender (nothing serializes the
+    // whole append across processes) that lands inside it sees a non-empty
+    // file and returns before the entry is durable. Every-append syncing
+    // closed the second case; it is accepted here as a narrow window —
+    // milliseconds, since it spans the creator's own `sync_data`, which is
+    // `F_FULLFSYNC` on macOS — that matters only if the machine crashes
+    // inside it, once per audit file.
+    let sync_parent = sync && file.metadata()?.len() == 0;
+
+    if bodies_enabled() {
+        match nix::fcntl::Flock::lock(file, nix::fcntl::FlockArg::LockExclusive) {
+            Ok(mut guard) => {
+                guard.write_all(line.as_bytes())?;
+                if sync {
+                    guard.sync_data()?;
+                }
+            }
+            Err((mut file, _)) => {
+                file.write_all(line.as_bytes())?;
+                if sync {
+                    file.sync_data()?;
+                }
+            }
+        }
+    } else {
+        let mut file = file;
+        file.write_all(line.as_bytes())?;
+        if sync {
+            file.sync_data()?;
+        }
+    }
+
+    if sync_parent {
+        if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
+            std::fs::File::open(parent)?.sync_all()?;
+        }
+    }
+    Ok(())
+}
+
+/// Non-unix fallback: `O_APPEND | O_CREATE` single write, no advisory lock and
+/// no mode tightening (those are unix concepts). Size-capped rotation is a
+/// unix-only feature and is not applied here, so this already matches
+/// [`append_line_no_rotation`]'s contract exactly — there is nothing left to
+/// differ, so the audit sink reuses this same function on non-unix targets.
+#[cfg(not(unix))]
+fn append_line(path: &std::path::Path, line: &str) -> anyhow::Result<()> {
+    append_line_no_rotation(path, line)
+}
+
+/// See [`append_line`]'s doc comment on non-unix targets.
+#[cfg(not(unix))]
+fn append_line_no_rotation(path: &std::path::Path, line: &str) -> anyhow::Result<()> {
+    append_line_unrotated(path, line, false)
+}
+
+/// See the unix variant. No directory sync here, whether or not this append
+/// created the file: a directory cannot be opened as a `File` off unix. The
+/// data sync is still applied.
+#[cfg(not(unix))]
+fn append_line_unrotated(path: &std::path::Path, line: &str, sync: bool) -> anyhow::Result<()> {
+    let mut file = std::fs::OpenOptions::new()
+        .append(true)
+        .create(true)
+        .open(path)?;
+    file.write_all(line.as_bytes())?;
+    if sync {
+        file.sync_data()?;
+    }
+    Ok(())
+}
+
+// --- Size management: rotation on write + `gwi log prune` ---
+//
+// The log is default-on for every invocation and every outbound request, so on
+// an active machine it would otherwise grow without bound (#1121). Two bounds
+// are offered, both opt-in:
+//
+//   * Automatic size-capped rotation on write, gated on `GWI_LOG_MAX_SIZE`
+//     (+ `GWI_LOG_KEEP_FILES`) — numbered `log.jsonl.1`, `.2`, … files.
+//   * The explicit `gwi log prune` command (age- and/or size-based), which
+//     rewrites the file in place via a same-dir temp file + atomic rename.
+
+/// Returns `path` with `suffix` appended to its final component (kept in the
+/// same directory), e.g. `…/log.jsonl` + `.1` → `…/log.jsonl.1`.
+fn sibling(path: &Path, suffix: &str) -> PathBuf {
+    let mut name = path.as_os_str().to_owned();
+    name.push(suffix);
+    PathBuf::from(name)
+}
+
+/// The directory a log's siblings live in. A bare file name has an empty parent,
+/// which `read_dir` rejects, so it is the current directory.
+fn sibling_dir(path: &Path) -> Option<&Path> {
+    let dir = path.parent()?;
+    Some(if dir.as_os_str().is_empty() {
+        Path::new(".")
+    } else {
+        dir
+    })
+}
+
+/// The entry `read_dir` yielded, or `None` for one it could not read, logged at
+/// debug: that entry is skipped, and the rest of the directory is still listed.
+fn readable_entry(
+    entry: std::io::Result<std::fs::DirEntry>,
+    dir: &Path,
+) -> Option<std::fs::DirEntry> {
+    entry
+        .inspect_err(|e| {
+            let shown = dir.display();
+            tracing::debug!("request_log: skipping an unreadable entry of {shown}: {e}");
+        })
+        .ok()
+}
+
+/// The rotated siblings of the log at `path` that exist now: `<path>.<N>` for a
+/// decimal `N` of at least 1, in ascending order of `N` — newest first, since
+/// [`rotate`] shifts every file up and starts the numbering at `.1`.
+///
+/// Lists what is on disk rather than counting up to `GWI_LOG_KEEP_FILES`,
+/// because that variable is read per write by whichever process writes, so a
+/// reader cannot know the value the rotating writer used. Only what rotation
+/// itself writes counts: a regular file whose suffix is the canonical decimal
+/// number, so `.lock`, an editor's `.1.bak`, `.0`, `.01` and a directory called
+/// `.3` are not rotated files. A missing directory has none; one that cannot be
+/// listed has none either, logged at debug because the caller then rebuilds
+/// instead of following a rotation.
+pub(crate) fn rotated_files(path: &Path) -> Vec<PathBuf> {
+    let (Some(dir), Some(name)) = (sibling_dir(path), path.file_name()) else {
+        return Vec::new();
+    };
+    let entries = match std::fs::read_dir(dir) {
+        Ok(entries) => entries,
+        Err(e) => {
+            if e.kind() != std::io::ErrorKind::NotFound {
+                let shown = dir.display();
+                tracing::debug!("request_log: cannot list {shown} for rotated files: {e}");
+            }
+            return Vec::new();
+        }
+    };
+    let mut prefix = name.to_owned();
+    prefix.push(".");
+    let prefix = prefix.to_string_lossy();
+    let mut rotated: Vec<(u32, PathBuf)> = entries
+        .filter_map(|entry| readable_entry(entry, dir))
+        .filter_map(|entry| {
+            let file_name = entry.file_name();
+            let suffix = file_name
+                .to_string_lossy()
+                .strip_prefix(&*prefix)?
+                .to_owned();
+            let number: u32 = suffix.parse().ok()?;
+            let canonical = number >= 1 && number.to_string() == suffix;
+            let regular = entry.file_type().is_ok_and(|kind| kind.is_file());
+            (canonical && regular).then(|| (number, entry.path()))
+        })
+        .collect();
+    rotated.sort_by_key(|&(number, _)| number);
+    rotated.into_iter().map(|(_, path)| path).collect()
+}
+
+/// Parses a human byte size: a number (with optional decimal) and an optional
+/// unit suffix — `b` (bytes, the default), `k`/`kb`/`kib`, `m`/`mb`/`mib`,
+/// `g`/`gb`/`gib` (case-insensitive, all binary/1024-based).
+pub(crate) fn parse_size(s: &str) -> anyhow::Result<u64> {
+    use anyhow::Context as _;
+
+    let lower = s.trim().to_ascii_lowercase();
+    if lower.is_empty() {
+        anyhow::bail!("empty size (expected e.g. 10mb, 512kb, 1048576)");
+    }
+    let split = lower
+        .find(|c: char| !c.is_ascii_digit() && c != '.')
+        .unwrap_or(lower.len());
+    let (num, unit) = lower.split_at(split);
+    let value: f64 = num
+        .parse()
+        .with_context(|| format!("invalid size number: {s}"))?;
+    if !value.is_finite() || value < 0.0 {
+        anyhow::bail!("invalid size: {s}");
+    }
+    let mult: u64 = match unit.trim() {
+        "" | "b" => 1,
+        "k" | "kb" | "kib" => 1024,
+        "m" | "mb" | "mib" => 1024 * 1024,
+        "g" | "gb" | "gib" => 1024 * 1024 * 1024,
+        other => anyhow::bail!("invalid size unit: {other} (use b, kb, mb, or gb)"),
+    };
+    Ok((value * mult as f64) as u64)
+}
+
+/// Resolved rotation policy from the environment. `None` means rotation is off
+/// (the default): `GWI_LOG_MAX_SIZE` unset, empty, invalid, or `0`.
+/// Rotation on write is a unix-only feature.
+#[cfg(unix)]
+struct RotationConfig {
+    /// Rotate before an append that would push the file past this many bytes.
+    max_size: u64,
+    /// Number of rotated `log.jsonl.N` files to retain.
+    keep_files: u32,
+}
+
+/// Reads the rotation policy from `GWI_LOG_MAX_SIZE` /
+/// `GWI_LOG_KEEP_FILES`. A set-but-invalid `GWI_LOG_MAX_SIZE` logs at
+/// debug and disables rotation rather than failing the write.
+#[cfg(unix)]
+fn rotation_config() -> Option<RotationConfig> {
+    let raw = std::env::var("GWI_LOG_MAX_SIZE").ok()?;
+    if raw.trim().is_empty() {
+        return None;
+    }
+    let max_size = match parse_size(&raw) {
+        Ok(0) => return None,
+        Ok(n) => n,
+        Err(e) => {
+            tracing::debug!("request_log: ignoring invalid GWI_LOG_MAX_SIZE: {e}");
+            return None;
+        }
+    };
+    let keep_files = std::env::var("GWI_LOG_KEEP_FILES")
+        .ok()
+        .and_then(|v| v.trim().parse::<u32>().ok())
+        .unwrap_or(DEFAULT_KEEP_FILES);
+    Some(RotationConfig {
+        max_size,
+        keep_files,
+    })
+}
+
+/// Rotates `log.jsonl` → `log.jsonl.1`, shifting existing numbered files up and
+/// dropping any beyond `keep_files` (`keep_files == 0` simply discards the
+/// current file). Rotated files inherit the `0600` mode of their source.
+///
+/// Only renames: a file keeps its `(device, inode)` as it moves up, which is how
+/// the github counters follow their position across a rotation
+/// ([`rotated_files`]). `pub(crate)` so their tests rotate with this function
+/// instead of a copy of it.
+#[cfg(unix)]
+pub(crate) fn rotate(path: &Path, keep_files: u32) -> anyhow::Result<()> {
+    if keep_files == 0 {
+        // Retain no history: dropping the current file lets the caller start a
+        // fresh one on the following append.
+        let _ = std::fs::remove_file(path);
+        return Ok(());
+    }
+    // Drop the oldest retained file, then shift .(N-1) → .N … .1 → .2.
+    let _ = std::fs::remove_file(sibling(path, &format!(".{keep_files}")));
+    for i in (1..keep_files).rev() {
+        let from = sibling(path, &format!(".{i}"));
+        if from.exists() {
+            std::fs::rename(&from, sibling(path, &format!(".{}", i + 1)))?;
+        }
+    }
+    std::fs::rename(path, sibling(path, ".1"))?;
+    Ok(())
+}
+
+/// Size-capped append (unix): under an exclusive lock on a stable `<log>.lock`
+/// file — so all rotation-aware writers serialize on an inode that is never
+/// itself rotated — stat the log, rotate if this line would push a non-empty
+/// file past the cap, then append to the (possibly fresh) file. A rotation
+/// failure is logged at debug and the line is still appended (best effort).
+///
+/// Never rotates when `path` [resolves to the audit
+/// file](resolves_to_audit_file) — checked first, before the `<path>.lock`
+/// sibling below is created next to it — falling back to the plain
+/// never-rotates append instead (ADR-0080 §11). The line is still appended:
+/// this only withholds rotation, matching [`record`]'s best-effort, always
+/// try to write it contract.
+#[cfg(unix)]
+fn append_with_rotation(path: &Path, line: &str, cfg: &RotationConfig) -> anyhow::Result<()> {
+    use std::os::unix::fs::OpenOptionsExt;
+
+    if resolves_to_audit_file(path) {
+        return append_line_no_rotation(path, line);
+    }
+
+    let lock_path = sibling(path, ".lock");
+    let lock_file = std::fs::OpenOptions::new()
+        .create(true)
+        .write(true)
+        .truncate(false)
+        .mode(0o600)
+        .open(&lock_path)?;
+    crate::utils::fs::ensure_handle_0600(&lock_file)?;
+    // Hold the lock for the whole check-rotate-append. If the lock cannot be
+    // taken, fall through unlocked rather than dropping the record.
+    let _guard = nix::fcntl::Flock::lock(lock_file, nix::fcntl::FlockArg::LockExclusive).ok();
+
+    let current = std::fs::metadata(path).map_or(0, |m| m.len());
+    if current > 0 && current.saturating_add(line.len() as u64) > cfg.max_size {
+        if let Err(e) = rotate(path, cfg.keep_files) {
+            tracing::debug!("request_log: rotation failed, appending without rotating: {e}");
+        }
+    }
+
+    let mut file = std::fs::OpenOptions::new()
+        .append(true)
+        .create(true)
+        .mode(0o600)
+        .open(path)?;
+    crate::utils::fs::ensure_handle_0600(&file)?;
+    file.write_all(line.as_bytes())?;
+    Ok(())
+}
+
+/// Options controlling [`prune`].
+pub struct PruneOptions {
+    /// Drop records whose timestamp is strictly older than this cutoff. A
+    /// record with a missing/unparseable timestamp (or a malformed line) is
+    /// conservatively kept.
+    pub older_than: Option<DateTime<Utc>>,
+    /// After age pruning, drop the oldest records until the file is at most
+    /// this many bytes. At least the single most recent record is always kept.
+    pub max_size: Option<u64>,
+    /// Compute and report the outcome without modifying the file.
+    pub dry_run: bool,
+}
+
+/// What a [`prune`] run did (or, when `dry_run`, would do).
+pub struct PruneOutcome {
+    /// Records removed.
+    pub removed: usize,
+    /// Records retained.
+    pub kept: usize,
+    /// File size before.
+    pub bytes_before: u64,
+    /// File size after (the size the retained records occupy).
+    pub bytes_after: u64,
+}
+
+/// Prunes the log at `path` by age and/or size, rewriting it in place.
+///
+/// Non-empty lines are retained by two successive filters: age (`older_than`)
+/// then size (`max_size`, keeping the most recent records that fit). The kept
+/// lines are written to a same-directory temp file (`0600` on unix) and
+/// atomically renamed over the original, so a reader never sees a half-written
+/// file. A missing log is a no-op; a no-change prune skips the rewrite (leaving
+/// the file's inode — and any concurrent appends — untouched).
+///
+/// Refuses outright when `path` resolves to the audit file (`resolves_to_audit_file`)
+/// — regardless of who computed `path`, since `--audit`'s own refusal
+/// (`src/cli/log/prune.rs`) only catches that one flag, not a
+/// `GWI_LOG_FILE` override spelled to name `audit.jsonl` directly, via
+/// `..`, or via a symlink. Exemption from pruning is the point (ADR-0080
+/// §11); this applies even under `dry_run`, since `gwi log --audit` is
+/// the supported way to read the file.
+pub fn prune(path: &Path, opts: &PruneOptions) -> anyhow::Result<PruneOutcome> {
+    use anyhow::Context as _;
+
+    anyhow::ensure!(
+        !resolves_to_audit_file(path),
+        "refusing to prune {}: it resolves to the audit log, which is exempt from pruning by \
+         design (ADR-0080 §11); read it with `gwi log --audit` instead",
+        path.display()
+    );
+
+    let data = match std::fs::read(path) {
+        Ok(data) => data,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            return Ok(PruneOutcome {
+                removed: 0,
+                kept: 0,
+                bytes_before: 0,
+                bytes_after: 0,
+            });
+        }
+        Err(e) => return Err(e).context("failed to read the log file"),
+    };
+    let bytes_before = data.len() as u64;
+    let text = String::from_utf8_lossy(&data);
+
+    // Every non-empty line, then the subset passing the age filter (both in
+    // original — chronological — order).
+    let all: Vec<&str> = text.lines().filter(|l| !l.trim().is_empty()).collect();
+    let aged: Vec<&str> = all
+        .iter()
+        .copied()
+        .filter(|line| keep_by_age(line, opts.older_than))
+        .collect();
+
+    let kept: &[&str] = match opts.max_size {
+        None => &aged,
+        Some(max) => keep_by_size(&aged, max),
+    };
+
+    let bytes_after: u64 = kept.iter().map(|l| l.len() as u64 + 1).sum();
+    let outcome = PruneOutcome {
+        removed: all.len() - kept.len(),
+        kept: kept.len(),
+        bytes_before,
+        bytes_after,
+    };
+
+    if !opts.dry_run && outcome.removed > 0 {
+        rewrite_atomically(path, kept)?;
+    }
+    Ok(outcome)
+}
+
+/// Whether a raw line survives the age filter. Absent filter keeps everything;
+/// an undateable or malformed line is conservatively kept.
+fn keep_by_age(line: &str, older_than: Option<DateTime<Utc>>) -> bool {
+    let Some(cutoff) = older_than else {
+        return true;
+    };
+    match serde_json::from_str::<LogRecord>(line) {
+        Ok(rec) => match DateTime::parse_from_rfc3339(&rec.timestamp) {
+            Ok(ts) => ts.with_timezone(&Utc) >= cutoff,
+            Err(_) => true,
+        },
+        Err(_) => true,
+    }
+}
+
+/// Longest suffix of `lines` whose bytes (each line + its newline) fit in `max`,
+/// but never fewer than the single most recent line.
+fn keep_by_size<'a>(lines: &'a [&'a str], max: u64) -> &'a [&'a str] {
+    let mut acc = 0u64;
+    let mut start = lines.len();
+    for (i, line) in lines.iter().enumerate().rev() {
+        acc += line.len() as u64 + 1;
+        if acc > max {
+            break;
+        }
+        start = i;
+    }
+    if start == lines.len() && !lines.is_empty() {
+        start = lines.len() - 1; // keep at least the most recent record
+    }
+    &lines[start..]
+}
+
+/// Writes `lines` (each newline-terminated) to a same-directory temp file and
+/// atomically renames it over `path`, preserving the `0600` posture on unix.
+fn rewrite_atomically(path: &Path, lines: &[&str]) -> anyhow::Result<()> {
+    let tmp = sibling(path, &format!(".prune.{}.tmp", std::process::id()));
+    let result = (|| -> anyhow::Result<()> {
+        let mut options = std::fs::OpenOptions::new();
+        options.create(true).write(true).truncate(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(0o600);
+        }
+        let mut file = options.open(&tmp)?;
+        #[cfg(unix)]
+        crate::utils::fs::ensure_handle_0600(&file)?;
+        for line in lines {
+            file.write_all(line.as_bytes())?;
+            file.write_all(b"\n")?;
+        }
+        file.flush()?;
+        std::fs::rename(&tmp, path)?;
+        Ok(())
+    })();
+    if result.is_err() {
+        let _ = std::fs::remove_file(&tmp);
+    }
+    result
+}
+
+/// The outcome of an invocation, recorded once after `cli.execute()` returns.
+#[derive(Debug, Clone)]
+pub struct InvocationOutcome {
+    /// Resolved clap subcommand path.
+    pub command: Vec<String>,
+    /// Full argv.
+    pub command_line: Vec<String>,
+    /// Process exit code.
+    pub exit_code: i32,
+    /// Rendered error chain, when the command failed.
+    pub error: Option<String>,
+    /// Wall time of the whole invocation.
+    pub duration: Duration,
+}
+
+/// Appends one `kind: "invocation"` record from the active context.
+pub fn record_invocation(outcome: InvocationOutcome) {
+    let ctx = current_context();
+    let mut rec = LogRecord::new(RecordKind::Invocation, ctx.invocation_id);
+    rec.source = Some(ctx.source);
+    rec.mcp_tool = ctx.mcp_tool;
+    rec.command = outcome.command;
+    rec.command_line = scrub_argv(&outcome.command_line);
+    rec.exit_code = Some(outcome.exit_code);
+    rec.error = outcome.error;
+    rec.duration_ms = Some(outcome.duration.as_millis() as u64);
+    rec.env = whitelisted_env();
+    record(&rec);
+}
+
+/// The outcome of one Drive mutation attempt.
+///
+/// `Default` so a caller names only the fields its verb actually has: this
+/// struct is shared by every mutating verb and most leave most of it empty.
+/// Note `duration` defaults to zero, which is never the right value — every
+/// construction site sets it explicitly.
+#[derive(Debug, Clone, Default)]
+pub struct DriveMutationOutcome {
+    /// The verb — `"rename"`, `"move"`, `"sheets-write"`, … ; becomes the
+    /// record's `command` as `["drive", <operation>]`.
+    pub operation: &'static str,
+    /// The Drive file id acted on.
+    pub file_id: String,
+    /// The file's name at the time of the attempt.
+    pub file_name: String,
+    /// The domain outcome (e.g. `"moved"`, `"blocked"`, `"already-in-folder"`,
+    /// `"failed"` — kebab-case, matching `MoveResult`'s
+    /// `#[serde(tag = "status", rename_all = "kebab-case")]`).
+    pub status: String,
+    /// Principals gaining access, when the visibility diff detected an
+    /// increase. Empty for `rename` (which never changes visibility) and
+    /// for a `move` with no visibility change.
+    pub added_principals: Vec<String>,
+    /// Principals losing access — the decrease-side counterpart of
+    /// `added_principals`.
+    pub removed_principals: Vec<String>,
+    /// Whether the file moved across a My Drive / Shared Drive boundary.
+    pub crosses_drive_boundary: bool,
+    /// The folder the write-permission gate evaluated against (issue
+    /// #1574) — the `--parent` for `create`/`upload`, the target's current
+    /// parent for `edit`. `None` for `rename`/`move` (never gated), for a
+    /// `content_edit` outcome that short-circuited before the gate (a
+    /// Google-native-document refusal), and for any verdict a `file_id`
+    /// rule decided (issue #1612), which is settled at depth −1 without
+    /// evaluating a folder at all. In that last case `decided_by_file_id`
+    /// carries the id instead.
+    pub resolved_folder_id: Option<String>,
+    /// The folder id of the configured rule that decided the write-gate
+    /// verdict, when one did (as opposed to the bare default policy).
+    /// Paired with `decided_by_depth`.
+    pub decided_by_folder_id: Option<String>,
+    /// How many levels above `resolved_folder_id` that rule's folder sits.
+    pub decided_by_depth: Option<usize>,
+    /// The file id of the configured rule that decided the write-gate
+    /// verdict, when a **file** rule did (issue #1612).
+    ///
+    /// Mutually exclusive with `decided_by_folder_id`, deliberately: a file
+    /// id must never appear in the folder field, or an existing
+    /// `gwi log --query decided_by_folder_id:X` would silently start
+    /// matching a different kind of id. A file rule matches the target
+    /// itself, so it has no depth and walks no chain — `decided_by_depth`
+    /// and `resolved_folder_id` are both `None` alongside it.
+    pub decided_by_file_id: Option<String>,
+    /// The A1 range a Sheets write targeted (issue #1589). `None` for every
+    /// non-Sheets verb.
+    pub range: Option<String>,
+    /// The server-normalised range the Sheets API reported writing or
+    /// clearing. Can differ from [`Self::range`]: the server resolves an
+    /// open-ended range against the sheet's actual extent.
+    pub updated_range: Option<String>,
+    /// Rows the Sheets API reported writing.
+    pub updated_rows: Option<i64>,
+    /// Columns the Sheets API reported writing.
+    pub updated_columns: Option<i64>,
+    /// Cells the Sheets API reported writing — the number that answers "how
+    /// much did that write actually touch".
+    pub updated_cells: Option<i64>,
+    /// The stable numeric id of the sheet a structural verb acted on
+    /// (issue #1613). Unlike a title it survives a later rename, so it is
+    /// the only durable answer to "which tab was this". `None` for every
+    /// non-structural verb.
+    pub sheet_id: Option<i64>,
+    /// The sheet's title at the time of the attempt — for `add-sheet`, the
+    /// title being created.
+    pub sheet_title: Option<String>,
+    /// The title a `rename-sheet` moved the sheet *to*. Set by that verb
+    /// alone: it is the only structural verb whose effect a record could not
+    /// otherwise reconstruct, since [`Self::sheet_title`] necessarily holds
+    /// the title the sheet had before. `None` everywhere else.
+    pub sheet_new_title: Option<String>,
+    /// The rows or columns a structural verb spanned, e.g. `"ROWS 5:7"`,
+    /// 1-based and inclusive like the CLI's `--at`. The structural analogue
+    /// of [`Self::range`], for effects A1 notation cannot express; absent
+    /// for verbs that span no dimension.
+    pub dimension_range: Option<String>,
+    /// The 1-based `--before` value of a `move-rows`/`move-columns` verb
+    /// (issue #1834), numbered as the sheet stood *before* the move —
+    /// matching the CLI flag and [`Self::dimension_range`]'s own numbering.
+    /// `None` for every other verb.
+    pub move_to: Option<i64>,
+    /// The rectangular cell range a `delete-range` verb spanned (issue
+    /// #1623), e.g. `"rows 2-10, columns 2-4"`, 1-based inclusive like the
+    /// CLI's `--start-row`/`--end-row`/`--start-column`/`--end-column`. The
+    /// `deleteRange` analogue of [`Self::dimension_range`], which only ever
+    /// spans one axis. `None` for every other verb.
+    pub grid_range: Option<String>,
+    /// Occurrences the Docs API reported changing (issue #1615). `None` for
+    /// every verb but `docs replace`.
+    ///
+    /// The *server's* count, not the client-side estimate `--dry-run`
+    /// previews — the two can differ, and only this one says what actually
+    /// happened.
+    pub occurrences_changed: Option<i64>,
+    /// Characters inserted by a `docs append` or a `docs create --text`.
+    pub inserted_chars: Option<i64>,
+    /// The revision lease presented on a `documents.batchUpdate` (issue
+    /// #1615).
+    ///
+    /// Recorded so a `stale-revision` refusal is as auditable as a success.
+    /// An opaque, per-user, short-lived id — not a secret, and not user
+    /// content. The searched, replacement and inserted **text** are
+    /// deliberately never recorded; `docs/log.md` documents what is.
+    pub required_revision_id: Option<String>,
+    /// A human-readable summary of what a formatting/dimension-property
+    /// verb changed (issue #1643) — `format-cells`' populated `CellFormat`
+    /// fields, `update-borders`' sides and style, `merge-cells`'/
+    /// `unmerge-cells`' effect, or the dimension property set. The
+    /// formatting analogue of [`Self::dimension_range`]: these verbs can
+    /// send more than one field in a single request, so a single `range`-
+    /// or `dimension_range`-shaped key can't name the effect on its own.
+    pub fields_changed: Option<String>,
+    /// `merge-cells` only (issue #1643): the non-top-left, non-blank cells
+    /// a merge discarded, as `"A1: value"` strings — the one formatting
+    /// request that destroys data, so its record says exactly what was
+    /// lost rather than only that a merge happened.
+    pub discarded_cells: Vec<String>,
+    /// `auto-fill` only (issue #1840, [ADR-0083](../docs/adrs/adr-0083.md)
+    /// §6): the non-blank cells in the destination range that were (or,
+    /// under `--dry-run`, would be) overwritten, as **bare A1 addresses**
+    /// — deliberately not `"A1: value"` like [`Self::discarded_cells`],
+    /// since a fill's values are Sheets' own series detection and this
+    /// crate never sees them, before or after the request. Empty when the
+    /// destination has no non-blank cells, and for every other verb.
+    pub overwritten_cells: Vec<String>,
+    /// `auto-fill --range` and every `text-to-columns` run:
+    /// [`Self::overwritten_cells`] is an **upper bound**, not a list of
+    /// cells that were certainly overwritten. `auto-fill --range` lets
+    /// Sheets decide for itself which cells in the named range are the
+    /// source and which are filled, so some of the listed cells are the
+    /// source and were never touched; `text-to-columns` reports the span a
+    /// locally computed, non-quote-aware split *might* need, which the API
+    /// decides for itself and may need fewer columns of — and under
+    /// `--delimiter auto`, where Sheets picks the separator as well, it
+    /// is an estimate rather than a bound in either direction (this key
+    /// has no third state; that caveat is carried in the rendered
+    /// output). `false` for `auto-fill --source`, where the destination
+    /// is computed client-side and the list is exact, and for every
+    /// other verb.
+    pub overwritten_cells_upper_bound: bool,
+    /// The data validation condition type a `set-data-validation` applied
+    /// (issue #1643) — `"ONE_OF_LIST"`, `"NUMBER_BETWEEN"`, `"BOOLEAN"`,
+    /// `"CUSTOM_FORMULA"` — or `"cleared"` for `clear-data-validation`.
+    /// `None` for every non-validation verb.
+    pub validation_type: Option<String>,
+    /// The stable numeric id of a protected range a protection verb acted
+    /// on (issue #1643, [ADR-0077](../docs/adrs/adr-0077.md)). Set by
+    /// `protect-range` from the `addProtectedRange` reply (the id is
+    /// server-assigned, like [`Self::sheet_id`] for `add-sheet`) and by
+    /// `update-protection`/`unprotect-range` from the range they resolved
+    /// against.
+    pub protected_range_id: Option<i64>,
+    /// Editors a `protect-range`/`update-protection` granted an exemption
+    /// from the protection. Empty unless the verb actually changed the
+    /// editor list.
+    pub protection_editors_added: Vec<String>,
+    /// Editors an `update-protection` removed the exemption from — the
+    /// decrease-side counterpart of [`Self::protection_editors_added`].
+    pub protection_editors_removed: Vec<String>,
+    /// The stable numeric id of a filter view an `add-filter-view`/
+    /// `update-filter-view`/`delete-filter-view` acted on (issue #1794).
+    /// Set from the `addFilterView` reply for `add-filter-view` (the id is
+    /// server-assigned, like [`Self::protected_range_id`] for
+    /// `protect-range`) and from the id resolved against for
+    /// `update-filter-view`/`delete-filter-view`. `None` for
+    /// `set-basic-filter`/`clear-basic-filter`, which are scoped to a sheet
+    /// rather than a filter view — see [`Self::sheet_id`].
+    pub filter_view_id: Option<i64>,
+    /// The stable id of a named range a named-range verb acted on (issue
+    /// #1796, [ADR-0081](../docs/adrs/adr-0081.md) §2). Set by
+    /// `add-named-range` from the `addNamedRange` reply (server-assigned,
+    /// like [`Self::protected_range_id`]) and by `update-named-range`/
+    /// `delete-named-range` from the named range they resolved against.
+    pub named_range_id: Option<String>,
+    /// `delete-named-range` only (ADR-0081 §2): the A1 locations of every
+    /// formula referencing the name being removed, as `"Sheet!A1"` strings —
+    /// **never** the formula text or a cell's value, matching
+    /// [`Self::discarded_cells`]'s no-content-exposure line. Empty when
+    /// nothing references the name, and for every other named-range verb.
+    pub referencing_formula_locations: Vec<String>,
+    /// The stable numeric id of a chart or slicer an `add-chart`/
+    /// `update-chart`/`delete-chart`/`add-slicer`/`update-slicer`/
+    /// `delete-slicer` acted on (issue #1797). Set from the `addChart`/
+    /// `addSlicer` reply for the two adds (the id is server-assigned, like
+    /// [`Self::filter_view_id`] for `add-filter-view`) and from the id
+    /// resolved against otherwise. One key for both kinds — Sheets'
+    /// `deleteEmbeddedObject` itself addresses a chart or a slicer by the
+    /// same `objectId` with no discriminator naming which.
+    pub embedded_object_id: Option<i64>,
+    /// The stable numeric id of a banded range an `add-banding`/
+    /// `update-banding`/`delete-banding` acted on (issue #1832). Set from
+    /// the `addBanding` reply for `add-banding` (server-assigned, like
+    /// [`Self::filter_view_id`] for `add-filter-view`) and from the id
+    /// resolved against for `update-banding`/`delete-banding`.
+    pub banded_range_id: Option<i64>,
+    /// The API/validation error, when the attempt failed.
+    pub error: Option<String>,
+    /// Wall time of the attempt.
+    pub duration: Duration,
+}
+
+/// Appends one `kind: "drivemutation"` record from the active context.
+///
+/// Best effort and exit-code-safe: it goes through [`record`], which
+/// swallows every error, so a logging failure can never change the
+/// underlying rename/move result.
+///
+/// Deliberately called from *inside* `src/drive/rename.rs`/
+/// `src/drive/file_move.rs` themselves rather than the CLI layer — unlike
+/// a CLI-only record would be, which is safe only for a verb with no MCP
+/// surface. Drive move/rename may grow an MCP caller later, and "every move/rename must be logged" is a
+/// hard invariant that needs to hold for every current and future caller.
+/// This is also additive to (not redundant with) the automatic per-request
+/// `kind: "http"` records `crate::drive::client::DriveClient` already writes
+/// for every call it makes: a `Blocked` outcome makes *no* `files.update`
+/// call at all, so without this record the single most security-relevant
+/// event — "we refused this because visibility would change, here's exactly
+/// why" — would never appear in the log.
+pub fn record_drive_mutation(outcome: DriveMutationOutcome) {
+    record(&build_drive_mutation_record(outcome, current_context()));
+}
+
+/// Builds the `kind: "drivemutation"` record for `outcome` under `ctx`. Split
+/// out from [`record_drive_mutation`] so the record shape is unit-testable
+/// without touching the filesystem or environment.
+fn build_drive_mutation_record(outcome: DriveMutationOutcome, ctx: RequestLogContext) -> LogRecord {
+    let mut rec = LogRecord::new(RecordKind::DriveMutation, ctx.invocation_id);
+    rec.source = Some(ctx.source);
+    rec.mcp_tool = ctx.mcp_tool;
+    rec.service = Some("drive".to_string());
+    rec.command = vec!["drive".to_string(), outcome.operation.to_string()];
+    rec.error = outcome.error;
+    rec.duration_ms = Some(outcome.duration.as_millis() as u64);
+
+    let mut context = BTreeMap::new();
+    context.insert("file_id".to_string(), outcome.file_id);
+    context.insert("file_name".to_string(), outcome.file_name);
+    context.insert("status".to_string(), outcome.status);
+    if !outcome.added_principals.is_empty() {
+        context.insert(
+            "added_principals".to_string(),
+            outcome.added_principals.join(","),
+        );
+    }
+    if !outcome.removed_principals.is_empty() {
+        context.insert(
+            "removed_principals".to_string(),
+            outcome.removed_principals.join(","),
+        );
+    }
+    if outcome.crosses_drive_boundary {
+        context.insert("crosses_drive_boundary".to_string(), "true".to_string());
+    }
+    if let Some(resolved_folder_id) = outcome.resolved_folder_id {
+        context.insert("resolved_folder_id".to_string(), resolved_folder_id);
+    }
+    if let Some(decided_by_folder_id) = outcome.decided_by_folder_id {
+        context.insert("decided_by_folder_id".to_string(), decided_by_folder_id);
+    }
+    if let Some(decided_by_depth) = outcome.decided_by_depth {
+        context.insert("decided_by_depth".to_string(), decided_by_depth.to_string());
+    }
+    if let Some(decided_by_file_id) = outcome.decided_by_file_id {
+        context.insert("decided_by_file_id".to_string(), decided_by_file_id);
+    }
+    if let Some(range) = outcome.range {
+        context.insert("range".to_string(), range);
+    }
+    if let Some(updated_range) = outcome.updated_range {
+        context.insert("updated_range".to_string(), updated_range);
+    }
+    if let Some(rows) = outcome.updated_rows {
+        context.insert("updated_rows".to_string(), rows.to_string());
+    }
+    if let Some(cols) = outcome.updated_columns {
+        context.insert("updated_columns".to_string(), cols.to_string());
+    }
+    if let Some(cells) = outcome.updated_cells {
+        context.insert("updated_cells".to_string(), cells.to_string());
+    }
+    if let Some(sheet_id) = outcome.sheet_id {
+        context.insert("sheet_id".to_string(), sheet_id.to_string());
+    }
+    if let Some(sheet_title) = outcome.sheet_title {
+        context.insert("sheet_title".to_string(), sheet_title);
+    }
+    if let Some(sheet_new_title) = outcome.sheet_new_title {
+        context.insert("sheet_new_title".to_string(), sheet_new_title);
+    }
+    if let Some(dimension_range) = outcome.dimension_range {
+        context.insert("dimension_range".to_string(), dimension_range);
+    }
+    if let Some(move_to) = outcome.move_to {
+        context.insert("move_to".to_string(), move_to.to_string());
+    }
+    if let Some(grid_range) = outcome.grid_range {
+        context.insert("grid_range".to_string(), grid_range);
+    }
+    if let Some(occurrences) = outcome.occurrences_changed {
+        context.insert("occurrences_changed".to_string(), occurrences.to_string());
+    }
+    if let Some(chars) = outcome.inserted_chars {
+        context.insert("inserted_chars".to_string(), chars.to_string());
+    }
+    if let Some(revision) = outcome.required_revision_id {
+        context.insert("required_revision_id".to_string(), revision);
+    }
+    if let Some(fields_changed) = outcome.fields_changed {
+        context.insert("fields_changed".to_string(), fields_changed);
+    }
+    if !outcome.discarded_cells.is_empty() {
+        context.insert(
+            "discarded_cells".to_string(),
+            outcome.discarded_cells.join("; "),
+        );
+    }
+    if !outcome.overwritten_cells.is_empty() {
+        context.insert(
+            "overwritten_cells".to_string(),
+            outcome.overwritten_cells.join(", "),
+        );
+        // Emitted only when true: absent means exact, which is every verb
+        // but `auto-fill --range` and the overwhelmingly common case.
+        if outcome.overwritten_cells_upper_bound {
+            context.insert(
+                "overwritten_cells_are_upper_bound".to_string(),
+                "true".to_string(),
+            );
+        }
+    }
+    if let Some(validation_type) = outcome.validation_type {
+        context.insert("validation_type".to_string(), validation_type);
+    }
+    if let Some(protected_range_id) = outcome.protected_range_id {
+        context.insert(
+            "protected_range_id".to_string(),
+            protected_range_id.to_string(),
+        );
+    }
+    if !outcome.protection_editors_added.is_empty() {
+        context.insert(
+            "protection_editors_added".to_string(),
+            outcome.protection_editors_added.join(","),
+        );
+    }
+    if !outcome.protection_editors_removed.is_empty() {
+        context.insert(
+            "protection_editors_removed".to_string(),
+            outcome.protection_editors_removed.join(","),
+        );
+    }
+    if let Some(filter_view_id) = outcome.filter_view_id {
+        context.insert("filter_view_id".to_string(), filter_view_id.to_string());
+    }
+    if let Some(named_range_id) = outcome.named_range_id {
+        context.insert("named_range_id".to_string(), named_range_id);
+    }
+    if !outcome.referencing_formula_locations.is_empty() {
+        context.insert(
+            "referencing_formula_count".to_string(),
+            outcome.referencing_formula_locations.len().to_string(),
+        );
+        context.insert(
+            "referencing_formula_locations".to_string(),
+            outcome.referencing_formula_locations.join("; "),
+        );
+    }
+    if let Some(embedded_object_id) = outcome.embedded_object_id {
+        context.insert(
+            "embedded_object_id".to_string(),
+            embedded_object_id.to_string(),
+        );
+    }
+    if let Some(banded_range_id) = outcome.banded_range_id {
+        context.insert("banded_range_id".to_string(), banded_range_id.to_string());
+    }
+    rec.context = context;
+    rec
+}
+
+/// One event for the Drive write-lease audit trail (ADR-0080 §11).
+///
+/// Covers `drive lease acquire` succeeding or refusing, or a leased write's
+/// own intent/outcome pair — a single shape for all of them, the same way
+/// [`DriveMutationOutcome`] is one shape for every mutating verb. The
+/// `verdict` field (kebab-case, mirroring every other `*Result::log_status`
+/// in this codebase) is what distinguishes them, not a separate Rust type
+/// per event kind.
+#[derive(Debug, Clone, Default)]
+pub struct AuditOutcome {
+    /// The audited command, e.g. `["drive", "lease-acquire"]` or `["drive",
+    /// "edit"]` — becomes the record's `command`, mirroring
+    /// [`DriveMutationOutcome::operation`].
+    pub command: Vec<String>,
+    /// Which integration this event belongs to (`"drive"` today; ADR-0080
+    /// §11 names Gmail/Atlassian as later, additive extensions).
+    pub integration: &'static str,
+    /// The Drive file id the lease/write concerns.
+    pub file_id: String,
+    /// The lease token, once one exists. Absent for an acquire attempt that
+    /// never reached minting one (denied/unavailable/refused before a
+    /// token was created).
+    pub lease_id: Option<String>,
+    /// What happened, kebab-case: `"acquired"`, `"refused-native-document"`,
+    /// `"denied"`, `"unavailable"`, `"failed"` for an acquire attempt;
+    /// `"pending"` (the write-ahead intent), then `"allowed"` or `"failed"`
+    /// (the outcome), or a single `"refused-no-lease"`,
+    /// `"refused-lease-expired"`, `"refused-lease-wrong-file"`,
+    /// `"refused-lease-stale"` / `"failed"` for a leased write that never
+    /// reached its mutating call (`crate::drive::lease::check::verdict`).
+    /// Free-form rather than a closed enum, like every other
+    /// `*Result::log_status` in this codebase — a later integration's
+    /// verdict vocabulary doesn't need a schema change here.
+    pub verdict: String,
+    /// The file's Drive `version` before the event, when relevant.
+    pub version_before: Option<String>,
+    /// The file's Drive `version` after, when relevant (e.g. the version an
+    /// acquire recorded into the ledger, or a leased write's post-write
+    /// version).
+    pub version_after: Option<String>,
+    /// `modifiedTime` paired with [`Self::version_before`].
+    pub modified_time_before: Option<String>,
+    /// `modifiedTime` paired with [`Self::version_after`].
+    pub modified_time_after: Option<String>,
+    /// Where an acquire's backup landed: a local path for a byte backup, or
+    /// the backup copy's own file id for a native-document backup.
+    pub backup_location: Option<String>,
+    /// SHA-256 of a byte backup, for later integrity verification. `None`
+    /// for a native-document backup (verified by Drive's own copy
+    /// semantics instead) and for anything that isn't an acquire.
+    pub backup_sha256: Option<String>,
+    /// Size in bytes of a byte backup.
+    pub backup_size: Option<u64>,
+    /// Which authentication policy (ADR-0080 §7) an acquire satisfied —
+    /// `"device-owner"` or `"biometrics-only"`.
+    pub auth_policy: Option<String>,
+    /// `drive lease restore` only: the *backup* lease's token the restore
+    /// read from — distinct from [`Self::lease_id`], the *fresh* token the
+    /// restore itself minted before writing (ADR-0080 §10/§11: "the restore
+    /// is audit-logged carrying both tokens"). `None` for every other
+    /// event.
+    pub restored_from_lease_id: Option<String>,
+    /// The lease this event ended early, when it ended one as a side effect
+    /// of doing something else: `drive lease acquire`'s supersede, set only
+    /// by `drive lease restore` naming the backup token it restores from
+    /// (issue #1685). Distinct from [`Self::lease_id`], the token the
+    /// acquire itself minted, and from a `drive lease release` record, whose
+    /// released token *is* its `lease_id`. `None` for every other event.
+    ///
+    /// A field rather than a verdict — unlike the headless waiver, which is
+    /// a flag and so became `acquired-headless-waiver` — because this
+    /// carries an identifier, exactly as [`Self::restored_from_lease_id`]
+    /// does, and a third verdict axis would multiply combinatorially with
+    /// the existing `-headless-waiver`/`-backup-orphaned` suffixes.
+    pub superseded_lease_id: Option<String>,
+    /// The error, when the event itself failed (an API/filesystem/ledger
+    /// error — distinct from an ordinary refusal, which is a `verdict`, not
+    /// an `error`).
+    pub error: Option<String>,
+}
+
+/// Appends one `kind: "audit"` record for `outcome`, fail-closed.
+///
+/// Propagates [`record_audit`]'s `Result` rather than swallowing it, since
+/// this is the sink whose whole purpose is to make a mutation with no
+/// accompanying record impossible (ADR-0080 §11). Callers on the write path
+/// (as opposed to `drive lease acquire`, which mutates no Drive content)
+/// must refuse the write itself when this returns `Err` — see
+/// `content_edit.rs`'s eventual write-ahead call site for the pattern.
+pub fn record_audit_event(outcome: AuditOutcome) -> anyhow::Result<()> {
+    record_audit(&build_audit_record(outcome, current_context()))
+}
+
+/// [`record_audit_event`], reading through an injected [`EnvSource`]
+/// (STYLE-0028) — see [`record_audit_with`].
+#[cfg(test)]
+fn record_audit_event_with(env: &impl EnvSource, outcome: AuditOutcome) -> anyhow::Result<()> {
+    record_audit_with(env, &build_audit_record(outcome, current_context()))
+}
+
+/// Builds the `kind: "audit"` record for `outcome` under `ctx`. Split out
+/// from [`record_audit_event`] so the record shape is unit-testable without
+/// touching the filesystem, mirroring [`build_drive_mutation_record`].
+fn build_audit_record(outcome: AuditOutcome, ctx: RequestLogContext) -> LogRecord {
+    let mut rec = LogRecord::new(RecordKind::Audit, ctx.invocation_id);
+    rec.source = Some(ctx.source);
+    rec.mcp_tool = ctx.mcp_tool;
+    rec.service = Some("drive".to_string());
+    rec.command = outcome.command;
+    rec.error = outcome.error;
+
+    let mut context = BTreeMap::new();
+    context.insert("integration".to_string(), outcome.integration.to_string());
+    context.insert("file_id".to_string(), outcome.file_id);
+    if let Some(lease_id) = outcome.lease_id {
+        context.insert("lease_id".to_string(), lease_id);
+    }
+    context.insert("verdict".to_string(), outcome.verdict);
+    if let Some(version) = outcome.version_before {
+        context.insert("version_before".to_string(), version);
+    }
+    if let Some(version) = outcome.version_after {
+        context.insert("version_after".to_string(), version);
+    }
+    if let Some(modified_time) = outcome.modified_time_before {
+        context.insert("modified_time_before".to_string(), modified_time);
+    }
+    if let Some(modified_time) = outcome.modified_time_after {
+        context.insert("modified_time_after".to_string(), modified_time);
+    }
+    if let Some(location) = outcome.backup_location {
+        context.insert("backup_location".to_string(), location);
+    }
+    if let Some(sha256) = outcome.backup_sha256 {
+        context.insert("backup_sha256".to_string(), sha256);
+    }
+    if let Some(size) = outcome.backup_size {
+        context.insert("backup_size".to_string(), size.to_string());
+    }
+    if let Some(auth_policy) = outcome.auth_policy {
+        context.insert("auth_policy".to_string(), auth_policy);
+    }
+    if let Some(restored_from) = outcome.restored_from_lease_id {
+        context.insert("restored_from_lease_id".to_string(), restored_from);
+    }
+    if let Some(superseded) = outcome.superseded_lease_id {
+        context.insert("superseded_lease_id".to_string(), superseded);
+    }
+    rec.context = context;
+    rec
+}
+
+/// Optional, non-secret extras for an HTTP record. Bodies/headers are gated and
+/// redacted centrally in [`record_http_with`], so callers may pass them freely.
+#[derive(Debug, Clone, Default)]
+pub struct HttpExtra {
+    /// True when served inside the daemon.
+    pub via_daemon: bool,
+    /// Pooled daemon session id that served the request.
+    pub daemon_session_id: Option<String>,
+    /// Non-secret identity used (never the secret).
+    pub auth_principal: Option<String>,
+    /// Raw request headers (redacted + gated before writing).
+    pub request_headers: BTreeMap<String, String>,
+    /// Raw response headers (redacted + gated before writing).
+    pub response_headers: BTreeMap<String, String>,
+    /// Request body (gated before writing).
+    pub request_body: Option<String>,
+    /// Response body (gated before writing).
+    pub response_body: Option<String>,
+    /// Free-form correlation tags.
+    pub context: BTreeMap<String, String>,
+}
+
+/// Appends one `kind: "http"` record with method/url/status/elapsed/error.
+pub fn record_http(
+    service: &str,
+    method: &str,
+    url: &str,
+    started: Instant,
+    status: Option<u16>,
+    error: Option<&str>,
+) {
+    record_http_with(
+        service,
+        method,
+        url,
+        started,
+        status,
+        error,
+        HttpExtra::default(),
+    );
+}
+
+/// Appends one `kind: "http"` record from a `reqwest` send result, mapping
+/// `Ok` → status code and `Err` → error message.
+///
+/// Collapses the `match result { Ok → status, Err → error }` shape the REST
+/// clients previously each open-coded around [`record_http`] (#1152).
+pub fn record_http_result(
+    service: &str,
+    method: &str,
+    url: &str,
+    started: Instant,
+    result: &reqwest::Result<reqwest::Response>,
+) {
+    match result {
+        Ok(response) => {
+            record_http(
+                service,
+                method,
+                url,
+                started,
+                Some(response.status().as_u16()),
+                None,
+            );
+        }
+        Err(error) => {
+            record_http(
+                service,
+                method,
+                url,
+                started,
+                None,
+                Some(&error.to_string()),
+            );
+        }
+    }
+}
+
+/// Appends one `kind: "http"` record with extra, non-secret fields.
+///
+/// Headers and bodies are dropped unless their opt-in env var is set, headers
+/// are always redacted, and URL query/fragment values under secret-looking
+/// keys are replaced with `REDACTED` (`redact_url`) — so no secret can be
+/// written here under any caller.
+#[allow(clippy::too_many_arguments)]
+pub fn record_http_with(
+    service: &str,
+    method: &str,
+    url: &str,
+    started: Instant,
+    status: Option<u16>,
+    error: Option<&str>,
+    extra: HttpExtra,
+) {
+    if disabled() {
+        return;
+    }
+    let ctx = current_context();
+    let mut rec = LogRecord::new(RecordKind::Http, ctx.invocation_id);
+    rec.source = Some(ctx.source);
+    rec.mcp_tool = ctx.mcp_tool;
+    rec.service = Some(service.to_string());
+    rec.method = Some(method.to_string());
+    rec.url = Some(redact_url(url));
+    rec.status_code = status;
+    rec.elapsed_ms = Some(started.elapsed().as_millis() as u64);
+    rec.error = error.map(str::to_string);
+    rec.via_daemon = extra.via_daemon;
+    rec.daemon_session_id = extra.daemon_session_id;
+    rec.auth_principal = extra.auth_principal;
+    rec.context = extra.context;
+    if headers_enabled() {
+        rec.request_headers = redact_headers(&extra.request_headers);
+        rec.response_headers = redact_headers(&extra.response_headers);
+    }
+    if bodies_enabled() {
+        rec.request_body = extra.request_body;
+        rec.response_body = extra.response_body;
+    }
+    record(&rec);
+}
+
+/// Header names whose values must never be written (compared lowercased).
+const SENSITIVE_HEADERS: &[&str] = &[
+    "authorization",
+    "proxy-authorization",
+    "cookie",
+    "set-cookie",
+    "x-api-key",
+    "api-key",
+    "dd-api-key",
+    "dd-application-key",
+    "x-datadog-api-key",
+    "x-datadog-application-key",
+    "x-omni-bridge",
+    "x-omni-bridge-target",
+];
+
+/// Substrings that mark a header name as secret-bearing (compared lowercased),
+/// guarding against off-list auth headers (e.g. `x-auth-token`,
+/// `x-goog-api-key`). False positives redact harmlessly.
+const SENSITIVE_HEADER_MARKERS: &[&str] = &[
+    "auth",
+    "token",
+    "secret",
+    "key",
+    "cookie",
+    "password",
+    "session",
+    "signature",
+    "credential",
+];
+
+/// Replaces sensitive header values with `REDACTED`, passing others through.
+///
+/// A header is sensitive when its lowercased name is in `SENSITIVE_HEADERS`
+/// or contains any `SENSITIVE_HEADER_MARKERS` substring.
+pub fn redact_headers(headers: &BTreeMap<String, String>) -> BTreeMap<String, String> {
+    headers
+        .iter()
+        .map(|(name, value)| {
+            let lower = name.to_ascii_lowercase();
+            let redacted = SENSITIVE_HEADERS.contains(&lower.as_str())
+                || SENSITIVE_HEADER_MARKERS
+                    .iter()
+                    .any(|marker| lower.contains(marker));
+            (
+                name.clone(),
+                if redacted {
+                    "REDACTED".to_string()
+                } else {
+                    value.clone()
+                },
+            )
+        })
+        .collect()
+}
+
+/// Flag-name segments marking a long flag's value as secret-bearing — the argv
+/// counterpart of [`SECRETISH`]. Matched per `-`/`_`-separated segment of the
+/// flag name so `--api-key` is caught but a name like `--keyword` is not.
+const SECRETISH_FLAG_WORDS: &[&str] = &["token", "secret", "password", "passwd", "key"];
+
+/// True when the long flag `--<name>` takes a secret-bearing value. Flags whose
+/// last segment is `file` or `path` carry paths, not secrets, and are exempt
+/// (e.g. `--token-file`).
+fn is_secretish_flag(name: &str) -> bool {
+    let segments: Vec<String> = name
+        .split(['-', '_'])
+        .map(str::to_ascii_lowercase)
+        .collect();
+    let takes_path = matches!(segments.last().map(String::as_str), Some("file" | "path"));
+    !takes_path
+        && segments
+            .iter()
+            .any(|segment| SECRETISH_FLAG_WORDS.contains(&segment.as_str()))
+}
+
+/// Scrubs one `--header` value (`Name: Value`): values of [`SENSITIVE_HEADERS`]
+/// are redacted keeping the name, other headers pass through (`None`), and a
+/// value with no colon is redacted wholesale.
+fn scrub_header_arg(value: &str) -> Option<String> {
+    let Some((name, _)) = value.split_once(':') else {
+        return Some("REDACTED".to_string());
+    };
+    SENSITIVE_HEADERS
+        .contains(&name.trim().to_ascii_lowercase().as_str())
+        .then(|| format!("{}: REDACTED", name.trim()))
+}
+
+/// Returns the scrubbed replacement for the value of flag `--<name>`, or
+/// `None` when the value is safe to log verbatim. `--body` keeps `@file`
+/// references (a path, not a secret).
+fn scrub_flag_value(name: &str, value: &str) -> Option<String> {
+    match name {
+        "header" => scrub_header_arg(value),
+        "body" => (!value.starts_with('@')).then(|| "REDACTED".to_string()),
+        "find" | "replacement" => Some("REDACTED".to_string()),
+        _ if is_secretish_flag(name) => Some("REDACTED".to_string()),
+        _ => None,
+    }
+}
+
+/// Scrubs secret-bearing values out of a raw argv before it is logged. Two
+/// write-side layers, so the on-disk line is clean and every reader/format is
+/// covered with no reader changes:
+///
+/// 1. [`scrub_flag_secrets`] — flag-aware whole-value redaction (`--header`/
+///    `--body` plus any [`is_secretish_flag`] name, in both `--flag value` and
+///    `--flag=value` forms).
+/// 2. [`redact_url`] over every resulting element — a secret-bearing query or
+///    fragment parameter on a URL argument (most naturally
+///    `--url /path?access_token=…`, which no flag-name rule catches) has its
+///    value redacted, while benign argv passes through byte-identical (#1162).
+fn scrub_argv(argv: &[String]) -> Vec<String> {
+    scrub_flag_secrets(argv)
+        .iter()
+        .map(|arg| redact_url(arg))
+        .collect()
+}
+
+/// Flag-aware first layer of [`scrub_argv`]: redacts secret-bearing flag values
+/// (`--header`/`--body` plus any [`is_secretish_flag`] name, in both
+/// `--flag value` and `--flag=value` forms). Everything else passes through to
+/// the URL layer.
+fn scrub_flag_secrets(argv: &[String]) -> Vec<String> {
+    let mut out = Vec::with_capacity(argv.len());
+    let mut i = 0;
+    while i < argv.len() {
+        let arg = &argv[i];
+        i += 1;
+        let Some(flag_body) = arg.strip_prefix("--") else {
+            out.push(arg.clone());
+            continue;
+        };
+        if let Some((name, value)) = flag_body.split_once('=') {
+            match scrub_flag_value(name, value) {
+                Some(scrubbed) => out.push(format!("--{name}={scrubbed}")),
+                None => out.push(arg.clone()),
+            }
+        } else {
+            out.push(arg.clone());
+            let takes_secret_value =
+                matches!(flag_body, "header" | "body" | "find" | "replacement")
+                    || is_secretish_flag(flag_body);
+            if takes_secret_value {
+                if let Some(value) = argv.get(i) {
+                    i += 1;
+                    out.push(scrub_flag_value(flag_body, value).unwrap_or_else(|| value.clone()));
+                }
+            }
+        }
+    }
+    out
+}
+
+/// Query/fragment keys that are secrets outright (compared decoded + lowercased).
+const SENSITIVE_QUERY_KEYS: &[&str] = &["sig", "sas", "jwt", "auth"];
+
+/// Key suffixes marking the open-ended secret families (`access_token`,
+/// `client_secret`, `api_key`, …).
+const SENSITIVE_QUERY_KEY_SUFFIXES: &[&str] = &[
+    "token",
+    "secret",
+    "password",
+    "passwd",
+    "signature",
+    "apikey",
+    "api_key",
+    "api-key",
+];
+
+/// Key prefixes for cloud-storage signed-URL parameter families.
+const SENSITIVE_QUERY_KEY_PREFIXES: &[&str] = &["x-amz-", "x-goog-"];
+
+/// Returns whether a decoded query/fragment key looks secret-bearing.
+fn sensitive_query_key(key: &str) -> bool {
+    let key = key.to_ascii_lowercase();
+    SENSITIVE_QUERY_KEYS.contains(&key.as_str())
+        || SENSITIVE_QUERY_KEY_SUFFIXES
+            .iter()
+            .any(|suffix| key.ends_with(suffix))
+        || SENSITIVE_QUERY_KEY_PREFIXES
+            .iter()
+            .any(|prefix| key.starts_with(prefix))
+}
+
+/// Rewrites one `&`-separated pair list, replacing the values of
+/// secret-bearing keys with `REDACTED` and passing every other segment
+/// through byte-verbatim.
+fn redact_pairs(pairs: &str) -> String {
+    pairs
+        .split('&')
+        .map(|segment| match segment.split_once('=') {
+            Some((raw_key, _)) => {
+                // Decode only the key (handles `access%5Ftoken` and `+`); the
+                // raw key text is preserved in the output.
+                let sensitive = url::form_urlencoded::parse(raw_key.as_bytes())
+                    .next()
+                    .is_some_and(|(key, _)| sensitive_query_key(&key));
+                if sensitive {
+                    format!("{raw_key}=REDACTED")
+                } else {
+                    segment.to_string()
+                }
+            }
+            // A bare key (no `=`) carries no value to leak.
+            None => segment.to_string(),
+        })
+        .collect::<Vec<_>>()
+        .join("&")
+}
+
+/// Redacts secret-bearing query and fragment parameter values in a URL,
+/// preserving scheme, host, path, and all parameter keys so `--url` substring
+/// filtering stays useful. Handles relative URLs (the browser bridge logs
+/// page-origin targets like `/api/foo?sig=…`), so this never requires the
+/// input to parse as an absolute [`url::Url`].
+fn redact_url(url: &str) -> String {
+    let (rest, fragment) = url
+        .split_once('#')
+        .map_or((url, None), |(rest, fragment)| (rest, Some(fragment)));
+    let (prefix, query) = rest
+        .split_once('?')
+        .map_or((rest, None), |(prefix, query)| (prefix, Some(query)));
+    let mut out = prefix.to_string();
+    if let Some(query) = query {
+        out.push('?');
+        out.push_str(&redact_pairs(query));
+    }
+    if let Some(fragment) = fragment {
+        out.push('#');
+        out.push_str(&redact_pairs(fragment));
+    }
+    out
+}
+
+/// A time-sortable id: 13-digit zero-padded epoch-millis, a dash, then 16 hex.
+///
+/// Lexical order ≈ chronological order, which is all the reader needs. Mirrors
+/// the uuid-shaped minting in omni-dev's `snowflake::client` without adding a
+/// crate.
+pub fn new_id() -> String {
+    let millis = chrono::Utc::now().timestamp_millis().max(0);
+    let suffix = rand::random::<u64>();
+    format!("{millis:013}-{suffix:016x}")
+}
+
+/// Current time as RFC3339 with millisecond precision, in UTC.
+fn now_rfc3339_millis() -> String {
+    chrono::Utc::now().to_rfc3339_opts(SecondsFormat::Millis, true)
+}
+
+/// Best-effort current working directory.
+fn cwd() -> String {
+    std::env::current_dir()
+        .map(|p| p.display().to_string())
+        .unwrap_or_default()
+}
+
+/// Best-effort OS username (`$USER`, then the passwd entry for the euid).
+fn system_user() -> String {
+    if let Ok(user) = std::env::var("USER") {
+        if !user.is_empty() {
+            return user;
+        }
+    }
+    #[cfg(unix)]
+    {
+        if let Ok(Some(user)) = nix::unistd::User::from_uid(nix::unistd::geteuid()) {
+            return user.name;
+        }
+    }
+    String::new()
+}
+
+/// Best-effort hostname (`gethostname`, then `$HOSTNAME`, then empty).
+fn hostname() -> String {
+    #[cfg(unix)]
+    {
+        if let Ok(name) = nix::unistd::gethostname() {
+            if let Some(name) = name.to_str() {
+                if !name.is_empty() {
+                    return name.to_string();
+                }
+            }
+        }
+    }
+    std::env::var("HOSTNAME").unwrap_or_default()
+}
+
+/// Names matching these substrings have their env values redacted, guarding
+/// against any future secret-bearing `GWI_*` var.
+const SECRETISH: &[&str] = &["TOKEN", "SECRET", "KEY", "PASSWORD", "PASSWD"];
+
+/// Snapshot of `GWI_*` env vars, with secret-looking values redacted.
+fn whitelisted_env() -> BTreeMap<String, String> {
+    std::env::vars()
+        .filter(|(k, _)| k.starts_with("GWI_"))
+        .map(|(k, v)| {
+            let secretish = SECRETISH.iter().any(|needle| k.contains(needle));
+            let value = if secretish { "REDACTED".to_string() } else { v };
+            (k, value)
+        })
+        .collect()
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tests {
+    use super::*;
+    use crate::test_support::env::MapEnv;
+
+    #[test]
+    fn record_round_trips_through_json() {
+        let mut rec = LogRecord::new(RecordKind::Http, "inv-1".to_string());
+        rec.service = Some("jira".to_string());
+        rec.method = Some("GET".to_string());
+        rec.url = Some("https://example.atlassian.net/rest/api/3/issue/X-1".to_string());
+        rec.status_code = Some(200);
+        rec.elapsed_ms = Some(42);
+
+        let line = serde_json::to_string(&rec).unwrap();
+        let back: LogRecord = serde_json::from_str(&line).unwrap();
+        assert_eq!(back.invocation_id, "inv-1");
+        assert_eq!(back.kind, RecordKind::Http);
+        assert_eq!(back.service.as_deref(), Some("jira"));
+        assert_eq!(back.status_code, Some(200));
+    }
+
+    #[test]
+    fn reader_tolerates_unknown_fields() {
+        let line = r#"{"id":"x","invocation_id":"i","kind":"http","method":"GET",
+            "future_field":{"nested":true},"another":42}"#;
+        let rec: LogRecord = serde_json::from_str(line).unwrap();
+        assert_eq!(rec.kind, RecordKind::Http);
+        assert_eq!(rec.method.as_deref(), Some("GET"));
+    }
+
+    #[test]
+    fn reader_tolerates_missing_newer_fields() {
+        // An "old" line with only a couple of fields present.
+        let line = r#"{"kind":"invocation","command":["git","view"]}"#;
+        let rec: LogRecord = serde_json::from_str(line).unwrap();
+        assert_eq!(rec.kind, RecordKind::Invocation);
+        assert_eq!(rec.command, vec!["git", "view"]);
+        assert!(rec.status_code.is_none());
+        assert!(rec.id.is_empty());
+    }
+
+    #[test]
+    fn unknown_kind_and_source_do_not_fail() {
+        let line = r#"{"kind":"telemetry","source":"webhook"}"#;
+        let rec: LogRecord = serde_json::from_str(line).unwrap();
+        assert_eq!(rec.kind, RecordKind::Unknown);
+        assert_eq!(rec.source, Some(Source::Unknown));
+    }
+
+    #[test]
+    fn optional_fields_are_skipped_when_empty() {
+        let rec = LogRecord::new(RecordKind::Invocation, "i".to_string());
+        let line = serde_json::to_string(&rec).unwrap();
+        // Empty collections / None options must not appear on the wire.
+        assert!(!line.contains("status_code"));
+        assert!(!line.contains("request_headers"));
+        assert!(!line.contains("via_daemon"));
+        assert!(!line.contains("\"env\""));
+    }
+
+    #[test]
+    fn ids_are_time_sortable() {
+        let a = new_id();
+        std::thread::sleep(std::time::Duration::from_millis(2));
+        let b = new_id();
+        assert!(a < b, "{a} should sort before {b}");
+    }
+
+    #[test]
+    fn sensitive_headers_are_redacted() {
+        let mut headers = BTreeMap::new();
+        headers.insert("Authorization".to_string(), "Bearer secret".to_string());
+        headers.insert("X-Api-Key".to_string(), "abc123".to_string());
+        headers.insert("Content-Type".to_string(), "application/json".to_string());
+        let out = redact_headers(&headers);
+        assert_eq!(out["Authorization"], "REDACTED");
+        assert_eq!(out["X-Api-Key"], "REDACTED");
+        assert_eq!(out["Content-Type"], "application/json");
+    }
+
+    fn argv(args: &[&str]) -> Vec<String> {
+        args.iter().copied().map(String::from).collect()
+    }
+
+    #[test]
+    fn build_drive_mutation_record_stamps_kind_service_command_and_context() {
+        let ctx = RequestLogContext {
+            invocation_id: "inv-3".to_string(),
+            source: Source::Mcp,
+            mcp_tool: Some("drive_file_move".to_string()),
+        };
+        let rec = build_drive_mutation_record(
+            DriveMutationOutcome {
+                operation: "move",
+                file_id: "f1".to_string(),
+                file_name: "report.pdf".to_string(),
+                status: "blocked".to_string(),
+                added_principals: vec!["alice@example.com".to_string()],
+                removed_principals: vec![],
+                crosses_drive_boundary: true,
+                resolved_folder_id: Some("dest1".to_string()),
+                decided_by_folder_id: Some("dest1".to_string()),
+                decided_by_depth: Some(0),
+                error: None,
+                duration: Duration::from_millis(17),
+                ..Default::default()
+            },
+            ctx,
+        );
+        assert_eq!(rec.kind, RecordKind::DriveMutation);
+        assert_eq!(rec.invocation_id, "inv-3");
+        assert_eq!(rec.source, Some(Source::Mcp));
+        assert_eq!(rec.mcp_tool.as_deref(), Some("drive_file_move"));
+        assert_eq!(rec.service.as_deref(), Some("drive"));
+        assert_eq!(rec.command, vec!["drive".to_string(), "move".to_string()]);
+        assert_eq!(rec.duration_ms, Some(17));
+        assert_eq!(rec.context.get("file_id").map(String::as_str), Some("f1"));
+        assert_eq!(
+            rec.context.get("file_name").map(String::as_str),
+            Some("report.pdf")
+        );
+        assert_eq!(
+            rec.context.get("status").map(String::as_str),
+            Some("blocked")
+        );
+        assert_eq!(
+            rec.context.get("added_principals").map(String::as_str),
+            Some("alice@example.com")
+        );
+        assert_eq!(rec.context.get("removed_principals"), None);
+        assert_eq!(
+            rec.context
+                .get("crosses_drive_boundary")
+                .map(String::as_str),
+            Some("true")
+        );
+        assert_eq!(
+            rec.context.get("resolved_folder_id").map(String::as_str),
+            Some("dest1")
+        );
+        assert_eq!(
+            rec.context.get("decided_by_folder_id").map(String::as_str),
+            Some("dest1")
+        );
+        assert_eq!(
+            rec.context.get("decided_by_depth").map(String::as_str),
+            Some("0")
+        );
+    }
+
+    #[test]
+    fn build_drive_mutation_record_omits_empty_principal_lists_and_false_boundary() {
+        let rec = build_drive_mutation_record(
+            DriveMutationOutcome {
+                operation: "rename",
+                file_id: "f2".to_string(),
+                file_name: "old.txt".to_string(),
+                status: "moved".to_string(),
+                added_principals: vec![],
+                removed_principals: vec![],
+                crosses_drive_boundary: false,
+                resolved_folder_id: None,
+                decided_by_folder_id: None,
+                decided_by_depth: None,
+                error: None,
+                duration: Duration::from_millis(5),
+                ..Default::default()
+            },
+            RequestLogContext::default(),
+        );
+        assert_eq!(rec.context.get("added_principals"), None);
+        assert_eq!(rec.context.get("removed_principals"), None);
+        assert_eq!(rec.context.get("crosses_drive_boundary"), None);
+        assert_eq!(rec.context.get("resolved_folder_id"), None);
+        assert_eq!(rec.context.get("decided_by_folder_id"), None);
+        assert_eq!(rec.context.get("decided_by_depth"), None);
+    }
+
+    #[test]
+    fn build_drive_mutation_record_includes_the_structural_context_keys() {
+        let rec = build_drive_mutation_record(
+            DriveMutationOutcome {
+                operation: "sheets-insert-rows",
+                file_id: "s1".to_string(),
+                file_name: "Budget".to_string(),
+                status: "changed".to_string(),
+                sheet_id: Some(118_293),
+                sheet_title: Some("Q2".to_string()),
+                dimension_range: Some("ROWS 5:7".to_string()),
+                duration: Duration::from_millis(1),
+                ..Default::default()
+            },
+            RequestLogContext::default(),
+        );
+        assert_eq!(rec.command, vec!["drive", "sheets-insert-rows"]);
+        assert_eq!(
+            rec.context.get("sheet_id").map(String::as_str),
+            Some("118293")
+        );
+        assert_eq!(
+            rec.context.get("sheet_title").map(String::as_str),
+            Some("Q2")
+        );
+        assert_eq!(
+            rec.context.get("dimension_range").map(String::as_str),
+            Some("ROWS 5:7")
+        );
+        // A structural verb has no A1 range and reports no cell counts, so
+        // those keys stay absent rather than being written as empty.
+        assert_eq!(rec.context.get("range"), None);
+        assert_eq!(rec.context.get("updated_cells"), None);
+        // An insert renames nothing.
+        assert_eq!(rec.context.get("sheet_new_title"), None);
+        // An insert spans one dimension, not a rectangle.
+        assert_eq!(rec.context.get("grid_range"), None);
+        // Only a move has a destination.
+        assert_eq!(rec.context.get("move_to"), None);
+    }
+
+    #[test]
+    fn build_drive_mutation_record_includes_the_move_to_key_for_a_move() {
+        // Issue #1834: `dimension_range` names the span that moved, which
+        // is only half the effect — without `move_to` the record could not
+        // say where it went. Both are 1-based and numbered as the sheet
+        // stood before the move, matching `--at`/`--count`/`--before`.
+        let rec = build_drive_mutation_record(
+            DriveMutationOutcome {
+                operation: "sheets-move-rows",
+                file_id: "s1".to_string(),
+                file_name: "Budget".to_string(),
+                status: "changed".to_string(),
+                sheet_id: Some(118_293),
+                sheet_title: Some("Q2".to_string()),
+                dimension_range: Some("ROWS 2:3".to_string()),
+                move_to: Some(6),
+                duration: Duration::from_millis(1),
+                ..Default::default()
+            },
+            RequestLogContext::default(),
+        );
+        assert_eq!(rec.command, vec!["drive", "sheets-move-rows"]);
+        assert_eq!(
+            rec.context.get("dimension_range").map(String::as_str),
+            Some("ROWS 2:3")
+        );
+        assert_eq!(rec.context.get("move_to").map(String::as_str), Some("6"));
+        assert_eq!(rec.context.get("grid_range"), None);
+    }
+
+    #[test]
+    fn build_drive_mutation_record_includes_the_grid_range_key_for_a_delete_range() {
+        // The `deleteRange` analogue of the dimension_range test above (issue
+        // #1623): a rectangle spans both axes at once, so it gets its own
+        // key rather than overloading `dimension_range`, which
+        // `StructureVerb::dimension` reports `None` for on this verb.
+        let rec = build_drive_mutation_record(
+            DriveMutationOutcome {
+                operation: "sheets-delete-range",
+                file_id: "s1".to_string(),
+                file_name: "Budget".to_string(),
+                status: "changed".to_string(),
+                sheet_id: Some(118_293),
+                sheet_title: Some("Q2".to_string()),
+                grid_range: Some("rows 2-4, columns 2-3".to_string()),
+                duration: Duration::from_millis(1),
+                ..Default::default()
+            },
+            RequestLogContext::default(),
+        );
+        assert_eq!(
+            rec.context.get("grid_range").map(String::as_str),
+            Some("rows 2-4, columns 2-3")
+        );
+        assert_eq!(rec.context.get("dimension_range"), None);
+    }
+
+    #[test]
+    fn build_drive_mutation_record_includes_the_formatting_validation_and_protection_keys() {
+        // issue #1643: the formatting/validation/protection verbs' new
+        // context keys, including the three collection fields that only
+        // write a key when non-empty (`discarded_cells`,
+        // `protection_editors_added`, `protection_editors_removed`).
+        let rec = build_drive_mutation_record(
+            DriveMutationOutcome {
+                operation: "sheets-merge-cells",
+                file_id: "s1".to_string(),
+                file_name: "Budget".to_string(),
+                status: "changed".to_string(),
+                fields_changed: Some("merged A1:B2".to_string()),
+                discarded_cells: vec!["B1: gone".to_string()],
+                validation_type: Some("ONE_OF_LIST".to_string()),
+                protected_range_id: Some(42),
+                protection_editors_added: vec!["alice@example.com".to_string()],
+                protection_editors_removed: vec!["bob@example.com".to_string()],
+                duration: Duration::from_millis(1),
+                ..Default::default()
+            },
+            RequestLogContext::default(),
+        );
+        assert_eq!(
+            rec.context.get("fields_changed").map(String::as_str),
+            Some("merged A1:B2")
+        );
+        assert_eq!(
+            rec.context.get("discarded_cells").map(String::as_str),
+            Some("B1: gone")
+        );
+        assert_eq!(
+            rec.context.get("validation_type").map(String::as_str),
+            Some("ONE_OF_LIST")
+        );
+        assert_eq!(
+            rec.context.get("protected_range_id").map(String::as_str),
+            Some("42")
+        );
+        assert_eq!(
+            rec.context
+                .get("protection_editors_added")
+                .map(String::as_str),
+            Some("alice@example.com")
+        );
+        assert_eq!(
+            rec.context
+                .get("protection_editors_removed")
+                .map(String::as_str),
+            Some("bob@example.com")
+        );
+    }
+
+    #[test]
+    fn build_drive_mutation_record_omits_the_formatting_validation_and_protection_keys_when_unset()
+    {
+        let rec = build_drive_mutation_record(
+            DriveMutationOutcome {
+                operation: "sheets-write",
+                file_id: "s1".to_string(),
+                file_name: "Budget".to_string(),
+                status: "written".to_string(),
+                duration: Duration::from_millis(1),
+                ..Default::default()
+            },
+            RequestLogContext::default(),
+        );
+        assert_eq!(rec.context.get("fields_changed"), None);
+        assert_eq!(rec.context.get("discarded_cells"), None);
+        assert_eq!(rec.context.get("validation_type"), None);
+        assert_eq!(rec.context.get("protected_range_id"), None);
+        assert_eq!(rec.context.get("protection_editors_added"), None);
+        assert_eq!(rec.context.get("protection_editors_removed"), None);
+    }
+
+    #[test]
+    fn build_drive_mutation_record_records_both_titles_for_a_rename() {
+        // The one structural verb whose effect is otherwise unrecoverable
+        // from its record: `sheet_title` necessarily holds the *old* title.
+        let rec = build_drive_mutation_record(
+            DriveMutationOutcome {
+                operation: "sheets-rename-sheet",
+                file_id: "s1".to_string(),
+                file_name: "Budget".to_string(),
+                status: "changed".to_string(),
+                sheet_id: Some(118_293),
+                sheet_title: Some("Q2".to_string()),
+                sheet_new_title: Some("Q2 (final)".to_string()),
+                duration: Duration::from_millis(1),
+                ..Default::default()
+            },
+            RequestLogContext::default(),
+        );
+        assert_eq!(
+            rec.context.get("sheet_title").map(String::as_str),
+            Some("Q2")
+        );
+        assert_eq!(
+            rec.context.get("sheet_new_title").map(String::as_str),
+            Some("Q2 (final)")
+        );
+        // A rename spans no dimension.
+        assert_eq!(rec.context.get("dimension_range"), None);
+    }
+
+    #[test]
+    fn build_drive_mutation_record_omits_structural_keys_for_a_cell_write() {
+        let rec = build_drive_mutation_record(
+            DriveMutationOutcome {
+                operation: "sheets-write",
+                file_id: "s1".to_string(),
+                file_name: "Budget".to_string(),
+                status: "written".to_string(),
+                range: Some("A1:B2".to_string()),
+                duration: Duration::from_millis(1),
+                ..Default::default()
+            },
+            RequestLogContext::default(),
+        );
+        assert_eq!(rec.context.get("sheet_id"), None);
+        assert_eq!(rec.context.get("sheet_title"), None);
+        assert_eq!(rec.context.get("sheet_new_title"), None);
+        assert_eq!(rec.context.get("dimension_range"), None);
+        assert_eq!(rec.context.get("grid_range"), None);
+    }
+
+    #[test]
+    fn build_drive_mutation_record_includes_range_and_every_sheets_count() {
+        let rec = build_drive_mutation_record(
+            DriveMutationOutcome {
+                operation: "sheets-write",
+                file_id: "s1".to_string(),
+                file_name: "Budget".to_string(),
+                status: "written".to_string(),
+                removed_principals: vec!["bob@example.com".to_string()],
+                range: Some("A1:B2".to_string()),
+                updated_range: Some("'Q1'!A1:B2".to_string()),
+                updated_rows: Some(3),
+                updated_columns: Some(2),
+                updated_cells: Some(6),
+                duration: Duration::from_millis(1),
+                ..Default::default()
+            },
+            RequestLogContext::default(),
+        );
+        assert_eq!(
+            rec.context.get("removed_principals").map(String::as_str),
+            Some("bob@example.com")
+        );
+        assert_eq!(rec.context.get("range").map(String::as_str), Some("A1:B2"));
+        assert_eq!(
+            rec.context.get("updated_range").map(String::as_str),
+            Some("'Q1'!A1:B2")
+        );
+        assert_eq!(
+            rec.context.get("updated_rows").map(String::as_str),
+            Some("3")
+        );
+        assert_eq!(
+            rec.context.get("updated_columns").map(String::as_str),
+            Some("2")
+        );
+        assert_eq!(
+            rec.context.get("updated_cells").map(String::as_str),
+            Some("6")
+        );
+    }
+
+    #[test]
+    fn auto_fill_record_includes_only_overwritten_addresses() {
+        let rec = build_drive_mutation_record(
+            DriveMutationOutcome {
+                operation: "sheets-auto-fill",
+                file_id: "sheet-1".into(),
+                file_name: "Budget".into(),
+                status: "changed".into(),
+                range: Some("'Q1'!A4:A5".into()),
+                overwritten_cells: vec!["A4".into(), "A5".into()],
+                duration: Duration::from_millis(1),
+                ..Default::default()
+            },
+            RequestLogContext::default(),
+        );
+        assert_eq!(
+            rec.context.get("overwritten_cells").map(String::as_str),
+            Some("A4, A5")
+        );
+        assert_eq!(
+            rec.context.get("range").map(String::as_str),
+            Some("'Q1'!A4:A5")
+        );
+        assert_eq!(rec.context.get("updated_cells"), None);
+        // `--source` computes the destination client-side, so the list is
+        // exact and the upper-bound marker stays absent.
+        assert_eq!(rec.context.get("overwritten_cells_are_upper_bound"), None);
+    }
+
+    /// `auto-fill --range` lets Sheets pick the source/destination split
+    /// itself, so the same list is an upper bound — some of those cells
+    /// are the source and were never touched. The record has to say so,
+    /// or a reader takes them for cells that certainly changed.
+    #[test]
+    fn auto_fill_range_form_marks_its_overwritten_cells_as_an_upper_bound() {
+        let rec = build_drive_mutation_record(
+            DriveMutationOutcome {
+                operation: "sheets-auto-fill",
+                file_id: "sheet-1".into(),
+                file_name: "Budget".into(),
+                status: "changed".into(),
+                range: Some("'Q1'!A1:A10".into()),
+                overwritten_cells: vec!["A1".into(), "A2".into()],
+                overwritten_cells_upper_bound: true,
+                duration: Duration::from_millis(1),
+                ..Default::default()
+            },
+            RequestLogContext::default(),
+        );
+        assert_eq!(
+            rec.context
+                .get("overwritten_cells_are_upper_bound")
+                .map(String::as_str),
+            Some("true")
+        );
+    }
+
+    /// `text-to-columns` never knows exactly how many columns the API's
+    /// own split will need, so every run's `overwritten_cells` is an
+    /// upper bound — unlike `auto-fill`, this is unconditional rather
+    /// than form-dependent.
+    #[test]
+    fn text_to_columns_record_always_marks_its_overwritten_cells_as_an_upper_bound() {
+        let rec = build_drive_mutation_record(
+            DriveMutationOutcome {
+                operation: "sheets-text-to-columns",
+                file_id: "sheet-1".into(),
+                file_name: "Budget".into(),
+                status: "changed".into(),
+                range: Some("'Q1'!A2:A4".into()),
+                fields_changed: Some(
+                    "split 'Q1'!A2:A4 on comma into up to 2 column(s), spill 'Q1'!B2:B4".into(),
+                ),
+                overwritten_cells: vec!["B3".into()],
+                overwritten_cells_upper_bound: true,
+                duration: Duration::from_millis(1),
+                ..Default::default()
+            },
+            RequestLogContext::default(),
+        );
+        assert_eq!(
+            rec.context.get("overwritten_cells").map(String::as_str),
+            Some("B3")
+        );
+        assert_eq!(
+            rec.context
+                .get("overwritten_cells_are_upper_bound")
+                .map(String::as_str),
+            Some("true")
+        );
+        // Never the split pieces or the source's contents — only the A1
+        // address and the prose summary (ADR-0083 §6).
+        assert!(!rec.context.get("fields_changed").unwrap().contains("a,b"));
+    }
+
+    #[test]
+    fn record_kind_drive_mutation_serializes_as_drivemutation_and_round_trips() {
+        let rec = build_drive_mutation_record(
+            DriveMutationOutcome {
+                operation: "rename",
+                file_id: "f1".to_string(),
+                file_name: "a.txt".to_string(),
+                status: "failed".to_string(),
+                added_principals: vec![],
+                removed_principals: vec![],
+                crosses_drive_boundary: false,
+                resolved_folder_id: None,
+                decided_by_folder_id: None,
+                decided_by_depth: None,
+                error: Some("boom".to_string()),
+                duration: Duration::from_millis(1),
+                ..Default::default()
+            },
+            RequestLogContext::default(),
+        );
+        let line = serde_json::to_string(&rec).unwrap();
+        assert!(
+            line.contains("\"kind\":\"drivemutation\""),
+            "line was: {line}"
+        );
+        assert_eq!(RecordKind::DriveMutation.as_str(), "drivemutation");
+        let back: LogRecord = serde_json::from_str(&line).unwrap();
+        assert_eq!(back.kind, RecordKind::DriveMutation);
+        assert_eq!(
+            back.command,
+            vec!["drive".to_string(), "rename".to_string()]
+        );
+        assert_eq!(back.error.as_deref(), Some("boom"));
+    }
+
+    /// Confirms the existing `kind: "drivemutation"` record — reused, not a
+    /// new `RecordKind` — round-trips identically for the new `create`
+    /// operation issue #1574 adds (ADR-0071 §8).
+    #[test]
+    fn build_drive_mutation_record_round_trips_for_create_operation() {
+        let rec = build_drive_mutation_record(
+            DriveMutationOutcome {
+                operation: "create",
+                file_id: "f1".to_string(),
+                file_name: "New File".to_string(),
+                status: "created".to_string(),
+                added_principals: vec![],
+                removed_principals: vec![],
+                crosses_drive_boundary: false,
+                resolved_folder_id: Some("parent1".to_string()),
+                decided_by_folder_id: None,
+                decided_by_depth: None,
+                error: None,
+                duration: Duration::from_millis(1),
+                ..Default::default()
+            },
+            RequestLogContext::default(),
+        );
+        assert_eq!(rec.command, vec!["drive".to_string(), "create".to_string()]);
+        assert_eq!(
+            rec.context.get("resolved_folder_id").map(String::as_str),
+            Some("parent1")
+        );
+        assert_eq!(rec.context.get("decided_by_folder_id"), None);
+        let line = serde_json::to_string(&rec).unwrap();
+        let back: LogRecord = serde_json::from_str(&line).unwrap();
+        assert_eq!(back.kind, RecordKind::DriveMutation);
+    }
+
+    #[test]
+    fn build_audit_record_stamps_kind_service_command_and_context() {
+        let ctx = RequestLogContext {
+            invocation_id: "inv-4".to_string(),
+            source: Source::Cli,
+            mcp_tool: None,
+        };
+        let rec = build_audit_record(
+            AuditOutcome {
+                command: vec!["drive".to_string(), "lease-acquire".to_string()],
+                integration: "drive",
+                file_id: "f1".to_string(),
+                lease_id: Some("lease-1".to_string()),
+                verdict: "acquired".to_string(),
+                version_after: Some("42".to_string()),
+                modified_time_after: Some("2026-09-12T00:00:00Z".to_string()),
+                backup_location: Some("/tmp/backup".to_string()),
+                backup_sha256: Some("deadbeef".to_string()),
+                backup_size: Some(5),
+                auth_policy: Some("device-owner".to_string()),
+                ..Default::default()
+            },
+            ctx,
+        );
+        assert_eq!(rec.kind, RecordKind::Audit);
+        assert_eq!(rec.invocation_id, "inv-4");
+        assert_eq!(rec.source, Some(Source::Cli));
+        assert_eq!(rec.service.as_deref(), Some("drive"));
+        assert_eq!(
+            rec.command,
+            vec!["drive".to_string(), "lease-acquire".to_string()]
+        );
+        assert_eq!(
+            rec.context.get("integration").map(String::as_str),
+            Some("drive")
+        );
+        assert_eq!(rec.context.get("file_id").map(String::as_str), Some("f1"));
+        assert_eq!(
+            rec.context.get("lease_id").map(String::as_str),
+            Some("lease-1")
+        );
+        assert_eq!(
+            rec.context.get("verdict").map(String::as_str),
+            Some("acquired")
+        );
+        assert_eq!(
+            rec.context.get("version_after").map(String::as_str),
+            Some("42")
+        );
+        assert_eq!(
+            rec.context.get("modified_time_after").map(String::as_str),
+            Some("2026-09-12T00:00:00Z")
+        );
+        assert_eq!(
+            rec.context.get("backup_location").map(String::as_str),
+            Some("/tmp/backup")
+        );
+        assert_eq!(
+            rec.context.get("backup_sha256").map(String::as_str),
+            Some("deadbeef")
+        );
+        assert_eq!(
+            rec.context.get("backup_size").map(String::as_str),
+            Some("5")
+        );
+        assert_eq!(
+            rec.context.get("auth_policy").map(String::as_str),
+            Some("device-owner")
+        );
+    }
+
+    #[test]
+    fn build_audit_record_omits_absent_optional_context_keys() {
+        let rec = build_audit_record(
+            AuditOutcome {
+                command: vec!["drive".to_string(), "lease-acquire".to_string()],
+                integration: "drive",
+                file_id: "f1".to_string(),
+                verdict: "denied".to_string(),
+                error: Some("no".to_string()),
+                ..Default::default()
+            },
+            RequestLogContext::default(),
+        );
+        assert_eq!(rec.error.as_deref(), Some("no"));
+        assert_eq!(rec.context.get("lease_id"), None);
+        assert_eq!(rec.context.get("version_before"), None);
+        assert_eq!(rec.context.get("version_after"), None);
+        assert_eq!(rec.context.get("backup_location"), None);
+        assert_eq!(rec.context.get("backup_sha256"), None);
+        assert_eq!(rec.context.get("backup_size"), None);
+        assert_eq!(rec.context.get("auth_policy"), None);
+    }
+
+    #[test]
+    fn record_audit_event_writes_to_the_audit_sink() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("audit.jsonl");
+        let env = MapEnv::new().with("GWI_AUDIT_LOG_FILE", path.to_str().unwrap());
+
+        record_audit_event_with(
+            &env,
+            AuditOutcome {
+                command: vec!["drive".to_string(), "lease-acquire".to_string()],
+                integration: "drive",
+                file_id: "f1".to_string(),
+                verdict: "acquired".to_string(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+        let contents = std::fs::read_to_string(&path).unwrap();
+        let back: LogRecord = serde_json::from_str(contents.trim_end()).unwrap();
+        assert_eq!(back.kind, RecordKind::Audit);
+        assert_eq!(
+            back.context.get("verdict").map(String::as_str),
+            Some("acquired")
+        );
+    }
+
+    #[test]
+    fn record_kind_audit_serializes_as_audit_and_round_trips() {
+        let rec = LogRecord {
+            kind: RecordKind::Audit,
+            id: new_id(),
+            invocation_id: new_id(),
+            ..LogRecord::default()
+        };
+        let line = serde_json::to_string(&rec).unwrap();
+        assert!(line.contains("\"kind\":\"audit\""), "line was: {line}");
+        assert_eq!(RecordKind::Audit.as_str(), "audit");
+        let back: LogRecord = serde_json::from_str(&line).unwrap();
+        assert_eq!(back.kind, RecordKind::Audit);
+    }
+
+    #[test]
+    fn audit_file_path_honors_env_override() {
+        let env = MapEnv::new().with("GWI_AUDIT_LOG_FILE", "/tmp/gwi-test-audit.jsonl");
+        assert_eq!(
+            audit_file_path_with(&env),
+            Some(PathBuf::from("/tmp/gwi-test-audit.jsonl"))
+        );
+    }
+
+    #[test]
+    fn audit_file_path_never_resolves_to_the_real_machine_default_when_unset() {
+        // Regression test for a real incident: before this fallback
+        // existed, any test exercising a leased write or `drive lease
+        // acquire` without itself redirecting the audit log silently
+        // wrote into this machine's actual `audit.jsonl`. With the var
+        // unset, every call in a test build must land on the same shared
+        // scratch path — stable across calls (so it's memoized once, not
+        // re-created per call) and never the real
+        // `dirs::state_dir()`/`dirs::data_dir()`-based default the
+        // non-test build resolves to, whether resolved through the pure
+        // `audit_file_path_with` seam or the ambient `audit_file_path`.
+        let real_default = dirs::state_dir()
+            .or_else(dirs::data_dir)
+            .unwrap()
+            .join("gwi")
+            .join(AUDIT_FILE_NAME);
+
+        let unset = MapEnv::new();
+        let unrouted = audit_file_path_with(&unset).unwrap();
+        assert_eq!(
+            unrouted,
+            audit_file_path_with(&unset).unwrap(),
+            "the fallback path must be stable across calls"
+        );
+        assert_ne!(
+            unrouted, real_default,
+            "must never fall back to the real machine's default audit log path in a test build"
+        );
+
+        assert_eq!(
+            audit_file_path().unwrap(),
+            unrouted,
+            "the ambient entry point with no thread-local route lands on the same scratch file"
+        );
+    }
+
+    #[test]
+    fn record_audit_writes_a_line_that_round_trips() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("audit.jsonl");
+        let env = MapEnv::new().with("GWI_AUDIT_LOG_FILE", path.to_str().unwrap());
+
+        let rec = LogRecord {
+            kind: RecordKind::Audit,
+            id: new_id(),
+            invocation_id: new_id(),
+            ..LogRecord::default()
+        };
+        record_audit_with(&env, &rec).unwrap();
+
+        let contents = std::fs::read_to_string(&path).unwrap();
+        let back: LogRecord = serde_json::from_str(contents.trim_end()).unwrap();
+        assert_eq!(back.kind, RecordKind::Audit);
+        assert_eq!(back.id, rec.id);
+    }
+
+    #[test]
+    fn record_audit_locks_and_syncs_the_handle_when_bodies_are_enabled() {
+        // `bodies_enabled()` gates a separate, otherwise-untested append
+        // path (an advisory `flock` around the write) inside
+        // `append_line_unrotated`; `record_audit`'s `sync=true` additionally
+        // exercises the `sync_data` call on the locked handle.
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("audit.jsonl");
+        let env = MapEnv::new()
+            .with("GWI_LOG_BODIES", "1")
+            .with("GWI_AUDIT_LOG_FILE", path.to_str().unwrap());
+        assert!(bodies_enabled_with(&env));
+
+        let rec = LogRecord {
+            kind: RecordKind::Audit,
+            id: new_id(),
+            invocation_id: new_id(),
+            ..LogRecord::default()
+        };
+        record_audit_with(&env, &rec).unwrap();
+
+        let contents = std::fs::read_to_string(&path).unwrap();
+        let back: LogRecord = serde_json::from_str(contents.trim_end()).unwrap();
+        assert_eq!(back.id, rec.id);
+    }
+
+    #[test]
+    fn record_audit_fails_closed_when_the_write_errors() {
+        // A directory is not a valid target for `OpenOptions::append`, so this
+        // forces the same write failure a permission error or a missing parent
+        // would — the point is that `record_audit`, unlike `record`, hands the
+        // error back rather than swallowing it.
+        let dir = tempfile::tempdir().unwrap();
+        let rec = LogRecord {
+            kind: RecordKind::Audit,
+            id: new_id(),
+            invocation_id: new_id(),
+            ..LogRecord::default()
+        };
+        let err = append_record_to(dir.path(), &rec, append_line_no_rotation).unwrap_err();
+        assert!(!err.to_string().is_empty());
+    }
+
+    #[test]
+    fn record_audit_is_exempt_from_gwi_log_disable() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("audit.jsonl");
+        let env = MapEnv::new()
+            .with("GWI_LOG_DISABLE", "1")
+            .with("GWI_AUDIT_LOG_FILE", path.to_str().unwrap());
+        assert!(disabled_with(&env));
+
+        let rec = LogRecord {
+            kind: RecordKind::Audit,
+            id: new_id(),
+            invocation_id: new_id(),
+            ..LogRecord::default()
+        };
+        record_audit_with(&env, &rec).unwrap();
+
+        assert!(path.exists());
+    }
+
+    #[test]
+    fn the_audit_write_path_never_gates_on_log_disable() {
+        // The exemption test above pins `record_audit_with`, the injected-env
+        // test seam — never the ambient `record_audit`/`record_audit_to` that
+        // production actually calls. This closes that gap by grepping their
+        // real source: a regression that added `if disabled() { return Ok(()) }`
+        // to either, mirroring `record`'s own pattern, would fail here even
+        // though it slips past the env-injected test above.
+        let source = include_str!("request_log.rs");
+        let start = source
+            .find("pub fn record_audit(entry: &LogRecord) -> anyhow::Result<()> {")
+            .expect("record_audit signature not found");
+        let end = source[start..]
+            .find("/// Serializes `entry` and appends it to `path` via `append`,")
+            .expect("append_record_to doc comment not found")
+            + start;
+        let audit_write_path = &source[start..end];
+        assert!(
+            !audit_write_path.contains("disabled"),
+            "the fail-closed audit sink must never gate on GWI_LOG_DISABLE:\n{audit_write_path}"
+        );
+    }
+
+    #[test]
+    fn try_record_refuses_an_audit_kind_entry() {
+        let rec = LogRecord {
+            kind: RecordKind::Audit,
+            id: new_id(),
+            invocation_id: new_id(),
+            ..LogRecord::default()
+        };
+        let err = try_record(&rec).unwrap_err();
+        assert!(err.to_string().contains("record_audit()"), "{err}");
+    }
+
+    #[test]
+    fn record_audit_refuses_a_non_audit_kind_entry() {
+        let dir = tempfile::tempdir().unwrap();
+        let env = MapEnv::new().with(
+            "GWI_AUDIT_LOG_FILE",
+            dir.path().join("audit.jsonl").to_str().unwrap(),
+        );
+
+        let rec = LogRecord {
+            kind: RecordKind::Invocation,
+            id: new_id(),
+            invocation_id: new_id(),
+            ..LogRecord::default()
+        };
+        let err = record_audit_with(&env, &rec).unwrap_err();
+
+        assert!(err.to_string().contains("RecordKind::Audit"), "{err}");
+    }
+
+    #[test]
+    fn log_file_path_with_refuses_when_it_resolves_to_the_audit_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let shared = dir.path().join("shared.jsonl");
+        let shared_str = shared.to_str().unwrap();
+        let env = MapEnv::new()
+            .with("GWI_LOG_FILE", shared_str)
+            .with("GWI_AUDIT_LOG_FILE", shared_str);
+
+        assert!(log_file_path_with(&env).is_none());
+    }
+
+    #[test]
+    fn log_file_path_with_refuses_a_dot_dot_spelling_of_the_audit_file() {
+        // Mirrors `same_file_matches_a_dot_dot_spelling_routed_through_a_nonexistent_directory`:
+        // the guard must compare by file identity, not raw spelling.
+        let dir = tempfile::tempdir().unwrap();
+        let audit = dir.path().join("audit.jsonl");
+        std::fs::write(&audit, "{}\n").unwrap();
+        let dotted = dir.path().join("sub/../audit.jsonl");
+        let env = MapEnv::new()
+            .with("GWI_LOG_FILE", dotted.to_str().unwrap())
+            .with("GWI_AUDIT_LOG_FILE", audit.to_str().unwrap());
+
+        assert!(log_file_path_with(&env).is_none());
+    }
+
+    #[test]
+    fn record_audit_with_succeeds_when_the_log_file_env_aliases_the_audit_path() {
+        // Once `log_file_path_with` itself refuses to resolve an aliasing
+        // `GWI_LOG_FILE`, `record_audit_to` has no colliding request-log
+        // path to compare against, so the write it exists to protect
+        // proceeds normally — the refusal moved to path resolution
+        // (#1747), it did not disappear.
+        let dir = tempfile::tempdir().unwrap();
+        let shared = dir.path().join("shared.jsonl");
+        let shared_str = shared.to_str().unwrap();
+        let env = MapEnv::new()
+            .with("GWI_LOG_FILE", shared_str)
+            .with("GWI_AUDIT_LOG_FILE", shared_str);
+
+        let rec = LogRecord {
+            kind: RecordKind::Audit,
+            id: new_id(),
+            invocation_id: new_id(),
+            ..LogRecord::default()
+        };
+        record_audit_with(&env, &rec).unwrap();
+
+        assert!(shared.exists());
+        assert!(log_file_path_with(&env).is_none());
+    }
+
+    #[test]
+    fn scrub_argv_redacts_sensitive_header_in_both_forms() {
+        let out = scrub_argv(&argv(&[
+            "gwi",
+            "--header",
+            "Authorization: Bearer sekret",
+            "--header=Cookie: session=abc",
+        ]));
+        assert_eq!(
+            out,
+            argv(&[
+                "gwi",
+                "--header",
+                "Authorization: REDACTED",
+                "--header=Cookie: REDACTED",
+            ])
+        );
+    }
+
+    #[test]
+    fn scrub_argv_keeps_non_sensitive_headers() {
+        let input = argv(&["gwi", "--header", "Content-Type: application/json"]);
+        assert_eq!(scrub_argv(&input), input);
+    }
+
+    #[test]
+    fn scrub_argv_redacts_colonless_header_wholesale() {
+        let out = scrub_argv(&argv(&["gwi", "--header", "sekret"]));
+        assert_eq!(out, argv(&["gwi", "--header", "REDACTED"]));
+    }
+
+    #[test]
+    fn scrub_argv_redacts_inline_body_but_keeps_at_file() {
+        let out = scrub_argv(&argv(&["gwi", "--body", r#"{"secret":1}"#]));
+        assert_eq!(out, argv(&["gwi", "--body", "REDACTED"]));
+
+        let file_form = argv(&["gwi", "--body", "@payload.json"]);
+        assert_eq!(scrub_argv(&file_form), file_form);
+
+        let out = scrub_argv(&argv(&["gwi", "--body=sekret"]));
+        assert_eq!(out, argv(&["gwi", "--body=REDACTED"]));
+    }
+
+    #[test]
+    fn scrub_argv_redacts_find_replace_content_in_both_flag_forms() {
+        let out = scrub_argv(&argv(&[
+            "gwi",
+            "--find",
+            "customer@example.com",
+            "--replacement=redacted",
+        ]));
+        assert_eq!(
+            out,
+            argv(&["gwi", "--find", "REDACTED", "--replacement=REDACTED",])
+        );
+    }
+
+    #[test]
+    fn scrub_argv_redacts_secretish_flag_values() {
+        let out = scrub_argv(&argv(&["gwi", "--api-key", "abc", "--auth-token=xyz"]));
+        assert_eq!(
+            out,
+            argv(&["gwi", "--api-key", "REDACTED", "--auth-token=REDACTED"])
+        );
+    }
+
+    #[test]
+    fn scrub_argv_exempts_path_flags_and_positionals() {
+        let input = argv(&["gwi", "--token-file", "/tmp/t", "PROJ-123"]);
+        assert_eq!(scrub_argv(&input), input);
+    }
+
+    #[test]
+    fn scrub_argv_redacts_secret_bearing_url_query_in_both_forms() {
+        // `--url` is not a secret-ish flag name, so its value is caught by the
+        // redact_url layer, not the flag layer (#1162). Both argv shapes plus a
+        // bare positional URL are covered; the benign `page` param survives.
+        let space = scrub_argv(&argv(&[
+            "gwi",
+            "browser",
+            "bridge",
+            "request",
+            "--url",
+            "/api/export?access_token=hunter2&sig=deadbeef&page=3",
+        ]));
+        assert_eq!(
+            *space.last().unwrap(),
+            "/api/export?access_token=REDACTED&sig=REDACTED&page=3"
+        );
+
+        let eq_form = scrub_argv(&argv(&[
+            "gwi",
+            "--url=/api/export?access_token=hunter2&page=3",
+        ]));
+        assert_eq!(
+            *eq_form.last().unwrap(),
+            "--url=/api/export?access_token=REDACTED&page=3"
+        );
+
+        let positional = scrub_argv(&argv(&["gwi", "https://h/cb#id_token=xyz"]));
+        assert_eq!(
+            *positional.last().unwrap(),
+            "https://h/cb#id_token=REDACTED"
+        );
+    }
+
+    #[test]
+    fn scrub_argv_leaves_benign_argv_byte_identical() {
+        let input = argv(&[
+            "gwi",
+            "browser",
+            "bridge",
+            "request",
+            "--control-port",
+            "19998",
+            "--url",
+            "/api/export?page=3&sort=asc",
+        ]);
+        assert_eq!(scrub_argv(&input), input);
+    }
+
+    #[test]
+    fn scrub_argv_handles_trailing_flag_without_value() {
+        let input = argv(&["gwi", "--body"]);
+        assert_eq!(scrub_argv(&input), input);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn append_line_creates_file_owner_only() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("log.jsonl");
+        append_line(&path, "{\"kind\":\"http\"}\n").unwrap();
+        assert_eq!(
+            std::fs::read_to_string(&path).unwrap(),
+            "{\"kind\":\"http\"}\n"
+        );
+        assert_eq!(
+            std::fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn append_line_retightens_preexisting_loose_file() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("log.jsonl");
+        std::fs::write(&path, "old\n").unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
+        append_line(&path, "new\n").unwrap();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "old\nnew\n");
+        assert_eq!(
+            std::fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+    }
+
+    /// Issue #1697 made the parent-directory `fsync` conditional on the
+    /// append having created the file. The condition is not observable from
+    /// outside (an `fsync` leaves no trace), so what is pinned here is what
+    /// a mistake in it would actually break: the creating append and every
+    /// append after it must still land, in order, at `0600`.
+    #[cfg(unix)]
+    #[test]
+    fn append_line_synced_appends_in_order_across_the_creating_and_later_writes() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("audit.jsonl");
+
+        append_line_synced(&path, "first\n").unwrap();
+        append_line_synced(&path, "second\n").unwrap();
+        append_line_synced(&path, "third\n").unwrap();
+
+        assert_eq!(
+            std::fs::read_to_string(&path).unwrap(),
+            "first\nsecond\nthird\n"
+        );
+        assert_eq!(
+            std::fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+    }
+
+    /// The re-tightening in `ensure_handle_0600` runs before the new
+    /// emptiness probe reads the same handle, so a pre-existing loose file
+    /// is still clamped on the synced path, not only on `append_line`'s.
+    #[cfg(unix)]
+    #[test]
+    fn append_line_synced_retightens_preexisting_loose_file() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("audit.jsonl");
+        std::fs::write(&path, "old\n").unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
+
+        append_line_synced(&path, "new\n").unwrap();
+
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "old\nnew\n");
+        assert_eq!(
+            std::fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+    }
+
+    /// The synced appender's error arm. `record_audit_fails_closed_when_the_
+    /// write_errors` covers `append_line_no_rotation`'s, so without this the
+    /// one appender whose failure *refuses a Drive write* had none of its
+    /// own.
+    #[test]
+    fn append_line_synced_errors_when_the_target_is_a_directory() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("audit.jsonl");
+        std::fs::create_dir(&path).unwrap();
+
+        assert!(append_line_synced(&path, "line\n").is_err());
+    }
+
+    /// An empty-but-existing file takes the conservative branch (one spare
+    /// directory `fsync`) rather than being mistaken for something that
+    /// cannot be appended to.
+    #[test]
+    fn append_line_synced_appends_to_an_existing_empty_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("audit.jsonl");
+        std::fs::write(&path, "").unwrap();
+
+        append_line_synced(&path, "line\n").unwrap();
+
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "line\n");
+    }
+
+    #[test]
+    fn off_list_secretish_headers_are_redacted() {
+        let mut headers = BTreeMap::new();
+        for name in [
+            "X-Auth-Token",
+            "x-amz-security-token",
+            "X-Goog-Api-Key",
+            "x-csrf-token",
+            "X-Vendor-Token",
+            "X-Omni-Bridge",
+        ] {
+            headers.insert(name.to_string(), "secret-value".to_string());
+        }
+        for name in [
+            "Content-Type",
+            "Accept",
+            "User-Agent",
+            "x-request-id",
+            "traceparent",
+        ] {
+            headers.insert(name.to_string(), "plain-value".to_string());
+        }
+        let out = redact_headers(&headers);
+        assert_eq!(out["X-Auth-Token"], "REDACTED");
+        assert_eq!(out["x-amz-security-token"], "REDACTED");
+        assert_eq!(out["X-Goog-Api-Key"], "REDACTED");
+        assert_eq!(out["x-csrf-token"], "REDACTED");
+        assert_eq!(out["X-Vendor-Token"], "REDACTED");
+        assert_eq!(out["X-Omni-Bridge"], "REDACTED");
+        assert_eq!(out["Content-Type"], "plain-value");
+        assert_eq!(out["Accept"], "plain-value");
+        assert_eq!(out["User-Agent"], "plain-value");
+        assert_eq!(out["x-request-id"], "plain-value");
+        assert_eq!(out["traceparent"], "plain-value");
+    }
+
+    #[test]
+    fn url_without_query_is_unchanged() {
+        assert_eq!(redact_url("https://h/p"), "https://h/p");
+        assert_eq!(redact_url("/relative/p"), "/relative/p");
+    }
+
+    #[test]
+    fn benign_query_is_byte_identical() {
+        let url = "https://h/p?q=a%20b&page=2&&x=y+z&keyword=k&sort_key=s&token_type=bearer";
+        assert_eq!(redact_url(url), url);
+    }
+
+    #[test]
+    fn sensitive_query_values_are_redacted() {
+        let url = "https://h/p?token=a&access_token=b&client_secret=c&api_key=d&x=1";
+        assert_eq!(
+            redact_url(url),
+            "https://h/p?token=REDACTED&access_token=REDACTED&client_secret=REDACTED\
+             &api_key=REDACTED&x=1"
+        );
+    }
+
+    #[test]
+    fn presigned_s3_query_is_redacted() {
+        let url = "https://bucket.s3.amazonaws.com/key?X-Amz-Algorithm=AWS4-HMAC-SHA256\
+                   &X-Amz-Credential=AKIA%2F20260703%2Fus-east-1%2Fs3%2Faws4_request\
+                   &X-Amz-Date=20260703T000000Z&X-Amz-Expires=3600\
+                   &X-Amz-SignedHeaders=host&X-Amz-Signature=deadbeef";
+        assert_eq!(
+            redact_url(url),
+            "https://bucket.s3.amazonaws.com/key?X-Amz-Algorithm=REDACTED\
+             &X-Amz-Credential=REDACTED&X-Amz-Date=REDACTED&X-Amz-Expires=REDACTED\
+             &X-Amz-SignedHeaders=REDACTED&X-Amz-Signature=REDACTED"
+        );
+    }
+
+    #[test]
+    fn key_matching_is_case_insensitive() {
+        assert_eq!(
+            redact_url("/p?TOKEN=x&Api_Key=y&X-Amz-Signature=z"),
+            "/p?TOKEN=REDACTED&Api_Key=REDACTED&X-Amz-Signature=REDACTED"
+        );
+    }
+
+    #[test]
+    fn repeated_sensitive_keys_are_each_redacted() {
+        assert_eq!(redact_url("/p?sig=a&sig=b"), "/p?sig=REDACTED&sig=REDACTED");
+    }
+
+    #[test]
+    fn valueless_key_is_left_alone() {
+        assert_eq!(redact_url("/p?token"), "/p?token");
+        assert_eq!(redact_url("/p?token="), "/p?token=REDACTED");
+    }
+
+    #[test]
+    fn relative_url_query_is_redacted() {
+        assert_eq!(
+            redact_url("/api/foo?sig=abc&x=y"),
+            "/api/foo?sig=REDACTED&x=y"
+        );
+    }
+
+    #[test]
+    fn fragment_credentials_are_redacted() {
+        assert_eq!(
+            redact_url("https://h/cb#access_token=xyz&token_type=bearer"),
+            "https://h/cb#access_token=REDACTED&token_type=bearer"
+        );
+    }
+
+    #[test]
+    fn query_and_fragment_are_scrubbed_independently() {
+        assert_eq!(
+            redact_url("/p?sig=a#id_token=b"),
+            "/p?sig=REDACTED#id_token=REDACTED"
+        );
+    }
+
+    #[test]
+    fn question_mark_in_fragment_is_not_parsed_as_query() {
+        // The fragment is split off before the query, so `?` inside it never
+        // starts a query; the pseudo-key `frag?token` still redacts via the
+        // suffix rule (over-redaction in the safe direction).
+        assert_eq!(
+            redact_url("https://h/p#frag?token=x"),
+            "https://h/p#frag?token=REDACTED"
+        );
+    }
+
+    #[test]
+    fn encoded_sensitive_key_is_decoded_before_matching() {
+        assert_eq!(
+            redact_url("/p?access%5Ftoken=v"),
+            "/p?access%5Ftoken=REDACTED"
+        );
+    }
+
+    #[test]
+    fn empty_query_is_unchanged() {
+        assert_eq!(redact_url("https://h/p?"), "https://h/p?");
+        assert_eq!(redact_url("https://h/p?#f"), "https://h/p?#f");
+    }
+
+    #[test]
+    fn parse_size_handles_units_and_bare_bytes() {
+        assert_eq!(parse_size("1048576").unwrap(), 1024 * 1024);
+        assert_eq!(parse_size("512b").unwrap(), 512);
+        assert_eq!(parse_size("10kb").unwrap(), 10 * 1024);
+        assert_eq!(parse_size("2K").unwrap(), 2 * 1024);
+        assert_eq!(parse_size("3mb").unwrap(), 3 * 1024 * 1024);
+        assert_eq!(parse_size("1gb").unwrap(), 1024 * 1024 * 1024);
+        assert_eq!(parse_size("1.5mb").unwrap(), (1.5 * 1024.0 * 1024.0) as u64);
+        assert_eq!(parse_size(" 4mib ").unwrap(), 4 * 1024 * 1024);
+    }
+
+    #[test]
+    fn parse_size_rejects_garbage() {
+        assert!(parse_size("").is_err());
+        assert!(parse_size("mb").is_err());
+        assert!(parse_size("10tb").is_err());
+        assert!(parse_size("-5mb").is_err());
+    }
+
+    #[test]
+    fn sibling_appends_to_final_component() {
+        let base = Path::new("/tmp/omni/log.jsonl");
+        assert_eq!(sibling(base, ".1"), Path::new("/tmp/omni/log.jsonl.1"));
+        assert_eq!(
+            sibling(base, ".lock"),
+            Path::new("/tmp/omni/log.jsonl.lock")
+        );
+    }
+
+    #[test]
+    fn keep_by_size_keeps_most_recent_that_fit() {
+        // Four 10-byte lines (11 bytes on disk each with the newline).
+        let lines = ["aaaaaaaaaa", "bbbbbbbbbb", "cccccccccc", "dddddddddd"];
+        let refs: Vec<&str> = lines.to_vec();
+
+        // Budget for exactly two lines (22 bytes) keeps the last two.
+        assert_eq!(keep_by_size(&refs, 22), &["cccccccccc", "dddddddddd"]);
+        // A budget smaller than one line still keeps the single most recent.
+        assert_eq!(keep_by_size(&refs, 1), &["dddddddddd"]);
+        // A generous budget keeps everything.
+        assert_eq!(keep_by_size(&refs, 10_000), &refs[..]);
+        // Empty input yields empty output (no panic).
+        assert!(keep_by_size(&[], 100).is_empty());
+    }
+
+    #[test]
+    fn keep_by_age_is_conservative_on_undateable_lines() {
+        let cutoff = DateTime::parse_from_rfc3339("2026-06-01T00:00:00.000Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let old = r#"{"kind":"http","timestamp":"2026-01-01T00:00:00.000Z"}"#;
+        let new = r#"{"kind":"http","timestamp":"2026-12-01T00:00:00.000Z"}"#;
+        let undated = r#"{"kind":"http"}"#;
+        let malformed = "not json at all";
+
+        assert!(!keep_by_age(old, Some(cutoff)));
+        assert!(keep_by_age(new, Some(cutoff)));
+        assert!(keep_by_age(undated, Some(cutoff)), "undated is kept");
+        assert!(keep_by_age(malformed, Some(cutoff)), "malformed is kept");
+        assert!(keep_by_age(old, None), "no filter keeps everything");
+    }
+
+    fn http_line(id: &str, ts: &str) -> String {
+        format!(r#"{{"id":"{id}","kind":"http","timestamp":"{ts}"}}"#)
+    }
+
+    #[test]
+    fn prune_by_age_drops_old_records_and_rewrites_atomically() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("log.jsonl");
+        let body = format!(
+            "{}\n{}\n{}\n",
+            http_line("1", "2026-01-01T00:00:00.000Z"),
+            http_line("2", "2026-06-15T00:00:00.000Z"),
+            http_line("3", "2026-12-31T00:00:00.000Z"),
+        );
+        std::fs::write(&path, &body).unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
+
+        let cutoff = DateTime::parse_from_rfc3339("2026-06-01T00:00:00.000Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let outcome = prune(
+            &path,
+            &PruneOptions {
+                older_than: Some(cutoff),
+                max_size: None,
+                dry_run: false,
+            },
+        )
+        .unwrap();
+
+        assert_eq!(outcome.removed, 1);
+        assert_eq!(outcome.kept, 2);
+        let contents = std::fs::read_to_string(&path).unwrap();
+        assert!(!contents.contains(r#""id":"1""#));
+        assert!(contents.contains(r#""id":"2""#));
+        assert!(contents.contains(r#""id":"3""#));
+        // The atomic rewrite lands a fresh 0600 file regardless of the old mode.
+        assert_eq!(
+            std::fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+    }
+
+    #[test]
+    fn prune_dry_run_reports_without_modifying() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("log.jsonl");
+        let body = format!(
+            "{}\n{}\n",
+            http_line("1", "2026-01-01T00:00:00.000Z"),
+            http_line("2", "2026-12-31T00:00:00.000Z"),
+        );
+        std::fs::write(&path, &body).unwrap();
+
+        let cutoff = DateTime::parse_from_rfc3339("2026-06-01T00:00:00.000Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let outcome = prune(
+            &path,
+            &PruneOptions {
+                older_than: Some(cutoff),
+                max_size: None,
+                dry_run: true,
+            },
+        )
+        .unwrap();
+
+        assert_eq!(outcome.removed, 1);
+        // File is untouched by a dry run.
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), body);
+    }
+
+    #[test]
+    fn prune_by_size_keeps_the_newest_that_fit() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("log.jsonl");
+        let l1 = http_line("1", "2026-01-01T00:00:00.000Z");
+        let l2 = http_line("2", "2026-06-15T00:00:00.000Z");
+        let l3 = http_line("3", "2026-12-31T00:00:00.000Z");
+        std::fs::write(&path, format!("{l1}\n{l2}\n{l3}\n")).unwrap();
+
+        // Budget that fits only the last two lines.
+        let budget = (l2.len() + 1 + l3.len() + 1) as u64;
+        let outcome = prune(
+            &path,
+            &PruneOptions {
+                older_than: None,
+                max_size: Some(budget),
+                dry_run: false,
+            },
+        )
+        .unwrap();
+
+        assert_eq!(outcome.removed, 1);
+        assert_eq!(outcome.kept, 2);
+        let contents = std::fs::read_to_string(&path).unwrap();
+        assert!(!contents.contains(r#""id":"1""#));
+        assert!(contents.contains(r#""id":"3""#));
+    }
+
+    #[test]
+    fn prune_missing_file_is_a_noop() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("absent.jsonl");
+        let outcome = prune(
+            &path,
+            &PruneOptions {
+                older_than: None,
+                max_size: Some(1),
+                dry_run: false,
+            },
+        )
+        .unwrap();
+        assert_eq!(outcome.removed, 0);
+        assert_eq!(outcome.kept, 0);
+        assert!(!path.exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn rotation_shifts_numbered_files_and_drops_the_oldest() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("log.jsonl");
+        // A tiny cap so every second short line rotates.
+        let cfg = RotationConfig {
+            max_size: 20,
+            keep_files: 2,
+        };
+
+        let line = "0123456789012345\n"; // 17 bytes
+        for _ in 0..4 {
+            append_with_rotation(&path, line, &cfg).unwrap();
+        }
+
+        // The live file plus at most keep_files (2) rotated files exist; a .3
+        // must never appear.
+        assert!(path.exists());
+        assert!(sibling(&path, ".1").exists());
+        assert!(sibling(&path, ".2").exists());
+        assert!(!sibling(&path, ".3").exists());
+        // Rotated files keep the 0600 posture.
+        assert_eq!(
+            std::fs::metadata(sibling(&path, ".1"))
+                .unwrap()
+                .permissions()
+                .mode()
+                & 0o777,
+            0o600
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn rotation_keep_zero_discards_on_overflow() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("log.jsonl");
+        let cfg = RotationConfig {
+            max_size: 20,
+            keep_files: 0,
+        };
+        let line = "0123456789012345\n"; // 17 bytes
+        append_with_rotation(&path, line, &cfg).unwrap();
+        append_with_rotation(&path, line, &cfg).unwrap();
+        // No .1 is retained; only the current (single-line) file survives.
+        assert!(!sibling(&path, ".1").exists());
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), line);
+    }
+
+    #[test]
+    fn rotated_files_lists_numbered_siblings_in_numeric_order() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("log.jsonl");
+        for name in [
+            "log.jsonl",
+            "log.jsonl.1",
+            "log.jsonl.2",
+            "log.jsonl.10",
+            "log.jsonl.9",
+            // Not rotated files: the writers' lock, a backup of one, a trailing dot,
+            // a non-number, a number too large for a count, another log's rotation.
+            "log.jsonl.lock",
+            "log.jsonl.1.bak",
+            "log.jsonl.",
+            "log.jsonl.x",
+            "log.jsonl.99999999999",
+            // Rotation numbers from 1 and writes no padding or sign.
+            "log.jsonl.0",
+            "log.jsonl.01",
+            "log.jsonl.+2",
+            "other.jsonl.3",
+        ] {
+            std::fs::write(dir.path().join(name), "").unwrap();
+        }
+        // Opening a directory succeeds and reading it does not; it is no log.
+        std::fs::create_dir(dir.path().join("log.jsonl.3")).unwrap();
+
+        let names: Vec<_> = rotated_files(&path)
+            .iter()
+            .map(|p| p.file_name().unwrap().to_string_lossy().into_owned())
+            .collect();
+        // Numeric, not lexicographic: `.9` comes before `.10`.
+        assert_eq!(
+            names,
+            ["log.jsonl.1", "log.jsonl.2", "log.jsonl.9", "log.jsonl.10"]
+        );
+    }
+
+    #[test]
+    fn a_bare_file_name_is_listed_in_the_current_directory() {
+        // `Path::parent` of a bare name is empty, which `read_dir` rejects.
+        assert_eq!(sibling_dir(Path::new("log.jsonl")), Some(Path::new(".")));
+        assert_eq!(
+            sibling_dir(Path::new("state/log.jsonl")),
+            Some(Path::new("state"))
+        );
+        assert_eq!(sibling_dir(Path::new("/log.jsonl")), Some(Path::new("/")));
+        assert_eq!(sibling_dir(Path::new("/")), None);
+        assert!(std::fs::read_dir(sibling_dir(Path::new("log.jsonl")).unwrap()).is_ok());
+    }
+
+    #[test]
+    fn rotated_files_of_a_missing_directory_is_empty() {
+        let dir = tempfile::tempdir().unwrap();
+        assert!(rotated_files(&dir.path().join("gone").join("log.jsonl")).is_empty());
+        assert!(rotated_files(Path::new("/")).is_empty());
+    }
+
+    #[test]
+    fn a_missing_directory_is_not_worth_a_log_line() {
+        let dir = tempfile::tempdir().unwrap();
+        let logs = crate::test_support::capture_at(tracing::Level::DEBUG, || {
+            assert!(rotated_files(&dir.path().join("gone").join("log.jsonl")).is_empty());
+        });
+        assert_eq!(logs, "");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_directory_that_cannot_be_listed_has_no_rotated_files_and_says_so() {
+        let dir = tempfile::tempdir().unwrap();
+        // A parent that is a file is not a missing directory: it fails with
+        // `ENOTDIR`, which is not `NotFound`.
+        let parent = dir.path().join("not-a-dir");
+        std::fs::write(&parent, "").unwrap();
+
+        let logs = crate::test_support::capture_at(tracing::Level::DEBUG, || {
+            assert!(rotated_files(&parent.join("log.jsonl")).is_empty());
+        });
+        assert!(
+            logs.contains(&format!(
+                "request_log: cannot list {} for rotated files:",
+                parent.display()
+            )),
+            "{logs}"
+        );
+    }
+
+    #[test]
+    fn an_unreadable_entry_is_skipped_and_logged() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("log.jsonl.1"), "").unwrap();
+        let entry = std::fs::read_dir(dir.path()).unwrap().next().unwrap();
+        assert_eq!(
+            readable_entry(entry, dir.path()).unwrap().file_name(),
+            "log.jsonl.1"
+        );
+
+        let logs = crate::test_support::capture_at(tracing::Level::DEBUG, || {
+            let failed = Err(std::io::Error::other("entry vanished"));
+            assert!(readable_entry(failed, Path::new("state")).is_none());
+        });
+        assert!(
+            logs.contains("request_log: skipping an unreadable entry of state: entry vanished"),
+            "{logs}"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn rotated_files_finds_what_rotation_wrote() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("log.jsonl");
+        let cfg = RotationConfig {
+            max_size: 20,
+            keep_files: 3,
+        };
+        let line = "0123456789012345\n"; // 17 bytes: every append rotates
+        for _ in 0..7 {
+            append_with_rotation(&path, line, &cfg).unwrap();
+        }
+        // The lock file is left next to them; it is not one.
+        assert!(sibling(&path, ".lock").exists());
+        assert_eq!(
+            rotated_files(&path),
+            [
+                sibling(&path, ".1"),
+                sibling(&path, ".2"),
+                sibling(&path, ".3")
+            ]
+        );
+    }
+
+    #[test]
+    fn parse_size_rejects_overflow_to_infinity() {
+        // A number too large for f64 parses to a non-finite value, not a size.
+        assert!(parse_size(&"9".repeat(400)).is_err());
+    }
+
+    // --- same_file / normalize / lexically_normalize (issue #1694) ---
+
+    #[test]
+    fn same_file_matches_identical_paths() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("audit.jsonl");
+        assert!(same_file(&path, &path));
+    }
+
+    #[test]
+    fn same_file_matches_a_dot_dot_spelling_routed_through_a_nonexistent_directory() {
+        // `metadata` fails for the dotted spelling (it must traverse the
+        // nonexistent `sub` to apply `..`), forcing the fallback through
+        // `lexically_normalize`, which collapses the `..` with no filesystem
+        // access before canonicalizing what remains.
+        let dir = tempfile::tempdir().unwrap();
+        let audit = dir.path().join("audit.jsonl");
+        std::fs::write(&audit, "{}\n").unwrap();
+        let dotted = dir.path().join("sub/../audit.jsonl");
+        assert!(same_file(&audit, &dotted));
+    }
+
+    #[test]
+    fn same_file_matches_a_hard_link() {
+        let dir = tempfile::tempdir().unwrap();
+        let original = dir.path().join("audit.jsonl");
+        std::fs::write(&original, "{}\n").unwrap();
+        let linked = dir.path().join("linked.jsonl");
+        std::fs::hard_link(&original, &linked).unwrap();
+        assert!(same_file(&original, &linked));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn same_file_matches_a_symlink_to_an_existing_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let original = dir.path().join("audit.jsonl");
+        std::fs::write(&original, "{}\n").unwrap();
+        let link = dir.path().join("link.jsonl");
+        std::os::unix::fs::symlink(&original, &link).unwrap();
+        assert!(same_file(&original, &link));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn same_file_matches_a_symlink_to_a_not_yet_existing_target() {
+        // `fs::metadata` follows symlinks, so a link whose target does not
+        // exist yet fails both `metadata` calls; the fallback must resolve
+        // the link by hand rather than comparing the link's own name against
+        // the target's, which would answer "different" right up until the
+        // first write creates the target through the link.
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("audit.jsonl"); // never created
+        let link = dir.path().join("link.jsonl");
+        std::os::unix::fs::symlink(&target, &link).unwrap();
+        assert!(same_file(&target, &link));
+    }
+
+    #[test]
+    fn same_file_rejects_two_distinct_existing_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let a = dir.path().join("a.jsonl");
+        let b = dir.path().join("b.jsonl");
+        std::fs::write(&a, "a").unwrap();
+        std::fs::write(&b, "b").unwrap();
+        assert!(!same_file(&a, &b));
+    }
+
+    #[test]
+    fn same_file_rejects_two_distinct_paths_that_both_do_not_exist() {
+        let dir = tempfile::tempdir().unwrap();
+        let a = dir.path().join("a.jsonl");
+        let b = dir.path().join("b.jsonl");
+        assert!(!same_file(&a, &b));
+    }
+
+    #[test]
+    fn lexically_normalize_collapses_dot_dot_without_touching_disk() {
+        assert_eq!(
+            lexically_normalize(Path::new("a/sub/../b")),
+            PathBuf::from("a/b")
+        );
+        assert_eq!(
+            lexically_normalize(Path::new("./a/./b")),
+            PathBuf::from("a/b")
+        );
+        // A leading `..` has nothing to pop, and must be kept rather than
+        // dropped or turned into an error.
+        assert_eq!(
+            lexically_normalize(Path::new("../a")),
+            PathBuf::from("../a")
+        );
+    }
+
+    #[test]
+    fn normalize_returns_the_lexical_form_unchanged_when_there_is_nothing_left_to_canonicalize() {
+        // An empty path has no file name and does not canonicalize; the
+        // defensive fallback must return it unchanged rather than panicking
+        // on a `None` `file_name()`.
+        assert_eq!(normalize(Path::new("")), PathBuf::new());
+    }
+
+    #[test]
+    fn prune_surfaces_a_read_error() {
+        // Reading a directory as the log yields an error other than NotFound,
+        // which prune propagates rather than treating as an empty log.
+        let dir = tempfile::tempdir().unwrap();
+        let result = prune(
+            dir.path(),
+            &PruneOptions {
+                older_than: None,
+                max_size: Some(1),
+                dry_run: false,
+            },
+        );
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn prune_refuses_the_audit_file_by_direct_path() {
+        let dir = tempfile::tempdir().unwrap();
+        let _audit = crate::test_support::AuditLogGuard::redirect(dir.path());
+        let audit_path = dir.path().join("audit.jsonl");
+        std::fs::write(&audit_path, "{}\n").unwrap();
+
+        let err = prune(
+            &audit_path,
+            &PruneOptions {
+                older_than: None,
+                max_size: Some(1),
+                dry_run: false,
+            },
+        )
+        .err()
+        .unwrap();
+
+        assert!(err.to_string().contains("audit log"), "{err}");
+        assert_eq!(std::fs::read_to_string(&audit_path).unwrap(), "{}\n");
+    }
+
+    #[test]
+    fn prune_refuses_a_dot_dot_spelling_of_the_audit_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let _audit = crate::test_support::AuditLogGuard::redirect(dir.path());
+        let audit_path = dir.path().join("audit.jsonl");
+        std::fs::write(&audit_path, "{}\n").unwrap();
+        let dotted = dir.path().join("sub/../audit.jsonl");
+
+        let err = prune(
+            &dotted,
+            &PruneOptions {
+                older_than: None,
+                max_size: Some(1),
+                dry_run: false,
+            },
+        )
+        .err()
+        .unwrap();
+
+        assert!(err.to_string().contains("audit log"), "{err}");
+        assert_eq!(std::fs::read_to_string(&audit_path).unwrap(), "{}\n");
+    }
+
+    #[test]
+    fn prune_refuses_the_audit_file_even_under_dry_run() {
+        // Exemption from pruning is the point, and `gwi log --audit` is
+        // the supported way to read the file — a read-only dry run is not a
+        // carve-out.
+        let dir = tempfile::tempdir().unwrap();
+        let _audit = crate::test_support::AuditLogGuard::redirect(dir.path());
+        let audit_path = dir.path().join("audit.jsonl");
+        std::fs::write(&audit_path, "{}\n").unwrap();
+
+        let err = prune(
+            &audit_path,
+            &PruneOptions {
+                older_than: None,
+                max_size: Some(1),
+                dry_run: true,
+            },
+        )
+        .err()
+        .unwrap();
+
+        assert!(err.to_string().contains("audit log"), "{err}");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn append_with_rotation_refuses_to_rotate_the_audit_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let _audit = crate::test_support::AuditLogGuard::redirect(dir.path());
+        let audit_path = dir.path().join("audit.jsonl");
+        // Seed a file already over the cap so a request-log path would rotate.
+        std::fs::write(&audit_path, "0123456789012345\n").unwrap();
+        let cfg = RotationConfig {
+            max_size: 5,
+            keep_files: 1,
+        };
+
+        append_with_rotation(&audit_path, "new-line\n", &cfg).unwrap();
+
+        assert!(
+            !sibling(&audit_path, ".1").exists(),
+            "the audit file must never be rotated"
+        );
+        assert!(
+            !sibling(&audit_path, ".lock").exists(),
+            "a refused rotation must not create a lock file next to the audit file"
+        );
+        assert!(
+            std::fs::read_to_string(&audit_path)
+                .unwrap()
+                .contains("new-line"),
+            "the line is still appended (best effort)"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn append_with_rotation_appends_even_when_rotate_fails() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("log.jsonl");
+        // Seed a file already over the cap so the next write attempts to rotate.
+        std::fs::write(&path, "0123456789012345\n").unwrap();
+        // Make the rotation target a directory so `rename(log, log.1)` fails.
+        std::fs::create_dir(sibling(&path, ".1")).unwrap();
+        let cfg = RotationConfig {
+            max_size: 5,
+            keep_files: 1,
+        };
+        // Rotation fails, but the line is still appended (best effort).
+        append_with_rotation(&path, "new-line\n", &cfg).unwrap();
+        assert!(
+            std::fs::read_to_string(&path).unwrap().contains("new-line"),
+            "the record is appended despite the rotation failure"
+        );
+    }
+
+    #[test]
+    fn prune_cleans_up_temp_on_rewrite_failure() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("log.jsonl");
+        std::fs::write(
+            &path,
+            format!(
+                "{}\n{}\n",
+                http_line("a", "2999-01-01T00:00:00.000Z"),
+                http_line("b", "2999-01-01T00:00:00.000Z"),
+            ),
+        )
+        .unwrap();
+        // Pre-create the exact temp path (same-process pid) as a directory so
+        // the atomic rewrite's open fails, exercising the cleanup path.
+        let tmp = sibling(&path, &format!(".prune.{}.tmp", std::process::id()));
+        std::fs::create_dir(&tmp).unwrap();
+
+        let result = prune(
+            &path,
+            &PruneOptions {
+                older_than: None,
+                max_size: Some(1),
+                dry_run: false,
+            },
+        );
+        assert!(result.is_err(), "a failing rewrite surfaces as an error");
+        let _ = std::fs::remove_dir(&tmp);
+    }
+
+    #[tokio::test]
+    async fn scope_origin_id_overwrites_id_but_preserves_source() {
+        // A daemon-side base context: source = Daemon (so `via_daemon` detection
+        // keeps working) with the daemon's own invocation id.
+        let base = RequestLogContext {
+            invocation_id: "daemon-1".to_string(),
+            source: Source::Daemon,
+            mcp_tool: None,
+        };
+        CTX.scope(base, async {
+            scope_origin_id("cli-42".to_string(), async {
+                let ctx = current_context();
+                // Correlation id now points at the originating CLI invocation…
+                assert_eq!(ctx.invocation_id, "cli-42");
+                // …while the source stays Daemon, so `via_daemon` is unaffected.
+                assert_eq!(ctx.source, Source::Daemon);
+            })
+            .await;
+            // The override is scoped: outside it, the base id is restored.
+            assert_eq!(current_context().invocation_id, "daemon-1");
+        })
+        .await;
+    }
+}

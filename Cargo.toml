@@ -19,3 +19,97 @@ autotests = false
 [[bin]]
 name = "gwi"
 path = "src/main.rs"
+
+[features]
+# Reserved for the `gwi-mcp` server (rmcp); gates code shared with the MCP tools.
+mcp = []
+
+[dependencies]
+anyhow = "1.0"
+base64 = "0.23"
+clap = { version = "4.6", features = ["derive", "color"] }
+chrono = { version = "0.4", features = ["serde"] }
+crossterm = "0.29"
+dirs = "7.0.0"
+http = "1"
+rand = "0.10"
+reqwest = { version = "0.13", features = ["form", "json", "multipart", "stream"] }
+same-file = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+serde_yaml = "0.9"
+shlex = "1.3"
+tempfile = "3.27"
+thiserror = "2.0"
+tokio = { version = "1.52", features = ["full"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+url = "2.5.8"
+
+[target.'cfg(unix)'.dependencies]
+nix = { version = "0.31", default-features = false, features = ["fs", "hostname", "resource", "signal", "user"] }
+
+[dev-dependencies]
+regex = "1.12.3"
+tokio = { version = "1.52", features = ["full", "test-util"] }
+wiremock = "0.6"
+
+# Lint policy forked from omni-dev (rust-works/omni-dev#2203): the imported code was
+# written against it, so gwi holds it to the same standard.
+[lints.rust]
+unsafe_code = "deny"
+
+[lints.clippy]
+# Lint groups (priority -1 so individual overrides win)
+all      = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+nursery  = { level = "warn", priority = -1 }
+
+# ── Pedantic: too noisy / low signal ─────────────────────────────────
+must_use_candidate      = "allow"
+module_name_repetitions = "allow"
+
+# ── Pedantic: documentation (defer to follow-up) ────────────────────
+missing_errors_doc      = "allow"
+missing_panics_doc      = "allow"
+doc_markdown            = "allow"
+
+# ── Pedantic: public API stability ───────────────────────────────────
+unused_self             = "allow"  # removing &self is an API change
+unnecessary_wraps       = "allow"  # removing Result is an API change
+needless_pass_by_value  = "allow"  # changing to &T is an API change
+ref_option              = "allow"  # changing &Option<T> to Option<&T> is an API change
+
+# ── Pedantic: stylistic ─────────────────────────────────────────────
+if_not_else             = "allow"
+similar_names           = "allow"
+too_many_lines          = "allow"  # covered by STYLE-0017
+format_push_string      = "allow"  # write! alternative requires unwrap
+unused_async            = "allow"  # some async fns are async for API consistency
+items_after_statements  = "allow"  # sometimes clearer to declare near use
+struct_field_names      = "allow"  # naming convention matches domain
+struct_excessive_bools  = "allow"  # config structs use bool flags
+# New in Clippy 1.99; older toolchains warn "unknown lint" (a warning, never an error).
+assert_is_empty         = "allow"  # suggested `assert_eq!(x, [] as [T; 0])` needs the element type spelled out
+
+# ── Pedantic: numeric casts ─────────────────────────────────────────
+cast_precision_loss      = "allow"  # token/char counts within safe ranges
+cast_possible_truncation = "allow"
+cast_possible_wrap       = "allow"
+cast_sign_loss           = "allow"
+
+# ── Pedantic: file system ───────────────────────────────────────────
+case_sensitive_file_extension_comparisons = "allow"  # risky auto-fix
+
+# ── Restriction: panicking operations (STYLE-0003) ────────────────────
+unwrap_used  = "warn"
+expect_used  = "warn"
+
+# ── Nursery ──────────────────────────────────────────────────────────
+option_if_let_else           = "allow"  # often less readable than if-let
+redundant_pub_crate          = "allow"  # conflicts with STYLE-0005
+missing_const_for_fn         = "allow"
+or_fun_call                  = "allow"  # false positives
+significant_drop_tightening  = "allow"  # often produces wrong suggestions
+large_stack_frames           = "allow"  # fires on test fns with large fixture literals; no usable span
+large_stack_arrays           = "allow"  # ditto — fixture arrays in tests
