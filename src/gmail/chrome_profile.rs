@@ -447,10 +447,15 @@ mod tests {
         std::thread::scope(|scope| {
             scope.spawn(|| {
                 while !stop.load(Ordering::Relaxed) {
-                    let _guard = EnvGuard::take();
-                    std::env::set_var("HOME", dir_a.path());
+                    {
+                        let _guard = EnvGuard::take();
+                        std::env::set_var("HOME", dir_a.path());
+                        std::thread::yield_now();
+                        std::env::set_var("HOME", dir_b.path());
+                    }
+                    // `std::sync::Mutex` is unfair: yield after releasing so
+                    // the comparing thread is not starved of the lock.
                     std::thread::yield_now();
-                    std::env::set_var("HOME", dir_b.path());
                 }
             });
 
