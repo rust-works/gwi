@@ -39,6 +39,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_CHANGELOG = ROOT / "CHANGELOG.md"
 DEFAULT_FRAGMENTS = ROOT / "changelog.d"
+# The repository the git helpers diff in; tests point it at a throwaway one.
+REPO = ROOT
 
 # (type, section heading), in the order a rendered release lists them: Keep a
 # Changelog's order.
@@ -59,13 +61,13 @@ FRAGMENT_RE = re.compile(
     r"^(?P<id>[1-9][0-9]*|\+[a-z0-9][a-z0-9-]*)"
     r"\.(?P<type>[a-z]+)"
     r"(?:\.(?P<n>[1-9][0-9]*))?"
-    r"\.md$"
+    r"\.md"
 )
 VERSION_RE = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?$")
 DATE_RE = re.compile(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}$")
 
 WAIVER_LABEL = "no-changelog"
-WAIVER_MARKER_RE = re.compile(r"\[(?:no|skip) changelog\]", re.IGNORECASE)
+WAIVER_MARKER_RE = re.compile(r"\[no changelog\]", re.IGNORECASE)
 # A body line that CHANGELOG.md's own parsing would take for a heading or a link
 # definition (`collect` finds the Unreleased body's end and the footer by them).
 STRUCTURAL_LINE_RE = re.compile(r"^(?:#|\[[^\]]+\]: )")
@@ -95,7 +97,7 @@ class Fragment:
 
 def validate_name(name):
     """Return (id, type, n) for a fragment filename, or raise ChangelogError."""
-    m = FRAGMENT_RE.match(name)
+    m = FRAGMENT_RE.fullmatch(name)
     if not m:
         raise ChangelogError(
             f"{name}: not a valid fragment name; expected "
@@ -124,6 +126,10 @@ def read_body(path, name):
             f"{name}: an entry must start with a bullet ('- '), as in CHANGELOG.md"
         )
     for line in body.split("\n")[1:]:
+        if not line.strip():
+            raise ChangelogError(
+                f"{name}: contains a blank line; an entry is one bullet with no blank lines"
+            )
         if STRUCTURAL_LINE_RE.match(line):
             raise ChangelogError(
                 f"{name}: a line starting at column 0 with '#' or a '[x]: ' link would "
@@ -165,10 +171,6 @@ def render_sections(fragments):
     return sections
 
 
-def _heading_line(line):
-    return line.rstrip("\r\n")
-
-
 def build_release(changelog_text, fragments, version, date):
     """Return the new CHANGELOG.md text; raises ChangelogError if it cannot."""
     if not VERSION_RE.match(version):
@@ -177,7 +179,7 @@ def build_release(changelog_text, fragments, version, date):
         raise ChangelogError(f"'{date}' is not a YYYY-MM-DD date")
 
     lines = changelog_text.splitlines(keepends=True)
-    heads = [_heading_line(line) for line in lines]
+    heads = [line.rstrip("\r\n") for line in lines]
     if "## [Unreleased]" not in heads:
         raise ChangelogError("CHANGELOG.md has no '## [Unreleased]' heading")
     if any(h.startswith(f"## [{version}]") for h in heads):
@@ -233,7 +235,8 @@ def build_release(changelog_text, fragments, version, date):
         tail = tail[: m.start()] + new_links + tail[m.end() :]
 
     head = "".join(lines[: start + 1])
-    return f"{head}\n## [{version}] - {date}\n\n{content}\n{tail}"
+    # The blank line before the footer only belongs there when there is a footer.
+    return f"{head}\n## [{version}] - {date}\n\n{content}" + (f"\n{tail}" if tail else "")
 
 
 def write_atomically(path, text):
@@ -269,22 +272,23 @@ def waiver_reason(title, body, labels, author, touches_changelog=False):
     return None
 
 
-REPO = ROOT
-
-
 def _diff_names(base, head, diff_filter, path):
-    out = subprocess.run(
-        ["git", "-C", str(REPO), "diff", "--name-only", f"--diff-filter={diff_filter}",
-         f"{base}...{head}", "--", path],
-        check=True, capture_output=True, text=True,
-    ).stdout
+    try:
+        out = subprocess.run(
+            ["git", "-C", str(REPO), "diff", "--name-only", f"--diff-filter={diff_filter}",
+             f"{base}...{head}", "--", path],
+            check=True, capture_output=True, text=True,
+        ).stdout
+    except (subprocess.CalledProcessError, OSError) as e:
+        detail = getattr(e, "stderr", "") or str(e)
+        raise ChangelogError(f"cannot diff {base}...{head}: {detail.strip()}")
     return out.splitlines()
 
 
 def changed_fragment_names(base, head, directory="changelog.d"):
     """Names of fragments the PR adds, modifies or renames into place."""
     names = [Path(p).name for p in _diff_names(base, head, "AMR", directory)]
-    return [n for n in names if n not in NON_FRAGMENTS and FRAGMENT_RE.match(n)]
+    return [n for n in names if n not in NON_FRAGMENTS and FRAGMENT_RE.fullmatch(n)]
 
 
 def changelog_modified(base, head):
@@ -308,9 +312,12 @@ def cmd_check_pr(args):
         return status
     labels = {l.strip() for l in args.labels.split(",") if l.strip()}
     body = Path(args.body_file).read_text(encoding="utf-8") if args.body_file else ""
+    # Only a release title can use the answer, so a waived or ordinary PR never
+    # needs the diff (and cannot fail on an unresolvable base because of it).
+    is_release = args.title.strip().startswith(RELEASE_TITLE_PREFIX)
     reason = waiver_reason(
         args.title, body, labels, args.author,
-        touches_changelog=changelog_modified(args.base, args.head),
+        touches_changelog=is_release and changelog_modified(args.base, args.head),
     )
     if reason:
         print(f"changelog fragment waived: {reason}")

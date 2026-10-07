@@ -153,6 +153,7 @@ class NameValidationTests(unittest.TestCase):
             "+Fix.changed.md",    # slug is lower case
             "148.changed.2.3.md", # one suffix only
             "notes.md",
+            "148.added.md\n",       # `$` would let a trailing newline through
         ]:
             with self.subTest(name=name), self.assertRaises(changelog.ChangelogError):
                 changelog.validate_name(name)
@@ -190,6 +191,11 @@ class LoadFragmentsTests(Workspace):
                 write_fragments(self.frag_dir, {f"{i + 1}.added.md": f"- entry\n{line}\n"})
                 _, errors = changelog.load_fragments(self.frag_dir)
                 self.assertTrue(any(f"{i + 1}.added.md" in e for e in errors), errors)
+
+    def test_a_blank_line_in_a_body_is_an_error(self):
+        write_fragments(self.frag_dir, {"1.added.md": "- entry\n\n  second paragraph\n"})
+        _, errors = changelog.load_fragments(self.frag_dir)
+        self.assertTrue(any("blank line" in e for e in errors), errors)
 
     def test_indented_hash_and_bracket_text_in_a_body_is_fine(self):
         write_fragments(self.frag_dir, {"1.added.md": "- entry\n  # a comment\n  ### not a heading\n  [x]: y\n- [link](u)\n"})
@@ -325,6 +331,13 @@ class RenderTests(Workspace):
         )
         self.assertNotIn("]: ", new)
 
+    def test_a_release_that_is_the_last_thing_in_the_file_has_no_trailing_blank_line(self):
+        text = "# Changelog\n\n## [Unreleased]\n\n### Added\n\n- a\n"
+        new = changelog.build_release(text, [], "0.1.0", "2026-01-01")
+        self.assertEqual(
+            new, "# Changelog\n\n## [Unreleased]\n\n## [0.1.0] - 2026-01-01\n\n### Added\n\n- a\n"
+        )
+
     def test_prerelease_versions_are_accepted(self):
         new = changelog.build_release(CHANGELOG, [], "0.8.0-rc.1", "2026-11-01")
         self.assertIn("## [0.8.0-rc.1] - 2026-11-01", new)
@@ -428,7 +441,9 @@ class WaiverTests(unittest.TestCase):
 
     def test_body_marker_waives_in_either_spelling(self):
         self.assertIsNotNone(self.waiver(body="Docs only.\n\n[no changelog]\n"))
-        self.assertIsNotNone(self.waiver(body="[Skip Changelog]"))
+        self.assertIsNotNone(self.waiver(body="[No Changelog]"))
+        # Only the documented marker waives.
+        self.assertIsNone(self.waiver(body="[skip changelog]"))
 
     def test_marker_inside_the_templates_html_comment_does_not_waive(self):
         body = "## Description\n<!-- add [no changelog] to waive the fragment -->\nreal text\n"
@@ -537,6 +552,21 @@ class CheckPrTests(Workspace):
         status, out, err = self.run_cli(*argv)
         self.assertEqual(status, 0, err)
         self.assertIn("release PR", out)
+
+    def test_a_waived_pr_does_not_need_the_base_to_resolve(self):
+        status, out, err = self.run_cli(
+            "check-pr", "--fragments-dir", str(self.frag_dir), "--base", "no-such-ref",
+            "--head", "pr", "--title", "docs: x", "--labels", "no-changelog", "--author", "a",
+        )
+        self.assertEqual(status, 0, err)
+
+    def test_an_unresolvable_base_is_an_error_not_a_traceback(self):
+        status, _, err = self.run_cli(
+            "check-pr", "--fragments-dir", str(self.frag_dir), "--base", "no-such-ref",
+            "--head", "pr", "--title", "docs: x", "--author", "a",
+        )
+        self.assertEqual(status, 1)
+        self.assertIn("cannot diff", err)
 
     def test_waived_pr_passes_without_a_fragment(self):
         self.commit({"docs.md": "x\n"})
