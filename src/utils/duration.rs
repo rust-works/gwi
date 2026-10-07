@@ -1,8 +1,8 @@
 //! Relative-duration parsing for `--older-than`-style flags.
 //!
-//! Forked from omni-dev's `cli::log::query::parse_since` (rust-works/omni-dev#2203): the
-//! Drive lease `prune` command is the only consumer gwi needs, and omni-dev's log command
-//! it came from is not part of gwi.
+//! Forked from omni-dev's `cli::log::query::parse_since` (rust-works/omni-dev#2203). Only
+//! `drive lease prune` uses it; omni-dev's `log` command, where it lives upstream, is not
+//! part of gwi.
 
 use anyhow::{bail, Context, Result};
 use chrono::{DateTime, Duration, Utc};

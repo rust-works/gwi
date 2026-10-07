@@ -3070,9 +3070,10 @@ mod tests {
     /// `lease` blocks, a field no gwi type models, and an unrelated block
     /// from a product gwi has never heard of.
     ///
-    /// A literal rather than the typed structs: the Google types move to gwi
-    /// (#2203, ADR-0095), after which gwi no longer models these blocks but
-    /// must still carry them through its own writes (gwi's import reads them).
+    /// A literal rather than the typed structs: every settings writer works on an
+    /// untyped JSON value, so this proves each one carries the blocks through
+    /// verbatim, including fields a typed struct would drop (a newer release's, or
+    /// another product's).
     const GOOGLE_BLOCKS_SETTINGS: &str = r#"{
         "env": {"KEEP": "me"},
         "gmail": {
@@ -3086,15 +3087,15 @@ mod tests {
             "accounts": {
                 "work": {
                     "client_id": "cid",
-                    "backup_folder_id": "backup1",
+                    "lease_backup_folder_id": "backup1",
                     "write_permissions": {
-                        "rules": [{"folder_id": "f1", "operations": ["rename"]}],
+                        "rules": [{"folder_id": "f1", "allow": ["rename"]}],
                         "future_field": "not modelled anywhere"
                     }
                 }
             }
         },
-        "lease": {"expiry_minutes": 15, "biometrics_only": true},
+        "lease": {"default_expiry_minutes": 15, "biometrics_only": true},
         "futureproduct": {"nested": {"list": [1, 2, 3]}}
     }"#;
 

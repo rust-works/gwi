@@ -842,11 +842,11 @@ impl PinFailure {
             (true, true) => "No lease was minted and the backups were discarded.",
             (false, false) => {
                 "No lease was minted, but the backup could not be discarded — its location is \
-                 in the audit log (`gwi log --audit`); remove it by hand, then retry."
+                 in the audit log; remove it by hand, then retry."
             }
             (false, true) => {
                 "No lease was minted. Retrying stopped early because the last backup could not \
-                 be discarded — its location is in the audit log (`gwi log --audit`); \
+                 be discarded — its location is in the audit log; \
                  remove it by hand. Every earlier backup was discarded."
             }
         };

@@ -13,7 +13,7 @@
 //! issue #1500, [ADR-0066](../../docs/adrs/adr-0066.md), applied to Drive by
 //! [ADR-0069](../../docs/adrs/adr-0069.md)): `Some(name)` forces that named
 //! Drive account, `None` falls through to ambient
-//! `--account`/`GWI_DRIVE_ACCOUNT` resolution (relevant if the MCP
+//! `--account`/`OMNI_DEV_DRIVE_ACCOUNT` resolution (relevant if the MCP
 //! server process itself was launched with that env var pinned) — see
 //! [`crate::drive::account::resolve_account`].
 //!
@@ -55,7 +55,7 @@ use super::server::OmniDevServer;
 macro_rules! account_param_doc {
     () => {
         "Selects a named Drive account instead of the ambient \
-         `--account`/`GWI_DRIVE_ACCOUNT` resolution — e.g. `work`. Omit to use the \
+         `--account`/`OMNI_DEV_DRIVE_ACCOUNT` resolution — e.g. `work`. Omit to use the \
          resolved default account (or the legacy single-account credentials, if no named \
          accounts are configured). Call `drive_account_list` to discover configured names."
     };
@@ -157,10 +157,10 @@ impl OmniDevServer {
                        (DRIVE_CLIENT_ID/DRIVE_CLIENT_SECRET/refresh token present) and which \
                        scope was granted at login. Returns presence flags and the granted \
                        scope only — NEVER the client secret, refresh token, or access token. \
-                       Unlike the CLI `gwi drive auth status`, this tool does not call the \
+                       Unlike the CLI `omni-dev drive auth status`, this tool does not call the \
                        Drive API and cannot confirm the refresh token is still accepted — use \
                        the CLI status command to actually verify. \
-                       Read-only. Mirrors `gwi drive auth status`."
+                       Read-only. Mirrors `omni-dev drive auth status`."
     )]
     pub async fn drive_auth_status(
         &self,
@@ -181,7 +181,7 @@ impl OmniDevServer {
                        binary-content files (absent for folders and Google-native docs). \
                        Always searches shared drives too. `limit` defaults to 50 when omitted; \
                        pass `0` explicitly to auto-paginate up to a hard cap (10000). \
-                       Read-only. Mirrors `gwi drive search`. Output is YAML."
+                       Read-only. Mirrors `omni-dev drive search`. Output is YAML."
     )]
     pub async fn drive_search(
         &self,
@@ -202,7 +202,7 @@ impl OmniDevServer {
                        checksum (folders, Google-native documents) are skipped, and groups of \
                        one are omitted. `limit` defaults to 50 when omitted; pass `0` explicitly \
                        to scan up to a hard cap (10000). \
-                       Read-only. Mirrors `gwi drive dedupe`. Output is YAML."
+                       Read-only. Mirrors `omni-dev drive dedupe`. Output is YAML."
     )]
     pub async fn drive_dedupe(
         &self,
@@ -228,7 +228,7 @@ impl OmniDevServer {
                        \"content\"`, only for non-Google-native files) to locally recompute the \
                        SHA-256 checksum of the fetched bytes and check it against Drive's \
                        reported sha256Checksum, failing clearly on a mismatch. \
-                       Read-only. Mirrors `gwi drive read`. Output is YAML."
+                       Read-only. Mirrors `omni-dev drive read`. Output is YAML."
     )]
     pub async fn drive_file_read(
         &self,
@@ -246,12 +246,12 @@ impl OmniDevServer {
 
     /// Tool: list configured named Drive accounts.
     #[tool(
-        description = "List Drive accounts configured in ~/.gwi/settings.json — name, \
+        description = "List Drive accounts configured in ~/.omni-dev/settings.json — name, \
                        cached email address (if known), granted scope, and which one is the \
                        default. Call this first to discover valid `account` values before \
                        passing one to `drive_search`/`drive_file_read`/`drive_auth_status`. \
                        Never returns a secret. \
-                       Read-only, no parameters. Mirrors `gwi drive account list`."
+                       Read-only, no parameters. Mirrors `omni-dev drive account list`."
     )]
     pub async fn drive_account_list(
         &self,
@@ -273,7 +273,7 @@ impl OmniDevServer {
 ///
 /// Pure: never touches the network and never reads any secret values.
 /// `account`, when `Some`, forces that named account instead of falling
-/// through to ambient `--account`/`GWI_DRIVE_ACCOUNT` resolution.
+/// through to ambient `--account`/`OMNI_DEV_DRIVE_ACCOUNT` resolution.
 fn run_auth_status(account: Option<&str>) -> Result<String> {
     let status = auth::status_for(account)?;
     serde_yaml::to_string(&status).context("Failed to serialize Drive auth status")
@@ -526,7 +526,7 @@ mod tests {
     fn run_auth_status_never_emits_secret_values() {
         let guard = EnvGuard::take();
         let dir = guard.clear_credentials();
-        let omni_dir = dir.path().join(".gwi");
+        let omni_dir = dir.path().join(".omni-dev");
         std::fs::create_dir_all(&omni_dir).unwrap();
         std::fs::write(
             omni_dir.join("settings.json"),
@@ -1109,7 +1109,7 @@ mod tests {
     async fn drive_auth_status_handler_returns_yaml_no_secrets() {
         let guard = EnvGuard::take();
         let dir = guard.clear_credentials();
-        let omni_dir = dir.path().join(".gwi");
+        let omni_dir = dir.path().join(".omni-dev");
         std::fs::create_dir_all(&omni_dir).unwrap();
         std::fs::write(
             omni_dir.join("settings.json"),
@@ -1159,7 +1159,7 @@ mod tests {
         // configured" one, proving the param actually propagates.
         let guard = EnvGuard::take();
         let dir = guard.clear_credentials();
-        let settings_path = dir.path().join(".gwi").join("settings.json");
+        let settings_path = dir.path().join(".omni-dev").join("settings.json");
         Settings::upsert_drive_account(
             &settings_path,
             "work",
@@ -1202,7 +1202,7 @@ mod tests {
     fn run_account_list_renders_configured_accounts() {
         let guard = EnvGuard::take();
         let dir = guard.clear_credentials();
-        let settings_path = dir.path().join(".gwi").join("settings.json");
+        let settings_path = dir.path().join(".omni-dev").join("settings.json");
         Settings::upsert_drive_account(
             &settings_path,
             "work",
@@ -1240,7 +1240,7 @@ mod tests {
     async fn drive_account_list_handler_returns_yaml_no_client_needed() {
         let guard = EnvGuard::take();
         let dir = guard.clear_credentials();
-        let settings_path = dir.path().join(".gwi").join("settings.json");
+        let settings_path = dir.path().join(".omni-dev").join("settings.json");
         Settings::upsert_drive_account(
             &settings_path,
             "work",

@@ -88,7 +88,7 @@ impl OmniDevServer {
                        call requests a fields mask that excludes cell values, so this stays cheap \
                        regardless of workbook size). Use `drive_sheets_read` for actual cell \
                        values. \
-                       Read-only. Mirrors `gwi drive sheets info`. Output is YAML."
+                       Read-only. Mirrors `omni-dev drive sheets info`. Output is YAML."
     )]
     pub async fn drive_sheets_info(
         &self,
@@ -116,7 +116,7 @@ impl OmniDevServer {
                        whole-workbook read. \
                        Read-only — no write gate or dry-run applies (unlike `sheets \
                        write`/`append`/`clear`, whose MCP handlers live in `drive_write_tools`). \
-                       Mirrors `gwi drive sheets read`. Output is YAML."
+                       Mirrors `omni-dev drive sheets read`. Output is YAML."
     )]
     pub async fn drive_sheets_read(
         &self,

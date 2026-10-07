@@ -96,7 +96,7 @@ impl OmniDevServer {
                        underneath it is refused rather than misapplied; it is absent when the \
                        caller lacks edit access. Use `drive_docs_read` for the full element list \
                        with every index. \
-                       Read-only. Mirrors `gwi drive docs info`. Output is YAML."
+                       Read-only. Mirrors `omni-dev drive docs info`. Output is YAML."
     )]
     pub async fn drive_docs_info(
         &self,
@@ -125,7 +125,7 @@ impl OmniDevServer {
                        document. \
                        Read-only — no write gate, lease or dry-run applies (unlike `docs \
                        replace`/`append`, exposed by separate gated write tools). \
-                       Mirrors `gwi drive docs read`. Output is YAML."
+                       Mirrors `omni-dev drive docs read`. Output is YAML."
     )]
     pub async fn drive_docs_read(
         &self,

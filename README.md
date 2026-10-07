@@ -33,8 +33,9 @@ never changes it, never overwrites a different value you already have in gwi (pa
 `--force` to), and never prints a secret. Anything gwi already has with the same value is
 reported as unchanged, so running it twice is safe. It warns about any `*_file` secret path
 that points inside `~/.omni-dev/`, since that file would be lost if you later remove
-omni-dev's directory. Drive's lease ledger is not copied yet; that arrives with the Drive
-commands.
+omni-dev's directory. Drive's lease ledger is not copied yet, so a lease taken with
+`omni-dev drive lease acquire` cannot be used or restored through `gwi drive`: acquire a
+new one with gwi. The import arrives in a later change.
 
 ## MCP server
 

@@ -375,13 +375,12 @@ impl ReleaseCommand {
 }
 
 /// Bounds the lease ledger's and the backup directory/folder's growth
-/// (ADR-0080 Consequences fast-follow, #1678). Mirrors `gwi log
-/// prune`'s shape: `--older-than`/`--max-size`, at least one required,
-/// applied sequentially (age first, then size trims what's left),
-/// `--dry-run` reports without mutating anything. Unlike `log prune`, there
-/// is no `--audit` flag to refuse — this command's underlying artifacts
-/// (the ledger, the backup directory/folder) never include `audit.jsonl` in
-/// the first place.
+/// (ADR-0080 Consequences fast-follow, #1678). Takes `--older-than`/
+/// `--max-size`, at least one required, applied sequentially (age first,
+/// then size trims what's left); `--dry-run` reports without mutating
+/// anything. It never touches the audit log: this command's underlying
+/// artifacts (the ledger, the backup directory/folder) never include
+/// `audit.jsonl` in the first place.
 ///
 /// No [`LeaseFlags`] here: prune touches no per-lease `backup_dir`/
 /// `expiry_minutes`/Touch-ID policy — every row already carries its own
