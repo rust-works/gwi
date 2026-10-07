@@ -871,6 +871,19 @@ fn object_at_mut<'a>(
     current.as_object_mut()
 }
 
+/// Reads the settings file at `path` as a generic JSON value (every field kept,
+/// including ones no type here models), or `{}` when it does not exist. For
+/// callers such as `gwi import` that merge raw settings.
+pub(crate) fn read_settings_value(path: &Path) -> Result<serde_json::Value> {
+    read_or_default_settings(path)
+}
+
+/// Writes `value` as the settings file at `path` through the hardened writer
+/// (parent directory `0700`, file `0600`, a looser existing mode re-tightened).
+pub(crate) fn write_settings_value(path: &Path, value: &serde_json::Value) -> Result<()> {
+    write_settings(path, value)
+}
+
 /// Reads and parses the settings file at `path` as a generic JSON value
 /// (preserving unknown fields), or returns `{}` when the file does not exist.
 fn read_or_default_settings(path: &Path) -> Result<serde_json::Value> {

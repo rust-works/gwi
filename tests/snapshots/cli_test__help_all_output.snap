@@ -8,8 +8,9 @@ Google Workspace Interface: Gmail from the command line.
 Usage: gwi [OPTIONS] <COMMAND>
 
 Commands:
-  gmail  Gmail: search, read, and label messages via OAuth2
-  help   Print this message or the help of the given subcommand(s)
+  gmail   Gmail: search, read, and label messages via OAuth2
+  import  Import: copy Gmail and Drive settings from omni-dev
+  help    Print this message or the help of the given subcommand(s)
 
 Options:
       --profile <NAME>
@@ -1072,6 +1073,33 @@ Options:
           - jsonl: JSON Lines: one compact JSON object per line, streaming-friendly
           
           [default: table]
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+===== gwi import =====
+Import: copy Gmail and Drive settings from omni-dev
+
+Usage: gwi import [OPTIONS]
+
+Options:
+      --profile <NAME>
+          Selects a named credential/config profile from `~/.gwi/settings.json` (AWS-CLI style).
+          
+          When set, the profile's `env` bundle replaces the base `env` map in the settings-fallback chain (process env still wins); the base map is not consulted. Overrides `GWI_PROFILE`. An unknown name is a hard error listing the known profiles.
+
+      --source <PATH>
+          The omni-dev settings file to read.
+          
+          Defaults to `~/.omni-dev/settings.json`. It is only read, never changed.
+
+      --dry-run
+          Show what would be imported and write nothing
+
+      --force
+          Overwrite items that gwi already has with a different value.
+          
+          Without it such items are reported as conflicts and left as they are.
 
   -h, --help
           Print help (see a summary with '-h')
