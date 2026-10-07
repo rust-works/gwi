@@ -191,7 +191,7 @@ pub struct FileLock {
     #[allow(dead_code)] // Held only for its Drop (unlocks on drop); never read.
     inner: nix::fcntl::Flock<std::fs::File>,
     #[cfg(not(unix))]
-    path: PathBuf,
+    path: std::path::PathBuf,
 }
 
 /// Bound on the replacement-check retries in [`try_lock_file_exclusive`] —
