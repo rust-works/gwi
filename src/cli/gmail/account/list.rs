@@ -18,7 +18,7 @@ pub struct ListCommand {
 }
 
 impl ListCommand {
-    /// Reads accounts from `~/.omni-dev/settings.json` only — no network
+    /// Reads accounts from `~/.gwi/settings.json` only — no network
     /// call, no secret ever rendered.
     pub fn execute(self) -> Result<()> {
         let settings = Settings::load_or_warn_default();

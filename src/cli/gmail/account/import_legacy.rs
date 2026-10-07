@@ -126,7 +126,7 @@ mod tests {
     fn import_legacy_writes_named_account_and_leaves_legacy_by_default() {
         let guard = crate::gmail::test_support::EnvGuard::take();
         let dir = guard.clear_credentials();
-        let settings_path = dir.path().join(".omni-dev").join("settings.json");
+        let settings_path = dir.path().join(".gwi").join("settings.json");
         seed_legacy_credentials(&settings_path);
 
         ImportLegacyCommand {
@@ -147,7 +147,7 @@ mod tests {
     fn import_legacy_remove_flag_deletes_legacy_credentials() {
         let guard = crate::gmail::test_support::EnvGuard::take();
         let dir = guard.clear_credentials();
-        let settings_path = dir.path().join(".omni-dev").join("settings.json");
+        let settings_path = dir.path().join(".gwi").join("settings.json");
         seed_legacy_credentials(&settings_path);
 
         ImportLegacyCommand {

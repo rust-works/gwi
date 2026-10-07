@@ -19,9 +19,9 @@ use crate::utils::secret_env::secret_var_is_set;
 use crate::utils::settings::GmailSettings;
 
 /// Selects the active Gmail account for every command, mirroring
-/// `OMNI_DEV_PROFILE`. Propagated by the `gmail`-scoped `--account` flag in
+/// `GWI_PROFILE`. Propagated by the `gmail`-scoped `--account` flag in
 /// `GmailCommand::execute`.
-pub const GMAIL_ACCOUNT_ENV: &str = "OMNI_DEV_GMAIL_ACCOUNT";
+pub const GMAIL_ACCOUNT_ENV: &str = "GWI_GMAIL_ACCOUNT";
 
 /// Returns the account named by [`GMAIL_ACCOUNT_ENV`] in `raw`, or `None`
 /// when unset or empty.

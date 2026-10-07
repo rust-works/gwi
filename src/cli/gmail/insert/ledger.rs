@@ -186,24 +186,24 @@ pub(crate) fn dedupe_key(rfc822_msgid: Option<&str>, source_id: &str) -> String 
 /// ledger's own lock: this one is held for a whole multi-message run
 /// (potentially hours), so a second run queuing behind it would be worse
 /// than telling the operator now. Backed by
-/// [`crate::daemon::paths::FileLock`] (`flock(2)` on Unix): kernel-released
+/// [`crate::utils::fs::FileLock`] (`flock(2)` on Unix): kernel-released
 /// on process death, so a crashed run never leaves a stale lock, and
 /// `Drop` never unlinks the lock file — it persists in the archive dir,
 /// which is what makes it safe for `Drop` to stop being the thing that
 /// releases the lock (issue #1687, applied here alongside the Drive lease
-/// ledger's identical fix). On non-Unix, [`crate::daemon::paths::FileLock`]
+/// ledger's identical fix). On non-Unix, [`crate::utils::fs::FileLock`]
 /// falls back to a `create_new`-marker-plus-`Drop`-unlink scheme, so this
 /// guarantee is Unix-only.
 #[derive(Debug)]
 pub(crate) struct LedgerLock {
     #[allow(dead_code)] // Held only for its Drop (releases the flock); never read.
-    inner: crate::daemon::paths::FileLock,
+    inner: crate::utils::fs::FileLock,
 }
 
 impl LedgerLock {
     pub(crate) fn acquire(archive_dir: &Path) -> Result<Self> {
         let path = ledger_lock_path(archive_dir);
-        match crate::daemon::paths::try_lock_or_busy(&path, "the insert-ledger lock file")? {
+        match crate::utils::fs::try_lock_or_busy(&path, "the insert-ledger lock file")? {
             Some(inner) => Ok(Self { inner }),
             None => anyhow::bail!(
                 "another `gmail insert` run appears to already be in progress against this \
@@ -361,7 +361,7 @@ mod tests {
 
     // ── LedgerLock ────────────────────────────────────────────────────
 
-    // Unix-only: on non-unix, `crate::daemon::paths::FileLock::drop` falls
+    // Unix-only: on non-unix, `crate::utils::fs::FileLock::drop` falls
     // back to a `create_new`-marker-plus-`Drop`-unlink scheme, so the lock
     // file does *not* survive its own drop there (#1742).
     #[cfg(unix)]

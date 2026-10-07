@@ -34,3 +34,6 @@ perf.data*
 
 # Git worktrees
 /.work/
+
+# Test scratch directory (settings tests create tmp/ in the working tree)
+/tmp/

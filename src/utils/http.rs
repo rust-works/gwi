@@ -1,0 +1,378 @@
+//! Shared HTTP helpers for the REST clients.
+//!
+//! `retry_if` is the general retry driver. It lets Gmail retry its own
+//! quota-exhaustion signal (HTTP 403 with a `reason`) as well as 429. It
+//! rebuilds the request per attempt, logs every attempt, and on a retryable
+//! response waits per `Retry-After`, then `X-RateLimit-Reset`, then exponential
+//! backoff.
+//!
+//! Forked from omni-dev's `utils::http` (rust-works/omni-dev#2203) without its
+//! literal-429-only `retry_429` wrapper, which only the Atlassian and Datadog
+//! clients used.
+
+use std::time::{Duration, Instant};
+
+use reqwest::{Response, ResponseBuilderExt as _};
+
+/// Default timeout for just the connect phase (TCP + TLS handshake) of a
+/// REST client request. Overridable via
+/// [`CONNECT_TIMEOUT_ENV_VAR`].
+///
+/// Deliberately short and independent of [`DEFAULT_READ_TIMEOUT`]: a
+/// connection either establishes quickly or something is actually wrong
+/// (DNS, network, a dead host), unlike a slow-but-progressing large
+/// download, which is [`DEFAULT_READ_TIMEOUT`]'s concern instead.
+pub(crate) const DEFAULT_CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// Default timeout for each individual read operation of a REST client
+/// response body (Atlassian, Datadog, Gmail). Overridable via
+/// [`READ_TIMEOUT_ENV_VAR`].
+///
+/// `reqwest`'s `read_timeout` resets on every successful read rather than
+/// imposing one fixed deadline on the whole response — the right shape for
+/// Gmail's `messages.get?format=raw`, which can return tens of megabytes
+/// for an attachment-heavy message. A single caller downloading that alone
+/// finishes in seconds, but several downloading concurrently (bounded by
+/// `gmail sync --concurrency`) divide the available bandwidth, and a fixed
+/// *total* deadline can trip even though every read is still making
+/// progress — the failure mode a total `.timeout()` (the previous, single-
+/// knob design) couldn't distinguish from an actually-stalled connection
+/// (#1502 follow-up).
+pub(crate) const DEFAULT_READ_TIMEOUT: Duration = Duration::from_secs(120);
+
+/// Env var overriding [`DEFAULT_CONNECT_TIMEOUT`]. Value is whole seconds;
+/// a missing, non-numeric, or non-positive value falls back to the default.
+pub(crate) const CONNECT_TIMEOUT_ENV_VAR: &str = "GWI_HTTP_CONNECT_TIMEOUT_SECS";
+
+/// Env var overriding [`DEFAULT_READ_TIMEOUT`]. Value is whole seconds; a
+/// missing, non-numeric, or non-positive value falls back to the default.
+///
+/// Both env vars are separate from `claude::ai::TIMEOUT_ENV_VAR`
+/// (`GWI_AI_TIMEOUT_SECS`) so the REST-client family can be tuned
+/// independently of the AI backends, mirroring the existing
+/// `GWI_CLAUDE_CLI_TIMEOUT_SECS`/`GWI_AI_TIMEOUT_SECS` split.
+pub(crate) const READ_TIMEOUT_ENV_VAR: &str = "GWI_HTTP_READ_TIMEOUT_SECS";
+
+/// Resolves the connect-phase timeout, honouring [`CONNECT_TIMEOUT_ENV_VAR`].
+///
+/// Reads through the settings helper so the override can also come from a
+/// `settings.json` `env` bundle, consistent with `claude::ai::request_timeout`.
+pub(crate) fn connect_timeout() -> Duration {
+    duration_from_secs(
+        crate::utils::settings::get_env_var(CONNECT_TIMEOUT_ENV_VAR).ok(),
+        DEFAULT_CONNECT_TIMEOUT,
+    )
+}
+
+/// Resolves the per-read timeout, honouring [`READ_TIMEOUT_ENV_VAR`]. See
+/// [`connect_timeout`] for the settings-helper rationale.
+pub(crate) fn read_timeout() -> Duration {
+    duration_from_secs(
+        crate::utils::settings::get_env_var(READ_TIMEOUT_ENV_VAR).ok(),
+        DEFAULT_READ_TIMEOUT,
+    )
+}
+
+/// Parses a whole-seconds timeout override, falling back to `default` for
+/// an absent, non-numeric, or non-positive value.
+///
+/// A 0-second (or negative) timeout would abort every request/read
+/// immediately, so it is treated as unset rather than honoured. Pure so it
+/// is unit-testable without mutating the process environment; shared by
+/// [`connect_timeout`] and [`read_timeout`] since both need the identical
+/// parse-or-fall-back rule, just against different defaults. `pub(crate)`
+/// rather than private: `drive::lease::ledger::default_lock_wait_timeout`
+/// needs the identical rule for its own env override and reuses this
+/// rather than re-deriving it.
+pub(crate) fn duration_from_secs(raw: Option<String>, default: Duration) -> Duration {
+    raw.and_then(|v| v.parse::<u64>().ok())
+        .filter(|&secs| secs > 0)
+        .map_or(default, Duration::from_secs)
+}
+
+/// Maximum number of retries on a retryable response (attempts =
+/// `MAX_RETRIES` + 1).
+const MAX_RETRIES: u32 = 3;
+
+/// Base (seconds) for exponential backoff when neither `Retry-After` nor
+/// `X-RateLimit-Reset` is present: `DEFAULT_RETRY_DELAY_SECS ^ (attempt + 1)`.
+const DEFAULT_RETRY_DELAY_SECS: u64 = 2;
+
+/// Callback [`retry_if`] invokes instead of its default `eprintln!` when a
+/// retryable response is about to wait before retrying. Args are the HTTP
+/// status, the delay in seconds, and the 1-based attempt number — the same
+/// three values the default message prints.
+///
+/// Lets a caller with progress-bar context (Gmail's `sync`/`sync-all`, #1651)
+/// render the notice appropriately instead of a raw scrolling stderr line
+/// that can tear a live `indicatif::MultiProgress` render. Callers without
+/// one (Atlassian, Datadog, Drive) pass `None` and keep the plain fallback.
+pub(crate) type RetryNotifyFn = dyn Fn(u16, u64, u32) + Send + Sync;
+
+/// Drives an HTTP request through a retry loop with a caller-supplied
+/// retryability predicate.
+///
+/// `build` is called once per attempt to produce a fresh [`RequestBuilder`],
+/// so bodies are always replayable; `log` receives the send result of every
+/// attempt for the request log, called before any body is read. Transport
+/// errors are returned to the caller without retry. A successful response is
+/// returned untouched, without ever reading its body. On a non-success
+/// response, the body is buffered once (needed either way — every caller
+/// already reads a non-2xx body via its own `response_to_error`-equivalent
+/// downstream) and passed to `is_retryable` alongside the status; a `true`
+/// verdict below the retry ceiling waits per [`wait_for_retry`] and retries.
+/// Otherwise the response is reconstructed from its captured status,
+/// version, headers, URL, and buffered body and returned — callers see an
+/// ordinary [`Response`] whose body reads exactly as it would have
+/// unbuffered.
+///
+/// `notify` (see [`RetryNotifyFn`]) overrides [`wait_for_retry`]'s default
+/// `eprintln!` when a retryable response is about to wait before retrying.
+///
+/// [`RequestBuilder`]: reqwest::RequestBuilder
+pub(crate) async fn retry_if<B, L, P>(
+    build: B,
+    log: L,
+    is_retryable: P,
+    notify: Option<&RetryNotifyFn>,
+) -> reqwest::Result<Response>
+where
+    B: Fn() -> reqwest::RequestBuilder,
+    L: Fn(Instant, &reqwest::Result<Response>),
+    P: Fn(u16, &[u8]) -> bool,
+{
+    let mut attempt = 0;
+    loop {
+        let started = Instant::now();
+        let result = build().send().await;
+        log(started, &result);
+        let response = result?;
+        if response.status().is_success() {
+            return Ok(response);
+        }
+
+        let status = response.status();
+        let version = response.version();
+        let url = response.url().clone();
+        let headers = response.headers().clone();
+        let body = response.bytes().await?;
+
+        if is_retryable(status.as_u16(), &body) && attempt < MAX_RETRIES {
+            wait_for_retry(&headers, status.as_u16(), attempt, notify).await;
+            attempt += 1;
+            continue;
+        }
+
+        let mut builder = http::Response::builder()
+            .status(status)
+            .version(version)
+            .url(url);
+        if let Some(header_map) = builder.headers_mut() {
+            header_map.extend(
+                headers
+                    .iter()
+                    .map(|(name, value)| (name.clone(), value.clone())),
+            );
+        }
+        // Rebuilding from status/version/headers/url the HTTP library already
+        // parsed successfully out of a real response cannot fail.
+        #[allow(clippy::expect_used)]
+        let rebuilt = builder
+            .body(body)
+            .expect("rebuilding a response from its own already-valid parts cannot fail");
+        return Ok(Response::from(rebuilt));
+    }
+}
+
+/// Waits before retrying a retryable (429, or a caller-recognised
+/// equivalent) response.
+///
+/// Consults, in order: `Retry-After`, then Datadog's `X-RateLimit-Reset`, then
+/// exponential backoff (`DEFAULT_RETRY_DELAY_SECS ^ (attempt + 1)`).
+async fn wait_for_retry(
+    headers: &reqwest::header::HeaderMap,
+    status: u16,
+    attempt: u32,
+    notify: Option<&RetryNotifyFn>,
+) {
+    let delay = header_u64(headers, "Retry-After")
+        .or_else(|| header_u64(headers, "X-RateLimit-Reset"))
+        .unwrap_or_else(|| DEFAULT_RETRY_DELAY_SECS.pow(attempt + 1));
+    let attempt_number = attempt + 1;
+
+    match notify {
+        Some(notify) => notify(status, delay, attempt_number),
+        None => {
+            eprintln!(
+                "Rate limited ({status}). Retrying in {delay}s (attempt {attempt_number})..."
+            );
+        }
+    }
+    tokio::time::sleep(Duration::from_secs(delay)).await;
+}
+
+/// Parses a header value as a `u64`, if present and numeric.
+fn header_u64(headers: &reqwest::header::HeaderMap, name: &str) -> Option<u64> {
+    headers
+        .get(name)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|s| s.parse::<u64>().ok())
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tests {
+    use super::*;
+    use wiremock::matchers::{method, path};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    // ── duration_from_secs ───────────────────────────────────────────────
+
+    #[test]
+    fn duration_from_secs_parses_valid_override() {
+        assert_eq!(
+            duration_from_secs(Some("45".to_string()), DEFAULT_CONNECT_TIMEOUT),
+            Duration::from_secs(45)
+        );
+    }
+
+    #[test]
+    fn duration_from_secs_falls_back_for_absent_zero_or_garbage() {
+        for raw in [
+            None,
+            Some(String::new()),
+            Some("0".to_string()),
+            Some("abc".to_string()),
+            Some("-5".to_string()),
+        ] {
+            assert_eq!(
+                duration_from_secs(raw.clone(), DEFAULT_READ_TIMEOUT),
+                DEFAULT_READ_TIMEOUT,
+                "expected default for {raw:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn connect_and_read_timeouts_default_to_documented_values_when_unset() {
+        // Both resolvers read through `settings::get_env_var`, which also
+        // consults `settings.json` — so this only pins the *default*
+        // behaviour, not full isolation from the process environment (no
+        // per-module env mutex, per STYLE-0028); it's the fixed 10s/120s
+        // values themselves that matter here, not the env-reading path.
+        assert_eq!(DEFAULT_CONNECT_TIMEOUT, Duration::from_secs(10));
+        assert_eq!(DEFAULT_READ_TIMEOUT, Duration::from_secs(120));
+    }
+
+    // ── retry_if: caller-supplied predicate (the Gmail 403 case) ──────
+
+    #[tokio::test]
+    async fn retry_if_retries_a_custom_status_when_predicate_says_so() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/x"))
+            .respond_with(ResponseTemplate::new(403).set_body_string("quota exceeded"))
+            .up_to_n_times(1)
+            .with_priority(1)
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/x"))
+            .respond_with(ResponseTemplate::new(200))
+            .with_priority(2)
+            .mount(&server)
+            .await;
+
+        let client = reqwest::Client::new();
+        let url = format!("{}/x", server.uri());
+        let resp = retry_if(
+            || client.get(&url),
+            |_s, _r| {},
+            |status, _body| status == 403,
+            None,
+        )
+        .await
+        .unwrap();
+        assert_eq!(resp.status().as_u16(), 200);
+    }
+
+    #[tokio::test]
+    async fn retry_if_does_not_retry_when_predicate_says_no() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/x"))
+            .respond_with(ResponseTemplate::new(403).set_body_string("insufficientPermissions"))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let client = reqwest::Client::new();
+        let url = format!("{}/x", server.uri());
+        let resp = retry_if(
+            || client.get(&url),
+            |_s, _r| {},
+            |status, body| status == 403 && body == b"rateLimitExceeded",
+            None,
+        )
+        .await
+        .unwrap();
+        assert_eq!(resp.status().as_u16(), 403);
+    }
+
+    // ── retry_if: notify callback (#1651) ─────────────────────────────
+
+    #[tokio::test]
+    async fn retry_if_calls_notify_instead_of_eprintln_when_supplied() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/x"))
+            .respond_with(ResponseTemplate::new(429).append_header("Retry-After", "0"))
+            .up_to_n_times(1)
+            .with_priority(1)
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/x"))
+            .respond_with(ResponseTemplate::new(200))
+            .with_priority(2)
+            .mount(&server)
+            .await;
+
+        let client = reqwest::Client::new();
+        let url = format!("{}/x", server.uri());
+        let calls = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let recorded = calls.clone();
+        let notify = move |status: u16, delay: u64, attempt: u32| {
+            recorded.lock().unwrap().push((status, delay, attempt));
+        };
+        let resp = retry_if(
+            || client.get(&url),
+            |_s, _r| {},
+            |status, _body| status == 429,
+            Some(&notify),
+        )
+        .await
+        .unwrap();
+        assert_eq!(resp.status().as_u16(), 200);
+        assert_eq!(*calls.lock().unwrap(), vec![(429, 0, 1)]);
+    }
+
+    #[tokio::test]
+    async fn retry_if_preserves_body_on_first_attempt_give_up() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/x"))
+            .respond_with(ResponseTemplate::new(403).set_body_string("insufficientPermissions"))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let client = reqwest::Client::new();
+        let url = format!("{}/x", server.uri());
+        let resp = retry_if(|| client.get(&url), |_s, _r| {}, |_s, _b| false, None)
+            .await
+            .unwrap();
+        let body = resp.text().await.unwrap();
+        assert_eq!(body, "insufficientPermissions");
+    }
+}

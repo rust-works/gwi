@@ -2,7 +2,7 @@
 //!
 //! Reads the file the Cloud Console hands out directly, so the secret never
 //! has to transit a shell, an env var, or an agent's context on its way into
-//! `~/.omni-dev/settings.json`.
+//! `~/.gwi/settings.json`.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -41,7 +41,7 @@ pub struct ImportOutcome {
 }
 
 /// Discovers, parses, and saves a `client_secret.json`'s client id/secret to
-/// `~/.omni-dev/settings.json`.
+/// `~/.gwi/settings.json`.
 pub fn import_client_credentials(explicit: Option<&Path>) -> Result<ImportOutcome> {
     import_client_credentials_to(
         &Settings::get_settings_path()?,
@@ -246,7 +246,7 @@ pub(crate) fn parse_client_secret_file(path: &Path) -> Result<ImportedClientCred
     }
 }
 
-/// Saves the imported client id/secret to `~/.omni-dev/settings.json` —
+/// Saves the imported client id/secret to `~/.gwi/settings.json` —
 /// only the two pre-login keys; `GMAIL_REFRESH_TOKEN`/`GMAIL_SCOPE` are
 /// written later by a successful `auth login`.
 fn save_client_credentials_to(
@@ -547,7 +547,7 @@ mod tests {
     fn import_for_named_account_writes_gmail_accounts_not_env() {
         let guard = crate::gmail::test_support::EnvGuard::take();
         let dir = guard.clear_credentials();
-        let settings_path = dir.path().join(".omni-dev").join("settings.json");
+        let settings_path = dir.path().join(".gwi").join("settings.json");
         Settings::upsert_gmail_account(
             &settings_path,
             "work",
@@ -579,7 +579,7 @@ mod tests {
     fn import_for_creates_brand_new_named_account_without_prior_validation() {
         let guard = crate::gmail::test_support::EnvGuard::take();
         let dir = guard.clear_credentials();
-        let settings_path = dir.path().join(".omni-dev").join("settings.json");
+        let settings_path = dir.path().join(".gwi").join("settings.json");
         // No account named "fresh" exists yet — import must still succeed,
         // since import is how a new named account is created.
 
@@ -598,7 +598,7 @@ mod tests {
     fn import_for_legacy_when_no_account_given_and_none_configured() {
         let guard = crate::gmail::test_support::EnvGuard::take();
         let dir = guard.clear_credentials();
-        let settings_path = dir.path().join(".omni-dev").join("settings.json");
+        let settings_path = dir.path().join(".gwi").join("settings.json");
 
         let secret_dir = temp_dir();
         let secret_path = secret_dir.path().join("client_secret.json");

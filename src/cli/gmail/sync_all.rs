@@ -1,7 +1,7 @@
 //! CLI command for `omni-dev gmail sync-all` (issue #1504,
 //! [ADR-0068](../../../docs/adrs/adr-0068.md)).
 //!
-//! Fans a `.omni-dev/gmail-sync.yaml`-configured list of named accounts out
+//! Fans a `.gwi/gmail-sync.yaml`-configured list of named accounts out
 //! to `gmail sync`'s unchanged engine (`super::sync::engine`) concurrently,
 //! each resolved via [`super::helpers::create_client_for`] (never the
 //! `--account`-driven env var, which is unsafe across concurrent tasks) and
@@ -28,9 +28,9 @@ use futures::stream::{FuturesUnordered, StreamExt as _};
 use serde::{Deserialize, Serialize};
 use tokio::sync::{mpsc, Semaphore};
 
-use crate::claude::context::discovery;
 use crate::gmail::account::validate_account;
 use crate::gmail::client::GmailClient;
+use crate::utils::config_dir as discovery;
 use crate::utils::settings::Settings;
 
 use super::format::{output_as, write_scalar_jsonl, JsonlSerialize, OutputFormat};
@@ -42,7 +42,7 @@ use super::sync::{
     deferred_warning_lines, format_summary_line, should_show_progress, DEFAULT_SYNC_CONCURRENCY,
 };
 
-/// `.omni-dev/gmail-sync.yaml`'s top level.
+/// `.gwi/gmail-sync.yaml`'s top level.
 #[derive(Debug, Default, Deserialize)]
 pub(crate) struct GmailSyncAllConfig {
     /// A fetch-request cap shared across every account's fan-out this run.
@@ -59,11 +59,11 @@ pub(crate) struct GmailSyncAllConfig {
 /// One `gmail-sync.yaml` account entry.
 #[derive(Debug, Deserialize)]
 pub(crate) struct GmailSyncAccountEntry {
-    /// A lookup key into `~/.omni-dev/settings.json`'s `gmail.accounts` map
+    /// A lookup key into `~/.gwi/settings.json`'s `gmail.accounts` map
     /// (ADR-0066) — never a second credential store.
     pub(crate) account: String,
     /// Where to archive this account, relative to the project root (the
-    /// parent of the discovered `.omni-dev/`) unless absolute.
+    /// parent of the discovered `.gwi/`) unless absolute.
     pub(crate) output_dir: PathBuf,
     /// Mirrors `gmail sync --query`, applied only to this account.
     #[serde(default)]
@@ -88,7 +88,7 @@ pub(crate) fn load_gmail_sync_config(context_dir: &Path) -> Result<GmailSyncAllC
     if !path.exists() {
         anyhow::bail!(
             "no gmail-sync.yaml found (looked under {}); add one with an `accounts:` list, or \
-             point --context-dir/OMNI_DEV_CONFIG_DIR at a directory containing one",
+             point --context-dir/GWI_CONFIG_DIR at a directory containing one",
             context_dir.display()
         );
     }
@@ -106,7 +106,7 @@ pub(crate) fn load_gmail_sync_config(context_dir: &Path) -> Result<GmailSyncAllC
 }
 
 /// Fails fast, before any client is built, if `gmail-sync.yaml` names an
-/// account `~/.omni-dev/settings.json` doesn't know about — batches every
+/// account `~/.gwi/settings.json` doesn't know about — batches every
 /// unknown name into one error rather than discovering them one task
 /// failure at a time.
 fn validate_accounts(settings: &Settings, accounts: &[GmailSyncAccountEntry]) -> Result<()> {
@@ -126,13 +126,13 @@ fn validate_accounts(settings: &Settings, accounts: &[GmailSyncAccountEntry]) ->
 }
 
 /// Maintains durable local archives for every account configured in
-/// `.omni-dev/gmail-sync.yaml`, concurrently (no MCP equivalent — see
+/// `.gwi/gmail-sync.yaml`, concurrently (no MCP equivalent — see
 /// `gmail sync`'s own doc comment; the same bulk-filesystem-operation
 /// reasoning applies doubly here).
 #[derive(Parser)]
 pub struct SyncAllCommand {
-    /// Overrides the standard `.omni-dev/` discovery (walk-up from CWD,
-    /// `OMNI_DEV_CONFIG_DIR`, `local/` shadow) used to locate
+    /// Overrides the standard `.gwi/` discovery (walk-up from CWD,
+    /// `GWI_CONFIG_DIR`, `local/` shadow) used to locate
     /// `gmail-sync.yaml`.
     #[arg(long, value_name = "PATH")]
     pub context_dir: Option<PathBuf>,
@@ -210,12 +210,12 @@ type ClientFor = Arc<dyn Fn(&str) -> Result<GmailClient> + Send + Sync>;
 
 impl SyncAllCommand {
     pub(crate) async fn execute(self) -> Result<()> {
-        // patchcov: coverage ignore reason="SyncAllCommand::execute is the process-bound wiring shell: it loads the real ~/.omni-dev settings and builds clients against the real Gmail host; run_sync_all, load_gmail_sync_config and validate_accounts are its tested seams"
+        // patchcov: coverage ignore reason="SyncAllCommand::execute is the process-bound wiring shell: it loads the real ~/.gwi settings and builds clients against the real Gmail host; run_sync_all, load_gmail_sync_config and validate_accounts are its tested seams"
         let (context_dir, _source) =
             discovery::resolve_context_dir_with_source(self.context_dir.as_deref());
         let config = load_gmail_sync_config(&context_dir)?;
 
-        let settings = Settings::load().context("Failed to load ~/.omni-dev/settings.json")?;
+        let settings = Settings::load().context("Failed to load ~/.gwi/settings.json")?;
         validate_accounts(&settings, &config.accounts)?;
 
         let effective_concurrency = self

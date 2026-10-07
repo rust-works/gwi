@@ -483,7 +483,7 @@ pub(crate) fn record_account_email(name: &str, email: &str) -> Result<()> {
     )
 }
 
-/// Saves Gmail credentials to `~/.omni-dev/settings.json`.
+/// Saves Gmail credentials to `~/.gwi/settings.json`.
 ///
 /// Merges the four credential keys into the active profile's `env` map (the
 /// base `env` when no profile is active), preserving all other settings.
@@ -544,7 +544,7 @@ fn named_account_vars(credentials: &GmailCredentials) -> [(&str, serde_json::Val
     ]
 }
 
-/// Removes Gmail credential keys from `~/.omni-dev/settings.json` — this
+/// Removes Gmail credential keys from `~/.gwi/settings.json` — this
 /// *is* `gmail auth logout`.
 ///
 /// Returns `true` if any Gmail key was present and removed, `false`
@@ -593,7 +593,7 @@ pub(crate) fn remove_credentials_for(explicit: Option<&str>) -> Result<bool> {
 /// How to open the authorization URL during login.
 ///
 /// Deliberately duplicated from (not shared with)
-/// [`crate::snowflake::client::config::BrowserLaunch`] — a small, stable
+/// omni-dev's `snowflake::client::config::BrowserLaunch` — a small, stable
 /// shape with no existing "generic browser launch" module to promote into;
 /// extract only on a third consumer.
 #[derive(Clone, Debug, Default)]
@@ -697,8 +697,8 @@ struct PendingLogin {
 
 fn generate_pending_login() -> PendingLogin {
     PendingLogin {
-        state: crate::browser::auth::generate_token(),
-        code_verifier: crate::browser::auth::generate_token(),
+        state: crate::utils::token::generate_token(),
+        code_verifier: crate::utils::token::generate_token(),
     }
 }
 
@@ -937,7 +937,7 @@ struct TokenState {
 ///
 /// Uses [`tokio::sync::Mutex`] (not `std::sync::Mutex`) held *across* the
 /// refresh network call — unlike
-/// [`SnowflakeSession::renew`](crate::snowflake::client::SnowflakeSession::renew),
+/// omni-dev's `SnowflakeSession::renew`,
 /// which releases its lock before the network call and accepts concurrent
 /// refreshes racing each other. Gmail's design requires single-flight
 /// refresh (issue #1465's explicit "concurrent callers don't stampede"
@@ -1024,7 +1024,7 @@ impl GmailSession {
 // ── Login orchestration ─────────────────────────────────────────────────
 
 /// Runs the OAuth2 authorization-code + PKCE login flow, persisting the
-/// resulting refresh token to `~/.omni-dev/settings.json`.
+/// resulting refresh token to `~/.gwi/settings.json`.
 pub async fn login(
     client_id: &str,
     client_secret: &Secret,
@@ -2581,7 +2581,7 @@ mod tests {
                 std::fs::create_dir_all("tmp").ok();
                 tempfile::TempDir::new_in("tmp").unwrap()
             };
-            let settings_path = temp_dir.path().join(".omni-dev").join("settings.json");
+            let settings_path = temp_dir.path().join(".gwi").join("settings.json");
 
             let creds = GmailCredentials {
                 client_id: "client-1".to_string(),
@@ -2613,7 +2613,7 @@ mod tests {
                 std::fs::create_dir_all("tmp").ok();
                 tempfile::TempDir::new_in("tmp").unwrap()
             };
-            let omni_dir = temp_dir.path().join(".omni-dev");
+            let omni_dir = temp_dir.path().join(".gwi");
             fs::create_dir_all(&omni_dir).unwrap();
             let settings_path = omni_dir.join("settings.json");
             fs::write(
@@ -2643,7 +2643,7 @@ mod tests {
                 std::fs::create_dir_all("tmp").ok();
                 tempfile::TempDir::new_in("tmp").unwrap()
             };
-            let omni_dir = temp_dir.path().join(".omni-dev");
+            let omni_dir = temp_dir.path().join(".gwi");
             fs::create_dir_all(&omni_dir).unwrap();
             let settings_path = omni_dir.join("settings.json");
             fs::write(
@@ -2676,7 +2676,7 @@ mod tests {
                 std::fs::create_dir_all("tmp").ok();
                 tempfile::TempDir::new_in("tmp").unwrap()
             };
-            let settings_path = temp_dir.path().join(".omni-dev").join("settings.json");
+            let settings_path = temp_dir.path().join(".gwi").join("settings.json");
             let removed = remove_credentials_at(&settings_path, None).unwrap();
             assert!(!removed);
         }
@@ -2689,7 +2689,7 @@ mod tests {
             std::fs::create_dir_all("tmp").ok();
             tempfile::TempDir::new_in("tmp").unwrap()
         };
-        let omni_dir = temp_dir.path().join(".omni-dev");
+        let omni_dir = temp_dir.path().join(".gwi");
         fs::create_dir_all(&omni_dir).unwrap();
         let settings_path = omni_dir.join("settings.json");
         fs::write(&settings_path, r#"{"env": {"OTHER_KEY": "keep_me"}}"#).unwrap();
@@ -2723,8 +2723,8 @@ mod tests {
         assert!(!removed);
     }
 
-    /// The production wrappers resolve `~/.omni-dev/settings.json` from
-    /// `HOME` and the active profile from `OMNI_DEV_PROFILE`, so this one
+    /// The production wrappers resolve `~/.gwi/settings.json` from
+    /// `HOME` and the active profile from `GWI_PROFILE`, so this one
     /// test must redirect both via [`crate::gmail::test_support::EnvGuard`].
     #[test]
     fn save_and_remove_credentials_resolve_default_settings_path() {
@@ -2739,7 +2739,7 @@ mod tests {
         };
         save_credentials(&creds).unwrap();
 
-        let settings_path = dir.path().join(".omni-dev").join("settings.json");
+        let settings_path = dir.path().join(".gwi").join("settings.json");
         let val: serde_json::Value =
             serde_json::from_str(&fs::read_to_string(&settings_path).unwrap()).unwrap();
         assert_eq!(val["env"]["GMAIL_CLIENT_ID"], "wrapper-client");
@@ -2864,7 +2864,7 @@ mod tests {
     fn load_credentials_for_named_reads_from_gmail_accounts() {
         let guard = crate::gmail::test_support::EnvGuard::take();
         let dir = guard.clear_credentials();
-        let settings_path = dir.path().join(".omni-dev").join("settings.json");
+        let settings_path = dir.path().join(".gwi").join("settings.json");
         Settings::upsert_gmail_account(
             &settings_path,
             "work",
@@ -2897,7 +2897,7 @@ mod tests {
     fn load_credentials_for_unknown_named_account_errors() {
         let guard = crate::gmail::test_support::EnvGuard::take();
         let dir = guard.clear_credentials();
-        let settings_path = dir.path().join(".omni-dev").join("settings.json");
+        let settings_path = dir.path().join(".gwi").join("settings.json");
         Settings::upsert_gmail_account(
             &settings_path,
             "work",
@@ -2928,7 +2928,7 @@ mod tests {
     fn load_credentials_for_none_honors_ambient_account_env_var() {
         let guard = crate::gmail::test_support::EnvGuard::take();
         let dir = guard.clear_credentials();
-        let settings_path = dir.path().join(".omni-dev").join("settings.json");
+        let settings_path = dir.path().join(".gwi").join("settings.json");
         Settings::upsert_gmail_account(
             &settings_path,
             "work",
@@ -2958,7 +2958,7 @@ mod tests {
     fn remove_credentials_for_named_removes_whole_account() {
         let guard = crate::gmail::test_support::EnvGuard::take();
         let dir = guard.clear_credentials();
-        let settings_path = dir.path().join(".omni-dev").join("settings.json");
+        let settings_path = dir.path().join(".gwi").join("settings.json");
         Settings::upsert_gmail_account(
             &settings_path,
             "work",
@@ -2977,7 +2977,7 @@ mod tests {
     fn status_for_named_reports_presence_from_account() {
         let guard = crate::gmail::test_support::EnvGuard::take();
         let dir = guard.clear_credentials();
-        let settings_path = dir.path().join(".omni-dev").join("settings.json");
+        let settings_path = dir.path().join(".gwi").join("settings.json");
         Settings::upsert_gmail_account(
             &settings_path,
             "work",
@@ -3014,7 +3014,7 @@ mod tests {
     fn load_credentials_legacy_ignores_active_named_account() {
         let guard = crate::gmail::test_support::EnvGuard::take();
         let dir = guard.clear_credentials();
-        let settings_path = dir.path().join(".omni-dev").join("settings.json");
+        let settings_path = dir.path().join(".gwi").join("settings.json");
 
         // A named default account is configured...
         Settings::set_gmail_default_account(&settings_path, Some("work")).unwrap();
@@ -3062,7 +3062,7 @@ mod tests {
     fn record_account_email_writes_email_address_only() {
         let guard = crate::gmail::test_support::EnvGuard::take();
         let dir = guard.clear_credentials();
-        let settings_path = dir.path().join(".omni-dev").join("settings.json");
+        let settings_path = dir.path().join(".gwi").join("settings.json");
         Settings::upsert_gmail_account(
             &settings_path,
             "work",
@@ -3085,7 +3085,7 @@ mod tests {
     fn record_account_email_does_not_overwrite_an_existing_value() {
         let guard = crate::gmail::test_support::EnvGuard::take();
         let dir = guard.clear_credentials();
-        let settings_path = dir.path().join(".omni-dev").join("settings.json");
+        let settings_path = dir.path().join(".gwi").join("settings.json");
         Settings::upsert_gmail_account(
             &settings_path,
             "work",
@@ -3127,14 +3127,14 @@ mod tests {
         let dir_legacy = guard.clear_credentials();
         save_credentials(&creds).unwrap();
         let legacy_written =
-            fs::read_to_string(dir_legacy.path().join(".omni-dev").join("settings.json")).unwrap();
+            fs::read_to_string(dir_legacy.path().join(".gwi").join("settings.json")).unwrap();
         let legacy_loaded = load_credentials().unwrap();
         let legacy_removed = remove_credentials().unwrap();
 
         let dir_for = guard.clear_credentials();
         save_credentials(&creds).unwrap();
         let for_written =
-            fs::read_to_string(dir_for.path().join(".omni-dev").join("settings.json")).unwrap();
+            fs::read_to_string(dir_for.path().join(".gwi").join("settings.json")).unwrap();
         let for_loaded = load_credentials_for(None).unwrap();
         let for_removed = remove_credentials_for(None).unwrap();
 

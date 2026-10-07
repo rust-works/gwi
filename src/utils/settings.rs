@@ -1,0 +1,2280 @@
+//! Settings and configuration utilities.
+//!
+//! This module provides functionality to read settings from $HOME/.gwi/settings.json
+//! and use them as a fallback for environment variables.
+//!
+//! It also owns the write side: [`Settings::upsert_env_vars_in`] and
+//! [`Settings::remove_env_vars_in`] (plus their base-`env` shorthands
+//! [`Settings::upsert_env_vars`] / [`Settings::remove_env_vars`]) are the only
+//! production paths that mutate the settings file. Writes target the active
+//! profile's `env` when a profile is given, mirroring the read-side isolation
+//! of [`Settings::resolve_with`] (issue #1116). Because the `env` maps hold
+//! credentials (Atlassian, Datadog), every write is hardened: parent directory
+//! `0700`, file `0600`, re-tightened on each write (issue #1128).
+
+use std::collections::{BTreeSet, HashMap};
+use std::fmt;
+use std::fs;
+use std::path::{Path, PathBuf};
+use std::sync::Mutex;
+
+use anyhow::{Context, Result};
+use serde::Deserialize;
+
+use crate::utils::env::{EnvSource, SecretTriple, SystemEnv};
+use crate::utils::secret_env;
+
+/// Where a resolved environment value came from, for provenance reporting
+/// (issue #1143).
+///
+/// An ambient setting — a shell export or a `settings.json` `env` entry — is
+/// sticky across invocations, so warnings about security-sensitive values
+/// (e.g. the claude-cli escape hatches) name the source to distinguish a
+/// deliberate one-off flag from a forgotten persistent setting.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum EnvValueSource {
+    /// Exported into the process environment by a command-line flag during
+    /// this invocation (see `AiBackendArgs::apply`).
+    CliFlag,
+    /// The process environment (a shell export or inherited variable).
+    ProcessEnv,
+    /// The base `env` map in `$HOME/.gwi/settings.json`.
+    SettingsEnv,
+    /// The named profile's `env` map in `$HOME/.gwi/settings.json`.
+    SettingsProfile(String),
+}
+
+impl fmt::Display for EnvValueSource {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::CliFlag => write!(f, "command-line flag"),
+            Self::ProcessEnv => write!(f, "process environment variable (e.g. a shell export)"),
+            Self::SettingsEnv => write!(f, "the env map in $HOME/.gwi/settings.json"),
+            Self::SettingsProfile(name) => {
+                write!(
+                    f,
+                    "the profile '{name}' env map in $HOME/.gwi/settings.json"
+                )
+            }
+        }
+    }
+}
+
+/// Env-var keys that `AiBackendArgs::apply` exported from command-line
+/// flags this invocation. Additive-only, written once at startup, so readers
+/// can attribute a process-env hit to the flag that set it rather than to an
+/// ambient shell export. Not an env-mutation seam: tests exercise the sourced
+/// resolvers through their injected `from_cli_flag` parameter instead.
+static CLI_FLAG_EXPORTS: Mutex<BTreeSet<String>> = Mutex::new(BTreeSet::new());
+
+/// Records that `key` was exported into the process environment by a
+/// command-line flag, so [`get_env_var_sourced`] reports
+/// [`EnvValueSource::CliFlag`] for it instead of
+/// [`EnvValueSource::ProcessEnv`].
+pub fn note_cli_flag_export(key: &str) {
+    // Recover from poisoning rather than losing provenance: the set is
+    // insert-only, so a panicked writer cannot leave it inconsistent.
+    let mut set = CLI_FLAG_EXPORTS
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    set.insert(key.to_string());
+}
+
+/// Returns whether `key` was exported by a command-line flag this invocation.
+#[must_use]
+pub fn exported_by_cli_flag(key: &str) -> bool {
+    CLI_FLAG_EXPORTS
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .contains(key)
+}
+
+/// Environment variable that selects the active profile, mirroring `AWS_PROFILE`.
+///
+/// Read from the **raw** process environment only (never through the profile
+/// fallback, which would be circular); the `--profile` flag propagates its value
+/// here in `Cli::propagate_profile_flag`.
+pub const PROFILE_ENV_VAR: &str = "GWI_PROFILE";
+
+/// A named credential/config bundle inside `settings.json` — its own `env` map,
+/// selected per invocation via `--profile` / `GWI_PROFILE`.
+#[derive(Debug, Default, Deserialize)]
+pub struct Profile {
+    /// Environment variable overrides applied when this profile is active.
+    #[serde(default)]
+    pub env: HashMap<String, String>,
+}
+
+/// A single named Gmail account's stored OAuth2 credentials, inside the
+/// `gmail.accounts` map (issue #1500, [ADR-0066](../../docs/adrs/adr-0066.md)).
+///
+/// Orthogonal to [`Profile`]: selecting a Gmail account never changes the
+/// active `--profile`, and vice versa. See `email_address`'s own doc
+/// comment below for how it's populated and used — never for
+/// authentication itself.
+#[derive(Debug, Default, Deserialize)]
+pub struct GmailAccountSettings {
+    /// OAuth2 client id from the account's Google Cloud project.
+    #[serde(default)]
+    pub client_id: Option<String>,
+    /// OAuth2 client secret from the account's Google Cloud project.
+    #[serde(default)]
+    pub client_secret: Option<String>,
+    /// Absolute path to a file holding `client_secret` instead (#2008) —
+    /// the raw secret, not a `client_secret.json`. Setting both is an error.
+    #[serde(default)]
+    pub client_secret_file: Option<String>,
+    /// The long-lived refresh token obtained by `gmail auth login`.
+    #[serde(default)]
+    pub refresh_token: Option<String>,
+    /// Absolute path to a file holding `refresh_token` instead (#2008);
+    /// `gmail auth login` writes a new token there. Setting both is an
+    /// error.
+    #[serde(default)]
+    pub refresh_token_file: Option<String>,
+    /// The OAuth2 scope this account was authorized with.
+    #[serde(default)]
+    pub scope: Option<String>,
+    /// Mailbox address for this account. Populated opportunistically by
+    /// `gmail auth status` when absent, but may also be set by hand ahead of
+    /// the first login — e.g. to opt into `chrome_profile_from_email` below.
+    /// An explicit value is never overwritten by the `gmail auth status`
+    /// backfill. Never used for authentication itself, only for browser
+    /// targeting.
+    #[serde(default)]
+    pub email_address: Option<String>,
+
+    /// Opt-in (default `false`): resolve which local Chrome profile is
+    /// signed into `email_address` and launch `gmail auth login`'s
+    /// authorization URL targeting that profile, instead of the OS default
+    /// browser. Resolution failure (Chrome not installed, zero or multiple
+    /// matching profiles, ...) always falls back to the default browser —
+    /// never a hard login failure. Ignored when `browser_command` is set.
+    /// (issue #1505, [ADR-0067](../../docs/adrs/adr-0067.md))
+    #[serde(default)]
+    pub chrome_profile_from_email: bool,
+
+    /// Explicit browser launch command for `gmail auth login`, `{url}`
+    /// templated (or appended if no placeholder is present) — the manual
+    /// escape hatch, e.g. to target a specific Chrome profile by hand or a
+    /// non-Chrome browser entirely. Mirrors `SNOWFLAKE_BROWSER_COMMAND`
+    /// (`crate::snowflake`). Takes precedence over `chrome_profile_from_email`.
+    /// (issue #1505)
+    #[serde(default)]
+    pub browser_command: Option<String>,
+}
+
+/// The `gmail` section of `settings.json` — named Gmail accounts, selected
+/// per invocation via `--account` / `GWI_GMAIL_ACCOUNT`
+/// (issue #1500, [ADR-0066](../../docs/adrs/adr-0066.md)).
+///
+/// An absent `gmail` block (or an empty `accounts` map) leaves Gmail
+/// credential resolution on today's exact legacy path — see
+/// `crate::gmail::account::resolve_account`.
+#[derive(Debug, Default, Deserialize)]
+pub struct GmailSettings {
+    /// The account `gmail account list`/credential resolution falls back to
+    /// when `--account`/`GWI_GMAIL_ACCOUNT` is unset and more than one
+    /// account is configured.
+    #[serde(default)]
+    pub default_account: Option<String>,
+
+    /// Named accounts, keyed by the name passed to `--account`.
+    #[serde(default)]
+    pub accounts: HashMap<String, GmailAccountSettings>,
+}
+
+/// Settings loaded from $HOME/.gwi/settings.json.
+#[derive(Debug, Default, Deserialize)]
+pub struct Settings {
+    /// Environment variable overrides — the default bundle, consulted only when
+    /// **no** profile is active.
+    #[serde(default)]
+    pub env: HashMap<String, String>,
+
+    /// Named profiles. Selecting one replaces the base `env` in the fallback
+    /// chain (isolated / AWS-faithful); see [`Settings::resolve_with`].
+    #[serde(default)]
+    pub profiles: HashMap<String, Profile>,
+
+    /// Named Gmail accounts (issue #1500); an absent block yields
+    /// [`GmailSettings::default`], which is an empty account map.
+    #[serde(default)]
+    pub gmail: GmailSettings,
+}
+
+/// Returns the active profile name from `raw` (the process environment), or
+/// `None` when `GWI_PROFILE` is unset or empty.
+///
+/// Reads the **raw** env only, so it is pure over the injected source and never
+/// resolves through the profile fallback.
+pub fn active_profile_from<E: EnvSource>(raw: &E) -> Option<String> {
+    raw.var(PROFILE_ENV_VAR).filter(|s| !s.is_empty())
+}
+
+/// Renders ` (profile '<name>')` for credential-store CLI messages, or the
+/// empty string when no profile is active — so `auth login`/`logout` output
+/// names the env map it actually wrote to (issue #1116).
+#[must_use]
+pub fn profile_suffix(profile: Option<&str>) -> String {
+    profile.map_or_else(String::new, |name| format!(" (profile '{name}')"))
+}
+
+/// An [`EnvSource`] with the settings/profile
+/// fallback — the value form of [`get_env_var`].
+///
+/// Reads the real process environment first, then the active profile's `env`
+/// (or the base `env` when no profile is active) in
+/// `$HOME/.gwi/settings.json`.
+///
+/// Pass `&SettingsEnv::load()` from a thin production wrapper; tests inject a
+/// pure `MapEnv` into the same `*_with(&impl EnvSource, …)` seam instead of
+/// mutating the process environment.
+#[derive(Debug, Default)]
+pub struct SettingsEnv {
+    settings: Settings,
+    active_profile: Option<String>,
+}
+
+impl SettingsEnv {
+    /// Loads settings from the default location, falling back to an empty
+    /// settings map if they are absent or unreadable (env-only behaviour),
+    /// warning first if the file exists but fails to parse (issue #1744).
+    /// The active profile is read from `GWI_PROFILE`.
+    pub fn load() -> Self {
+        Self::load_with_profile(active_profile_from(&SystemEnv).as_deref())
+    }
+
+    /// Like [`load`](Self::load) but with the active profile supplied
+    /// explicitly — for tests and embedders that select a profile without
+    /// setting `GWI_PROFILE` in the process environment.
+    pub fn load_with_profile(profile: Option<&str>) -> Self {
+        Self {
+            settings: Settings::load_or_warn_default(),
+            active_profile: profile.map(str::to_string),
+        }
+    }
+
+    /// Wraps an already-loaded [`Settings`], skipping the disk read/parse
+    /// [`load`](Self::load)/[`load_with_profile`](Self::load_with_profile)
+    /// perform — for callers (e.g. `load_credentials_for`/`status_for` in
+    /// `crate::gmail::auth`/`crate::drive::auth`) that already loaded
+    /// `Settings` to resolve an account and would otherwise discard it just
+    /// to re-read the same file a second time (issue #1533).
+    pub fn from_settings(settings: Settings, profile: Option<&str>) -> Self {
+        Self {
+            settings,
+            active_profile: profile.map(str::to_string),
+        }
+    }
+}
+
+impl EnvSource for SettingsEnv {
+    fn var(&self, key: &str) -> Option<String> {
+        self.settings
+            .resolve_with(&SystemEnv, self.active_profile.as_deref(), key)
+    }
+
+    fn var_triple(&self, key: &str, file_key: &str, command_key: &str) -> SecretTriple {
+        self.settings.resolve_triple_with(
+            &SystemEnv,
+            self.active_profile.as_deref(),
+            key,
+            file_key,
+            command_key,
+        )
+    }
+}
+
+/// A borrowed [`SettingsEnv`]: the settings/profile fallback over an
+/// already-loaded [`Settings`], for callers that keep using the `Settings`
+/// afterwards. Built by [`Settings::env_source`].
+#[derive(Debug)]
+pub struct SettingsEnvRef<'a> {
+    settings: &'a Settings,
+    active_profile: Option<String>,
+}
+
+impl EnvSource for SettingsEnvRef<'_> {
+    fn var(&self, key: &str) -> Option<String> {
+        self.settings
+            .resolve_with(&SystemEnv, self.active_profile.as_deref(), key)
+    }
+
+    fn var_triple(&self, key: &str, file_key: &str, command_key: &str) -> SecretTriple {
+        self.settings.resolve_triple_with(
+            &SystemEnv,
+            self.active_profile.as_deref(),
+            key,
+            file_key,
+            command_key,
+        )
+    }
+}
+
+/// Process-wide de-duplication for [`Settings::load_or_warn_default`]'s
+/// warning (issue #1744). Remembers the last failure warned about: a repeat
+/// of the same failure is silent, while a successful load forgets it — so a
+/// long-lived process (the daemon, the MCP server) warns afresh if the file is
+/// fixed and later broken again, even with an identical error.
+struct LoadWarnDedup(Mutex<Option<String>>);
+
+impl LoadWarnDedup {
+    const fn new() -> Self {
+        Self(Mutex::new(None))
+    }
+
+    /// Records one load's outcome (`None` = success, `Some` = the failure's
+    /// message) and returns whether that failure should be warned about.
+    fn observe(&self, failure: Option<&str>) -> bool {
+        let mut last = self
+            .0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        match failure {
+            None => {
+                *last = None;
+                false
+            }
+            Some(message) if last.as_deref() == Some(message) => false,
+            Some(message) => {
+                *last = Some(message.to_string());
+                true
+            }
+        }
+    }
+}
+
+static LOAD_WARN_DEDUP: LoadWarnDedup = LoadWarnDedup::new();
+
+/// Warns that settings failed to load and defaults are being used, unless
+/// `dedup` has already reported this exact failure. Takes the dedup as a
+/// parameter so a test can assert the once-only behaviour on a private one.
+fn warn_settings_fallback(dedup: &LoadWarnDedup, message: &str) {
+    if dedup.observe(Some(message)) {
+        tracing::warn!(
+            "{message}; falling back to default settings for this invocation — \
+             any settings.json configuration is being ignored"
+        );
+    }
+}
+
+/// Whether `key` is a registered secret, so it has a `_FILE` companion.
+fn is_secret_env_var(key: &str) -> bool {
+    secret_env::SECRET_ENV_VARS.contains(&key)
+}
+
+/// Refuses to overwrite a registered secret that `env` fetches through its
+/// `<NAME>_COMMAND` companion (ADR-0090). Unlike a `_FILE` companion, which a
+/// login replaces (ADR-0089), the command names a store the user chose
+/// precisely to keep the secret out of settings.json; writing the new value
+/// there in plaintext would silently undo that. An empty value counts as
+/// unset, as everywhere else.
+fn refuse_secret_commands<'a>(
+    env: &serde_json::Map<String, serde_json::Value>,
+    keys: impl Iterator<Item = &'a str>,
+    profile: Option<&str>,
+) -> Result<()> {
+    for key in keys.filter(|key| is_secret_env_var(key)) {
+        let command_var = secret_env::command_var_name(key);
+        let set = env
+            .get(&command_var)
+            .and_then(serde_json::Value::as_str)
+            .is_some_and(|v| !v.is_empty());
+        if set {
+            let map = match profile {
+                Some(name) => format!("profiles.{name}.env"),
+                None => "env".to_string(),
+            };
+            anyhow::bail!(
+                "{key} is fetched by {command_var} in the {map} map of settings.json, so a login \
+                 would replace it with a plaintext value there and nothing was saved; store the \
+                 new value in the store {command_var} reads, or remove {command_var} first"
+            );
+        }
+    }
+    Ok(())
+}
+
+impl Settings {
+    /// Loads settings from the default location.
+    pub fn load() -> Result<Self> {
+        let settings_path = Self::get_settings_path()?;
+        Self::load_from_path(&settings_path)
+    }
+
+    /// Loads settings from the default location, warning and falling back to
+    /// [`Settings::default`] if the file exists but fails to read or parse —
+    /// the disk boundary every non-`Result` call site shares (issue #1744).
+    /// A *missing* file is not an error and never warns (see
+    /// [`Self::load_from_path`]).
+    ///
+    /// The warning fires once per distinct failure per process, not once per
+    /// call: a single command loads settings several times (client creation,
+    /// then each account/lease helper), and repeating an identical warning
+    /// for every read buried the refusal it explains. A successful load resets
+    /// this, so a long-lived process warns again if the file breaks again.
+    pub fn load_or_warn_default() -> Self {
+        match Self::load() {
+            Ok(settings) => {
+                LOAD_WARN_DEDUP.observe(None);
+                settings
+            }
+            Err(e) => {
+                warn_settings_fallback(&LOAD_WARN_DEDUP, &format!("{e:#}"));
+                Self::default()
+            }
+        }
+    }
+
+    /// Records a bootstrap settings failure after tracing has been installed.
+    /// Shares deduplication with later settings reads in the same process.
+    pub fn warn_bootstrap_failure(message: &str) {
+        warn_settings_fallback(&LOAD_WARN_DEDUP, message);
+    }
+
+    /// Loads settings from a specific path.
+    pub fn load_from_path<P: AsRef<Path>>(path: P) -> Result<Self> {
+        let path = path.as_ref();
+
+        // If file doesn't exist, return default settings
+        if !path.exists() {
+            return Ok(Self::default());
+        }
+
+        // Read and parse the settings file
+        let content = fs::read_to_string(path)
+            .with_context(|| format!("Failed to read settings file: {}", path.display()))?;
+
+        serde_json::from_str::<Self>(&content)
+            .with_context(|| format!("Failed to parse settings file: {}", path.display()))
+    }
+
+    /// Returns the default settings path.
+    pub fn get_settings_path() -> Result<PathBuf> {
+        let home_dir = dirs::home_dir().context("Failed to determine home directory")?;
+
+        Ok(home_dir.join(".gwi").join("settings.json"))
+    }
+
+    /// Returns an environment variable with fallback to settings, honouring the
+    /// active profile from `GWI_PROFILE`.
+    pub fn get_env_var(&self, key: &str) -> Option<String> {
+        self.resolve_with(&SystemEnv, active_profile_from(&SystemEnv).as_deref(), key)
+    }
+
+    /// Isolated / AWS-faithful resolution: `raw` (the process environment) wins;
+    /// then the active profile's `env` if `active` is set, else the base `env`.
+    /// The base map is **not** consulted when a profile is active, so a missing
+    /// key fails loud rather than silently reusing a default credential against
+    /// the wrong tenant.
+    ///
+    /// This is the pure seam: production wrappers pass `&SystemEnv`; tests pass
+    /// a `MapEnv` and an explicit `active`, mutating no process-global state.
+    pub fn resolve_with<E: EnvSource>(
+        &self,
+        raw: &E,
+        active: Option<&str>,
+        key: &str,
+    ) -> Option<String> {
+        self.resolve_with_source(raw, active, key)
+            .map(|(value, _)| value)
+    }
+
+    /// Resolves `key`, `file_key` and `command_key` **as a triple from one
+    /// layer**, for the secret resolver ([`crate::utils::secret_env`],
+    /// ADR-0089, ADR-0090): the raw environment's triple if it sets any member
+    /// (even to an empty value, which neutralises the lower layers exactly as
+    /// [`Settings::resolve_with`] does); otherwise the active profile's `env`
+    /// triple, or the base `env` triple when no profile is active. So
+    /// `NAME_FILE` in the process env overrides `NAME` in settings.json, while
+    /// two members in one layer are left for the resolver to reject.
+    pub fn resolve_triple_with<E: EnvSource>(
+        &self,
+        raw: &E,
+        active: Option<&str>,
+        key: &str,
+        file_key: &str,
+        command_key: &str,
+    ) -> SecretTriple {
+        let raw_triple = (raw.var(key), raw.var(file_key), raw.var(command_key));
+        if raw_triple.0.is_some() || raw_triple.1.is_some() || raw_triple.2.is_some() {
+            return raw_triple;
+        }
+        let layer = match active {
+            Some(name) => self.profiles.get(name).map(|p| &p.env),
+            None => Some(&self.env),
+        };
+        layer.map_or((None, None, None), |env| {
+            (
+                env.get(key).cloned(),
+                env.get(file_key).cloned(),
+                env.get(command_key).cloned(),
+            )
+        })
+    }
+
+    /// An [`EnvSource`] over these settings with the process environment in
+    /// front and the active profile read from `GWI_PROFILE` — the
+    /// borrowed form of [`SettingsEnv`], for the secret resolver.
+    #[must_use]
+    pub fn env_source(&self) -> SettingsEnvRef<'_> {
+        SettingsEnvRef {
+            settings: self,
+            active_profile: active_profile_from(&SystemEnv),
+        }
+    }
+
+    /// Like [`Settings::resolve_with`], but also reports which layer supplied
+    /// the value: the raw process environment, the active profile's `env`, or
+    /// the base `env` (issue #1143). Same precedence, same profile isolation.
+    ///
+    /// A [`EnvValueSource::CliFlag`] attribution is layered on top by
+    /// [`get_env_var_sourced`], which knows about flag exports; this resolver
+    /// only distinguishes what it can see.
+    pub fn resolve_with_source<E: EnvSource>(
+        &self,
+        raw: &E,
+        active: Option<&str>,
+        key: &str,
+    ) -> Option<(String, EnvValueSource)> {
+        if let Some(value) = raw.var(key) {
+            return Some((value, EnvValueSource::ProcessEnv));
+        }
+        match active {
+            Some(name) => self
+                .profiles
+                .get(name)
+                .and_then(|p| p.env.get(key).cloned())
+                .map(|value| (value, EnvValueSource::SettingsProfile(name.to_string()))),
+            None => self
+                .env
+                .get(key)
+                .cloned()
+                .map(|value| (value, EnvValueSource::SettingsEnv)),
+        }
+    }
+
+    /// Merges the given key/value pairs into the base `env` object of the
+    /// settings file at `path` — [`Settings::upsert_env_vars_in`] with no
+    /// profile.
+    pub fn upsert_env_vars(path: &Path, vars: &[(&str, &str)]) -> Result<()> {
+        Self::upsert_env_vars_in(path, None, vars)
+    }
+
+    /// Merges the given key/value pairs into the `env` object targeted by
+    /// `profile` — `profiles.<name>.env` when `Some`, the base `env` when
+    /// `None` — creating the file, its parent directory, and any missing
+    /// intermediate objects as needed. Writes therefore land where
+    /// [`Settings::resolve_with`] will look for them (issue #1116).
+    ///
+    /// A `profile` absent from the file is created rather than rejected; the
+    /// CLI validates the active profile before dispatch, so this only affects
+    /// library callers.
+    ///
+    /// The file is read and written as a generic JSON value, so every other
+    /// field (other profiles, unknown keys) is preserved verbatim. Because the
+    /// `env` maps hold credentials, the write is hardened: parent directory
+    /// `0700`, file `0600` (see `write_settings`).
+    pub fn upsert_env_vars_in(
+        path: &Path,
+        profile: Option<&str>,
+        vars: &[(&str, &str)],
+    ) -> Result<()> {
+        Self::replace_env_vars_in(path, profile, vars, &[])
+    }
+
+    /// Replaces keys and removes obsolete credentials in one settings write.
+    ///
+    /// Preserves unrelated settings, rejects selected secret helpers before any
+    /// mutation, and removes obsolete secrets' file and command companions.
+    pub(crate) fn replace_env_vars_in(
+        path: &Path,
+        profile: Option<&str>,
+        vars: &[(&str, &str)],
+        remove: &[&str],
+    ) -> Result<()> {
+        let mut settings_value = read_or_default_settings(path)?;
+
+        let env = ensure_env_object(&mut settings_value, profile)?;
+        refuse_secret_commands(env, vars.iter().map(|(key, _)| *key), profile)?;
+        for key in remove {
+            env.remove(*key);
+            if is_secret_env_var(key) {
+                env.remove(&secret_env::file_var_name(key));
+                env.remove(&secret_env::command_var_name(key));
+            }
+        }
+        for (key, value) in vars {
+            env.insert(
+                (*key).to_string(),
+                serde_json::Value::String((*value).to_string()),
+            );
+            // A registered secret's `_FILE` companion in the same map would
+            // make every later read a same-layer conflict (ADR-0089), so the
+            // value just written replaces it.
+            if is_secret_env_var(key) {
+                env.remove(&secret_env::file_var_name(key));
+            }
+        }
+
+        write_settings(path, &settings_value)
+    }
+
+    /// Fails when any of the registered secrets in `keys` is fetched through
+    /// a `<NAME>_COMMAND`, either in the `env` object targeted by `profile`
+    /// (the check [`Settings::upsert_env_vars_in`] applies before writing) or
+    /// in the process environment `raw`, which outranks whatever a login would
+    /// write there and would silently shadow it. Exposed so an interactive
+    /// login can refuse *before* it spends a browser flow on a token it would
+    /// then be unable to use (ADR-0090). A missing file or map passes.
+    pub fn ensure_secrets_replaceable(
+        path: &Path,
+        profile: Option<&str>,
+        keys: &[&str],
+        raw: &impl EnvSource,
+    ) -> Result<()> {
+        for key in keys.iter().copied().filter(|key| is_secret_env_var(key)) {
+            let command_var = secret_env::command_var_name(key);
+            if raw.var(&command_var).is_some_and(|v| !v.is_empty()) {
+                anyhow::bail!(
+                    "{key} is fetched by {command_var}, which is set in the environment and \
+                     would shadow anything a login saved, so nothing was saved; store the new \
+                     value in the store {command_var} reads, or unset {command_var} first"
+                );
+            }
+        }
+        if !path.exists() {
+            return Ok(());
+        }
+        let mut settings_value = read_or_default_settings(path)?;
+        match env_object_mut(&mut settings_value, profile) {
+            Some(env) => refuse_secret_commands(env, keys.iter().copied(), profile),
+            None => Ok(()),
+        }
+    }
+
+    /// Removes the given keys from the base `env` object of the settings file
+    /// at `path` — [`Settings::remove_env_vars_in`] with no profile.
+    pub fn remove_env_vars(path: &Path, keys: &[&str]) -> Result<bool> {
+        Self::remove_env_vars_in(path, None, keys)
+    }
+
+    /// Removes the given keys from the `env` object targeted by `profile`
+    /// (`profiles.<name>.env` when `Some`, the base `env` when `None`),
+    /// leaving all other settings — including the same keys in other env
+    /// maps — intact.
+    ///
+    /// Returns `true` if any key was present in the targeted map and removed
+    /// (the file is rewritten, hardened as in
+    /// [`Settings::upsert_env_vars_in`]), `false` when the file did not
+    /// exist, the targeted map was absent, or it contained none of the keys
+    /// (the file is left untouched).
+    pub fn remove_env_vars_in(path: &Path, profile: Option<&str>, keys: &[&str]) -> Result<bool> {
+        if !path.exists() {
+            return Ok(false);
+        }
+        let mut settings_value = read_or_default_settings(path)?;
+
+        let mut removed = false;
+        if let Some(env) = env_object_mut(&mut settings_value, profile) {
+            for key in keys {
+                if env.remove(*key).is_some() {
+                    removed = true;
+                }
+                // Logging out must not leave a registered secret still
+                // resolvable through its `_FILE` or `_COMMAND` companion
+                // (ADR-0089, ADR-0090).
+                if is_secret_env_var(key) {
+                    for companion in [
+                        secret_env::file_var_name(key),
+                        secret_env::command_var_name(key),
+                    ] {
+                        if env.remove(&companion).is_some() {
+                            removed = true;
+                        }
+                    }
+                }
+            }
+        }
+
+        if removed {
+            write_settings(path, &settings_value)?;
+        }
+        Ok(removed)
+    }
+
+    /// Validates that `name` is a known profile, returning a hard error that
+    /// lists the known profiles (sorted) otherwise. Called once at the CLI
+    /// boundary so a typo never silently falls back to base credentials.
+    pub fn validate_profile(&self, name: &str) -> Result<()> {
+        if self.profiles.contains_key(name) {
+            return Ok(());
+        }
+        let known = if self.profiles.is_empty() {
+            "(none)".to_string()
+        } else {
+            let mut names: Vec<&str> = self.profiles.keys().map(String::as_str).collect();
+            names.sort_unstable();
+            names.join(", ")
+        };
+        Err(anyhow::anyhow!(
+            "unknown profile '{name}'; known profiles: {known}"
+        ))
+    }
+
+    /// Merges the given key/value pairs into `gmail.accounts.<account>`,
+    /// creating the file, its parent directory, and any missing intermediate
+    /// objects as needed (issue #1500,
+    /// [ADR-0066](../../docs/adrs/adr-0066.md)). Same hardening and
+    /// unknown-field preservation as [`Settings::upsert_env_vars_in`] — no
+    /// new file-handling code.
+    ///
+    /// `vars` takes [`serde_json::Value`] rather than `&str` (widened in
+    /// #1523, PR #1528 review) because `GmailAccountSettings` has non-string
+    /// fields (`chrome_profile_from_email: bool`) — a hard-coded
+    /// `Value::String` wrap would write the JSON string `"true"` into a
+    /// `bool` field, and since `Settings` deserializes as one unit, the next
+    /// `Settings::load()` would hard-fail parsing the *entire* file. Callers
+    /// writing a string field pass `serde_json::Value::String(...)`
+    /// explicitly.
+    pub fn upsert_gmail_account(
+        path: &Path,
+        account: &str,
+        vars: &[(&str, serde_json::Value)],
+    ) -> Result<()> {
+        upsert_account(path, "gmail", account, vars)
+    }
+
+    /// Removes `gmail.accounts.<account>` entirely — an account is coherent
+    /// as a unit, unlike the key-by-key removal
+    /// [`Settings::remove_env_vars_in`] does. Also clears
+    /// `gmail.default_account` if it named the removed account, so
+    /// resolution (`src/gmail/account.rs::resolve_default_account`) falls
+    /// back to the sole-remaining-account rule instead of hard-erroring on
+    /// a dangling pointer (issue #1529). Returns `true` if the account was
+    /// present and removed, `false` when the file, `gmail`,
+    /// `gmail.accounts`, or the named account did not exist (the file is
+    /// left untouched in that case).
+    pub fn remove_gmail_account(path: &Path, account: &str) -> Result<bool> {
+        if !path.exists() {
+            return Ok(false);
+        }
+        let mut settings_value = read_or_default_settings(path)?;
+
+        let removed = object_at_mut(&mut settings_value, &["gmail", "accounts"])
+            .is_some_and(|accounts| accounts.remove(account).is_some());
+
+        if removed {
+            if let Some(gmail) = object_at_mut(&mut settings_value, &["gmail"]) {
+                if gmail.get("default_account").and_then(|v| v.as_str()) == Some(account) {
+                    gmail.remove("default_account");
+                }
+            }
+            write_settings(path, &settings_value)?;
+        }
+        Ok(removed)
+    }
+
+    /// Sets (`Some`) or clears (`None`) `gmail.default_account`. Always
+    /// writes, mirroring [`Settings::upsert_env_vars_in`]'s unconditional-write
+    /// semantics rather than [`Settings::remove_env_vars_in`]'s
+    /// changed-only one, since this is fundamentally an upsert of a single
+    /// scalar rather than a set of keys.
+    pub fn set_gmail_default_account(path: &Path, account: Option<&str>) -> Result<()> {
+        let mut settings_value = read_or_default_settings(path)?;
+
+        match account {
+            Some(name) => {
+                let gmail = ensure_object_at(&mut settings_value, &["gmail"])?;
+                gmail.insert(
+                    "default_account".to_string(),
+                    serde_json::Value::String(name.to_string()),
+                );
+            }
+            None => {
+                if let Some(gmail) = object_at_mut(&mut settings_value, &["gmail"]) {
+                    gmail.remove("default_account");
+                }
+            }
+        }
+
+        write_settings(path, &settings_value)
+    }
+}
+
+/// Navigates `root` to the env object targeted by `profile` — the base `env`
+/// when `None`, `profiles.<name>.env` when `Some`. Thin specialization of
+/// [`ensure_object_at`] for the two-level `env`/`profiles.<name>.env` shape.
+fn ensure_env_object<'a>(
+    root: &'a mut serde_json::Value,
+    profile: Option<&str>,
+) -> Result<&'a mut serde_json::Map<String, serde_json::Value>> {
+    match profile {
+        Some(name) => ensure_object_at(root, &["profiles", name, "env"]),
+        None => ensure_object_at(root, &["env"]),
+    }
+}
+
+/// Navigates `root` to the env object targeted by `profile`, or `None` when
+/// any node on the way is absent or not an object. Thin specialization of
+/// [`object_at_mut`] for the two-level `env`/`profiles.<name>.env` shape.
+fn env_object_mut<'a>(
+    root: &'a mut serde_json::Value,
+    profile: Option<&str>,
+) -> Option<&'a mut serde_json::Map<String, serde_json::Value>> {
+    match profile {
+        Some(name) => object_at_mut(root, &["profiles", name, "env"]),
+        None => object_at_mut(root, &["env"]),
+    }
+}
+
+/// Navigates `root` through each of `segments` in turn, creating missing
+/// intermediate objects and replacing non-object nodes along the way, and
+/// returns the object at the end of the path. The creating counterpart of
+/// [`object_at_mut`], for upserts. Generalizes what were previously two
+/// hardcoded two-level walks (`env`, `profiles.<name>.env`) to an arbitrary
+/// depth, so a third settings substructure (`gmail.accounts.<name>`, issue
+/// #1500) reuses the same file-handling code rather than duplicating it.
+fn ensure_object_at<'a>(
+    root: &'a mut serde_json::Value,
+    segments: &[&str],
+) -> Result<&'a mut serde_json::Map<String, serde_json::Value>> {
+    let mut current = root;
+    for segment in segments {
+        if !current
+            .get(*segment)
+            .is_some_and(serde_json::Value::is_object)
+        {
+            current[*segment] = serde_json::json!({});
+        }
+        current = current
+            .get_mut(*segment)
+            .context("Internal error: target key missing immediately after being created")?;
+    }
+    current
+        .as_object_mut()
+        .context("Internal error: target key is not an object after initialization")
+}
+
+/// Navigates `root` through each of `segments` in turn, or returns `None`
+/// when any node on the way is absent or not an object. The non-creating
+/// counterpart of [`ensure_object_at`], for removals.
+fn object_at_mut<'a>(
+    root: &'a mut serde_json::Value,
+    segments: &[&str],
+) -> Option<&'a mut serde_json::Map<String, serde_json::Value>> {
+    let mut current = root;
+    for segment in segments {
+        current = current.get_mut(*segment)?;
+    }
+    current.as_object_mut()
+}
+
+/// Reads and parses the settings file at `path` as a generic JSON value
+/// (preserving unknown fields), or returns `{}` when the file does not exist.
+fn read_or_default_settings(path: &Path) -> Result<serde_json::Value> {
+    if path.exists() {
+        let content = fs::read_to_string(path)
+            .with_context(|| format!("Failed to read {}", path.display()))?;
+        serde_json::from_str(&content)
+            .with_context(|| format!("Failed to parse {}", path.display()))
+    } else {
+        Ok(serde_json::json!({}))
+    }
+}
+
+/// The named-account secret fields that accept a `<field>_file` companion
+/// (#2008).
+const ACCOUNT_SECRET_FIELDS: &[&str] = &["client_secret", "refresh_token"];
+
+/// The shared body of [`Settings::upsert_gmail_account`] and (once Drive
+/// lands) `Settings::upsert_drive_account`: merges `vars` into
+/// `<section>.accounts.<account>`.
+///
+/// A secret field ([`ACCOUNT_SECRET_FIELDS`]) whose entry already names a
+/// `<field>_file` is written into that file instead, and the plain field is
+/// removed, so the secret never lands in settings.json and the entry can't
+/// hold both (#2008). Every file is checked
+/// ([`secret_env::plan_secret_file_write`]) before any is written, and all
+/// are written before settings.json, so a refused or failed secret write
+/// leaves settings.json untouched.
+///
+/// A `client_secret_file` that holds another value is not replaced when the
+/// incoming `client_id` differs from the entry's: that file is most likely
+/// shared with accounts of the other OAuth client, and replacing it would
+/// break them.
+fn upsert_account(
+    path: &Path,
+    section: &str,
+    account: &str,
+    vars: &[(&str, serde_json::Value)],
+) -> Result<()> {
+    let mut settings_value = read_or_default_settings(path)?;
+
+    let entry = ensure_object_at(&mut settings_value, &[section, "accounts", account])?;
+    let stored_client_id = entry
+        .get("client_id")
+        .and_then(serde_json::Value::as_str)
+        .map(str::to_string);
+    let mut secret_writes = Vec::new();
+    for (key, value) in vars {
+        if let Some(file) = account_secret_file(entry, key, value) {
+            let label = format!("{section}.accounts.{account}.{key}_file");
+            let secret = crate::utils::secret::Secret::new(value.as_str().unwrap_or_default());
+            if let Some(write) =
+                secret_env::plan_secret_file_write(&label, Path::new(&file), &secret)?
+            {
+                if *key == "client_secret" && write.replaces_existing() {
+                    refuse_client_change(&label, stored_client_id.as_deref(), vars)?;
+                }
+                secret_writes.push((write, secret));
+            } // patchcov: coverage ignore-line reason="this closing brace reports 0 hits under llvm-cov regardless of test count — verified locally: upsert_account_writes_a_secret_into_its_file_not_settings and several other tests complete the block above (the push on the line just before, and entry.remove(*key) right after, both measure as hit), yet this specific brace, immediately after an if-let whose scrutinee ends in a `?` operator, never registers a hit; an llvm-cov region-attribution artifact, not an untested path"
+            entry.remove(*key);
+        } else {
+            entry.insert((*key).to_string(), value.clone());
+        }
+    }
+
+    for (write, secret) in secret_writes {
+        write.write(&secret)?;
+    }
+    write_settings(path, &settings_value)
+}
+
+/// Refuses to replace the `client_secret_file` named by `label` when `vars`
+/// carries a `client_id` other than the entry's `stored` one — see
+/// [`upsert_account`].
+fn refuse_client_change(
+    label: &str,
+    stored: Option<&str>,
+    vars: &[(&str, serde_json::Value)],
+) -> Result<()> {
+    let incoming = vars
+        .iter()
+        .find(|(key, _)| *key == "client_id")
+        .and_then(|(_, value)| value.as_str());
+    if let (Some(stored), Some(incoming)) = (stored, incoming) {
+        if stored != incoming {
+            anyhow::bail!(
+                "{label} holds the secret of OAuth client {stored}, not {incoming}; refusing to \
+                 replace it, since other accounts may share it. Point {label} at a file of its \
+                 own, or remove it to store the secret in settings.json"
+            );
+        }
+    }
+    Ok(())
+}
+
+/// Resolves the secret field `<section>.accounts.<account>.<field>` from its
+/// plain `value` or its `<field>_file` companion, with the `<NAME>_FILE`
+/// rules (#2008); errors name the full settings key. `Ok(None)` means
+/// neither is set.
+///
+/// # Errors
+///
+/// See [`secret_env::SecretEnvError`].
+pub(crate) fn account_secret(
+    section: &str,
+    account: &str,
+    field: &str,
+    value: Option<&str>,
+    file: Option<&str>,
+) -> std::result::Result<Option<crate::utils::secret::Secret>, secret_env::SecretEnvError> {
+    let name = format!("{section}.accounts.{account}.{field}");
+    secret_env::resolve_secret_pair(&name, value, &format!("{name}_file"), file)
+}
+
+/// Whether a named-account secret field or its `_file` companion is set
+/// (non-empty), without reading the file — for presence-only reports. Only
+/// the MCP `*_auth_status` tools report a named account's presence flags.
+#[cfg(feature = "mcp")]
+pub(crate) fn account_secret_is_set(value: Option<&str>, file: Option<&str>) -> bool {
+    value.is_some_and(|v| !v.is_empty()) || file.is_some_and(|f| !f.is_empty())
+}
+
+/// The `<key>_file` path to write `value` into instead of `entry.<key>`, when
+/// `key` is a secret field, `value` a string, and the companion set.
+fn account_secret_file(
+    entry: &serde_json::Map<String, serde_json::Value>,
+    key: &str,
+    value: &serde_json::Value,
+) -> Option<String> {
+    if !ACCOUNT_SECRET_FIELDS.contains(&key) || !value.is_string() {
+        return None;
+    }
+    entry
+        .get(&format!("{key}_file"))
+        .and_then(serde_json::Value::as_str)
+        .filter(|file| !file.is_empty())
+        .map(str::to_string)
+}
+
+/// The single hardened write site for the settings file: creates the parent
+/// directory `0700`, writes the pretty-printed JSON through a `0600` handle
+/// (no window where a fresh file is world-readable), and re-tightens a
+/// pre-existing looser-permission file on every write (issue #1128).
+fn write_settings(path: &Path, value: &serde_json::Value) -> Result<()> {
+    if let Some(parent) = path.parent() {
+        if !parent.as_os_str().is_empty() {
+            crate::utils::fs::ensure_dir_0700(parent)?;
+        }
+    }
+    let formatted =
+        serde_json::to_string_pretty(value).context("Failed to serialize settings JSON")?;
+    write_file_0600(path, &formatted)
+        .with_context(|| format!("Failed to write {}", path.display()))?;
+    crate::utils::fs::set_file_0600(path)?;
+    Ok(())
+}
+
+/// Creates/truncates `path` with owner-only (`0600`) permissions on Unix.
+#[cfg(unix)]
+fn write_file_0600(path: &Path, contents: &str) -> std::io::Result<()> {
+    use std::io::Write;
+    use std::os::unix::fs::OpenOptionsExt;
+
+    let mut file = fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .mode(0o600)
+        .open(path)?;
+    file.write_all(contents.as_bytes())
+}
+
+/// Non-Unix fallback: a plain write ([`set_file_0600`](crate::utils::fs::set_file_0600)
+/// is a no-op there too).
+#[cfg(not(unix))]
+fn write_file_0600(path: &Path, contents: &str) -> std::io::Result<()> {
+    fs::write(path, contents)
+}
+
+/// Returns an environment variable with fallback to settings, honouring the
+/// active profile from `GWI_PROFILE`.
+pub fn get_env_var(key: &str) -> Result<String> {
+    get_env_var_with(&SystemEnv, Settings::load, key)
+}
+
+/// Like [`get_env_var`], but also reports where the value came from.
+///
+/// The source is a command-line flag export, the process environment, or a
+/// settings.json `env` map (issue #1143) — for warnings about
+/// security-sensitive values (e.g. the claude-cli escape hatches) that
+/// should name their source.
+pub fn get_env_var_sourced(key: &str) -> Result<(String, EnvValueSource)> {
+    get_env_var_sourced_with(&SystemEnv, Settings::load, exported_by_cli_flag(key), key)
+}
+
+/// Pure core of [`get_env_var`]: [`get_env_var_sourced_with`] with the source
+/// dropped.
+fn get_env_var_with<E, F>(env: &E, load: F, key: &str) -> Result<String>
+where
+    E: EnvSource,
+    F: FnOnce() -> Result<Settings>,
+{
+    get_env_var_sourced_with(env, load, false, key).map(|(value, _)| value)
+}
+
+/// Pure core of [`get_env_var_sourced`]: `env` is the raw source, `load`
+/// produces the settings lazily — it is invoked only on a raw-env miss,
+/// preserving the no-disk fast path — and `from_cli_flag` says whether a flag
+/// exported `key` this invocation (injected so tests never touch the
+/// process-global flag registry). Tests inject a `MapEnv` and a closure
+/// returning `Ok`/`Err` to cover both the resolved and load-failure branches
+/// without touching disk.
+fn get_env_var_sourced_with<E, F>(
+    env: &E,
+    load: F,
+    from_cli_flag: bool,
+    key: &str,
+) -> Result<(String, EnvValueSource)>
+where
+    E: EnvSource,
+    F: FnOnce() -> Result<Settings>,
+{
+    // A raw process-env hit short-circuits without loading settings from disk.
+    // A flag export always lands in the process env, so the flag attribution
+    // only ever applies on this branch.
+    if let Some(value) = env.var(key) {
+        let source = if from_cli_flag {
+            EnvValueSource::CliFlag
+        } else {
+            EnvValueSource::ProcessEnv
+        };
+        return Ok((value, source));
+    }
+    match load() {
+        Ok(settings) => settings
+            .resolve_with_source(env, active_profile_from(env).as_deref(), key)
+            .ok_or_else(|| anyhow::anyhow!("Environment variable not found: {key}")),
+        Err(err) => {
+            // If we couldn't load settings, just return the original env var error
+            Err(anyhow::anyhow!("Environment variable not found: {key}").context(err))
+        }
+    }
+}
+
+/// Tries multiple environment variables with fallback to settings.
+pub fn get_env_vars(keys: &[&str]) -> Result<String> {
+    for key in keys {
+        if let Ok(value) = get_env_var(key) {
+            return Ok(value);
+        }
+    }
+
+    Err(anyhow::anyhow!(
+        "None of the environment variables found: {keys:?}"
+    ))
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tests {
+
+    use super::*;
+    use crate::test_support::env::MapEnv;
+
+    use std::fs;
+    use tempfile::TempDir;
+
+    /// Builds a `Settings` with a base `env` and one profile, for the pure
+    /// resolver tests (no disk, no process env).
+    fn settings_with_profile() -> Settings {
+        let mut base = HashMap::new();
+        base.insert("ATLASSIAN_EMAIL".to_string(), "base@x.com".to_string());
+        base.insert("SHARED".to_string(), "base-shared".to_string());
+
+        let mut work_env = HashMap::new();
+        work_env.insert("ATLASSIAN_EMAIL".to_string(), "me@work.com".to_string());
+
+        let mut profiles = HashMap::new();
+        profiles.insert("work".to_string(), Profile { env: work_env });
+
+        Settings {
+            env: base,
+            profiles,
+            ..Settings::default()
+        }
+    }
+
+    #[test]
+    fn load_warn_dedup_warns_once_per_distinct_failure() {
+        let dedup = LoadWarnDedup::new();
+        assert!(dedup.observe(Some("broken A")));
+        assert!(!dedup.observe(Some("broken A")), "a repeat is silent");
+        assert!(dedup.observe(Some("broken B")), "a new failure warns");
+        assert!(!dedup.observe(Some("broken B")));
+    }
+
+    #[test]
+    fn load_warn_dedup_rewarns_after_a_successful_load() {
+        // A long-lived process must warn again if the file is fixed and then
+        // broken again, even with an identical error message.
+        let dedup = LoadWarnDedup::new();
+        assert!(dedup.observe(Some("broken")));
+        assert!(!dedup.observe(None), "a success never warns");
+        assert!(dedup.observe(Some("broken")));
+    }
+
+    #[test]
+    fn a_settings_fallback_is_warned_about_once_per_distinct_failure() {
+        let dedup = LoadWarnDedup::new();
+        let logs = crate::test_support::capture_at(tracing::Level::WARN, || {
+            warn_settings_fallback(&dedup, "broken A");
+            warn_settings_fallback(&dedup, "broken A");
+            warn_settings_fallback(&dedup, "broken B");
+        });
+        assert_eq!(logs.matches("broken A").count(), 1, "{logs}");
+        assert_eq!(logs.matches("broken B").count(), 1, "{logs}");
+        assert!(logs.contains("falling back to default settings"), "{logs}");
+    }
+
+    #[test]
+    fn warn_bootstrap_failure_reports_the_failure_it_is_handed() {
+        // The bootstrap load in `main` fails before tracing exists, so it hands
+        // its error over afterwards. Repeat suppression is asserted above on a
+        // private dedup: doing it here would race every parallel test whose
+        // successful load resets the process-wide one.
+        let message = "Failed to parse settings file: /bootstrap-test/settings.json";
+        let logs = crate::test_support::capture_at(tracing::Level::WARN, || {
+            Settings::warn_bootstrap_failure(message);
+        });
+        assert!(logs.contains("/bootstrap-test/settings.json"), "{logs}");
+    }
+
+    // ── profile resolution (pure: MapEnv raw env, explicit active profile) ──
+
+    #[test]
+    fn resolve_no_profile_uses_base_env() {
+        let settings = settings_with_profile();
+        let raw = MapEnv::new();
+        assert_eq!(
+            settings
+                .resolve_with(&raw, None, "ATLASSIAN_EMAIL")
+                .as_deref(),
+            Some("base@x.com")
+        );
+    }
+
+    #[test]
+    fn resolve_active_profile_uses_profile_env() {
+        let settings = settings_with_profile();
+        let raw = MapEnv::new();
+        assert_eq!(
+            settings
+                .resolve_with(&raw, Some("work"), "ATLASSIAN_EMAIL")
+                .as_deref(),
+            Some("me@work.com")
+        );
+    }
+
+    #[test]
+    fn resolve_active_profile_does_not_consult_base() {
+        // Isolated / AWS-faithful: a key present only in base is invisible while
+        // a profile is active — fail loud rather than reuse a default token.
+        let settings = settings_with_profile();
+        let raw = MapEnv::new();
+        assert_eq!(settings.resolve_with(&raw, Some("work"), "SHARED"), None);
+    }
+
+    #[test]
+    fn resolve_process_env_wins_over_profile_and_base() {
+        let settings = settings_with_profile();
+        let raw = MapEnv::new().with("ATLASSIAN_EMAIL", "cli@x.com");
+        assert_eq!(
+            settings
+                .resolve_with(&raw, Some("work"), "ATLASSIAN_EMAIL")
+                .as_deref(),
+            Some("cli@x.com")
+        );
+        assert_eq!(
+            settings
+                .resolve_with(&raw, None, "ATLASSIAN_EMAIL")
+                .as_deref(),
+            Some("cli@x.com")
+        );
+    }
+
+    #[test]
+    fn resolve_unknown_active_profile_yields_none() {
+        // An unknown name never falls back to base; validation catches it at the
+        // CLI boundary, but the resolver itself stays isolated.
+        let settings = settings_with_profile();
+        let raw = MapEnv::new();
+        assert_eq!(
+            settings.resolve_with(&raw, Some("nope"), "ATLASSIAN_EMAIL"),
+            None
+        );
+    }
+
+    // ── pair resolution (issue #2006: NAME / NAME_FILE per layer) ──
+
+    #[test]
+    fn upsert_of_a_secret_replaces_its_file_companion_in_the_same_map() {
+        let (_tmp, path) = temp_settings_path();
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(
+            &path,
+            r#"{"env": {"GMAIL_REFRESH_TOKEN_FILE": "/run/k", "OTHER_FILE": "/keep"},
+                "profiles": {"work": {"env": {"GMAIL_REFRESH_TOKEN_FILE": "/w"}}}}"#,
+        )
+        .unwrap();
+
+        Settings::upsert_env_vars_in(&path, None, &[("GMAIL_REFRESH_TOKEN", "v")]).unwrap();
+
+        let val = read_json(&path);
+        assert_eq!(val["env"]["GMAIL_REFRESH_TOKEN"], "v");
+        assert!(val["env"].get("GMAIL_REFRESH_TOKEN_FILE").is_none());
+        // Non-secret keys and other maps are untouched.
+        assert_eq!(val["env"]["OTHER_FILE"], "/keep");
+        assert_eq!(
+            val["profiles"]["work"]["env"]["GMAIL_REFRESH_TOKEN_FILE"],
+            "/w"
+        );
+    }
+
+    #[test]
+    fn remove_of_a_secret_also_removes_its_file_companion() {
+        let (_tmp, path) = temp_settings_path();
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(&path, r#"{"env": {"GMAIL_REFRESH_TOKEN_FILE": "/run/k"}}"#).unwrap();
+
+        assert!(Settings::remove_env_vars_in(&path, None, &["GMAIL_REFRESH_TOKEN"]).unwrap());
+        assert!(read_json(&path)["env"]
+            .get("GMAIL_REFRESH_TOKEN_FILE")
+            .is_none());
+    }
+
+    #[test]
+    fn upsert_of_a_secret_refuses_when_its_command_is_set_in_the_same_map() {
+        let (_tmp, path) = temp_settings_path();
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let before = r#"{"env": {"GMAIL_REFRESH_TOKEN_COMMAND": "op read op://v/dd"},
+                "profiles": {"work": {"env": {"GMAIL_REFRESH_TOKEN_COMMAND": "/w"}}}}"#;
+        fs::write(&path, before).unwrap();
+
+        let err = Settings::upsert_env_vars_in(
+            &path,
+            None,
+            &[
+                ("DATADOG_SITE", "eu"),
+                ("GMAIL_REFRESH_TOKEN", "s3cr3t-value"),
+            ],
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(err.contains("GMAIL_REFRESH_TOKEN_COMMAND"), "{err}");
+        assert!(err.contains("nothing was saved"), "{err}");
+        assert!(!err.contains("s3cr3t-value"), "the value leaked: {err}");
+        assert!(!err.contains("op read"), "the command leaked: {err}");
+        // Nothing was written, not even the non-secret key that came first.
+        assert_eq!(fs::read_to_string(&path).unwrap(), before);
+
+        // The profile's map is judged on its own.
+        let err =
+            Settings::upsert_env_vars_in(&path, Some("work"), &[("GMAIL_REFRESH_TOKEN", "v")])
+                .unwrap_err()
+                .to_string();
+        assert!(err.contains("profiles.work.env"), "{err}");
+    }
+
+    #[test]
+    fn remove_of_a_secret_also_removes_its_command_companion() {
+        let (_tmp, path) = temp_settings_path();
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(
+            &path,
+            r#"{"env": {"GMAIL_REFRESH_TOKEN_COMMAND": "/c", "OTHER_COMMAND": "/keep"}}"#,
+        )
+        .unwrap();
+
+        assert!(Settings::remove_env_vars_in(&path, None, &["GMAIL_REFRESH_TOKEN"]).unwrap());
+        let val = read_json(&path);
+        assert!(val["env"].get("GMAIL_REFRESH_TOKEN_COMMAND").is_none());
+        assert_eq!(val["env"]["OTHER_COMMAND"], "/keep");
+    }
+
+    fn settings_with_env(base: &[(&str, &str)], work: &[(&str, &str)]) -> Settings {
+        let map = |pairs: &[(&str, &str)]| {
+            pairs
+                .iter()
+                .map(|(k, v)| ((*k).to_string(), (*v).to_string()))
+                .collect::<HashMap<_, _>>()
+        };
+        let mut profiles = HashMap::new();
+        profiles.insert("work".to_string(), Profile { env: map(work) });
+        Settings {
+            env: map(base),
+            profiles,
+            ..Settings::default()
+        }
+    }
+
+    #[test]
+    fn resolve_triple_takes_the_process_env_triple_over_settings() {
+        // `NAME_FILE` in the process env beats `NAME` in settings.json: the
+        // layers never mix, so this is not a conflict.
+        let settings = settings_with_env(&[("K", "from-settings")], &[]);
+        let raw = MapEnv::new().with("K_FILE", "/run/k");
+        assert_eq!(
+            settings.resolve_triple_with(&raw, None, "K", "K_FILE", "K_COMMAND"),
+            (None, Some("/run/k".to_string()), None)
+        );
+        // So does `NAME_COMMAND`, over both settings members.
+        let settings = settings_with_env(&[("K", "v"), ("K_FILE", "/f")], &[]);
+        let raw = MapEnv::new().with("K_COMMAND", "/bin/op");
+        assert_eq!(
+            settings.resolve_triple_with(&raw, None, "K", "K_FILE", "K_COMMAND"),
+            (None, None, Some("/bin/op".to_string()))
+        );
+    }
+
+    #[test]
+    fn resolve_triple_falls_back_to_one_settings_layer_as_a_triple() {
+        let settings = settings_with_env(
+            &[("K", "v"), ("K_FILE", "/f"), ("K_COMMAND", "/c")],
+            &[("K_FILE", "/w")],
+        );
+        let raw = MapEnv::new();
+        // All three in the base layer come back together (the resolver rejects it).
+        assert_eq!(
+            settings.resolve_triple_with(&raw, None, "K", "K_FILE", "K_COMMAND"),
+            (
+                Some("v".to_string()),
+                Some("/f".to_string()),
+                Some("/c".to_string())
+            )
+        );
+        // A profile replaces the base layer entirely.
+        assert_eq!(
+            settings.resolve_triple_with(&raw, Some("work"), "K", "K_FILE", "K_COMMAND"),
+            (None, Some("/w".to_string()), None)
+        );
+        assert_eq!(
+            settings.resolve_triple_with(&raw, Some("nope"), "K", "K_FILE", "K_COMMAND"),
+            (None, None, None)
+        );
+    }
+
+    #[test]
+    fn resolve_triple_empty_process_env_value_neutralises_settings() {
+        // Matches `resolve_with`: an exported `K=` shadows the settings layer.
+        let settings = settings_with_env(&[("K", "from-settings")], &[]);
+        let raw = MapEnv::new().with("K", "");
+        assert_eq!(
+            settings.resolve_triple_with(&raw, None, "K", "K_FILE", "K_COMMAND"),
+            (Some(String::new()), None, None)
+        );
+    }
+
+    #[test]
+    fn secret_resolver_over_settings_layers() {
+        use crate::utils::secret_env::{secret_var, SecretEnvError};
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("key");
+        std::fs::write(&path, "from-file\n").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
+        }
+        let path = path.to_str().unwrap();
+
+        struct Layered<'a>(&'a Settings, MapEnv);
+        impl EnvSource for Layered<'_> {
+            fn var(&self, key: &str) -> Option<String> {
+                self.0.resolve_with(&self.1, None, key)
+            }
+            fn var_triple(&self, key: &str, file_key: &str, command_key: &str) -> SecretTriple {
+                self.0
+                    .resolve_triple_with(&self.1, None, key, file_key, command_key)
+            }
+        }
+
+        // Env file overrides a settings value.
+        let settings = settings_with_env(&[("GMAIL_REFRESH_TOKEN", "from-settings")], &[]);
+        let env = Layered(
+            &settings,
+            MapEnv::new().with("GMAIL_REFRESH_TOKEN_FILE", path),
+        );
+        let got = secret_var(&env, "GMAIL_REFRESH_TOKEN").unwrap().unwrap();
+        assert_eq!(got.expose_secret(), "from-file");
+
+        // A settings `_FILE` works on its own.
+        let settings = settings_with_env(&[("GMAIL_REFRESH_TOKEN_FILE", path)], &[]);
+        let env = Layered(&settings, MapEnv::new());
+        let got = secret_var(&env, "GMAIL_REFRESH_TOKEN").unwrap().unwrap();
+        assert_eq!(got.expose_secret(), "from-file");
+
+        // Both in settings is a conflict.
+        let settings = settings_with_env(
+            &[
+                ("GMAIL_REFRESH_TOKEN", "v"),
+                ("GMAIL_REFRESH_TOKEN_FILE", path),
+            ],
+            &[],
+        );
+        let env = Layered(&settings, MapEnv::new());
+        assert!(matches!(
+            secret_var(&env, "GMAIL_REFRESH_TOKEN").unwrap_err(),
+            SecretEnvError::Conflict { .. }
+        ));
+        // secret_var only ever reads var_triple; var itself must still resolve
+        // through the same settings/profile chain for other EnvSource callers.
+        assert_eq!(env.var("GMAIL_REFRESH_TOKEN"), Some("v".to_string()));
+    }
+
+    #[test]
+    fn settings_env_ref_var_falls_back_to_the_settings_layer() {
+        // SettingsEnvRef::var is EnvSource's required method; secret_var and
+        // secret_var_is_set (its only production callers) read var_triple alone,
+        // so this exercises it directly against the same fallback chain
+        // SettingsEnv::var uses.
+        let settings = settings_with_env(&[("GWI_TEST_SETTINGS_ENV_REF_K", "from-settings")], &[]);
+        let env_ref = settings.env_source();
+        assert_eq!(
+            env_ref.var("GWI_TEST_SETTINGS_ENV_REF_K"),
+            Some("from-settings".to_string())
+        );
+        assert_eq!(env_ref.var("GWI_TEST_SETTINGS_ENV_REF_MISSING"), None);
+    }
+
+    // ── sourced resolution (issue #1143: provenance for warnings) ──
+
+    #[test]
+    fn resolve_with_source_process_env_is_process_env() {
+        let settings = settings_with_profile();
+        let raw = MapEnv::new().with("ATLASSIAN_EMAIL", "cli@x.com");
+        assert_eq!(
+            settings.resolve_with_source(&raw, None, "ATLASSIAN_EMAIL"),
+            Some(("cli@x.com".to_string(), EnvValueSource::ProcessEnv))
+        );
+    }
+
+    #[test]
+    fn resolve_with_source_base_env_is_settings_env() {
+        let settings = settings_with_profile();
+        let raw = MapEnv::new();
+        assert_eq!(
+            settings.resolve_with_source(&raw, None, "ATLASSIAN_EMAIL"),
+            Some(("base@x.com".to_string(), EnvValueSource::SettingsEnv))
+        );
+    }
+
+    #[test]
+    fn resolve_with_source_profile_env_names_profile() {
+        let settings = settings_with_profile();
+        let raw = MapEnv::new();
+        assert_eq!(
+            settings.resolve_with_source(&raw, Some("work"), "ATLASSIAN_EMAIL"),
+            Some((
+                "me@work.com".to_string(),
+                EnvValueSource::SettingsProfile("work".to_string())
+            ))
+        );
+    }
+
+    #[test]
+    fn resolve_with_source_missing_key_is_none() {
+        let settings = settings_with_profile();
+        let raw = MapEnv::new();
+        assert_eq!(settings.resolve_with_source(&raw, None, "MISSING"), None);
+    }
+
+    #[test]
+    fn env_value_source_display_names_each_layer() {
+        assert_eq!(EnvValueSource::CliFlag.to_string(), "command-line flag");
+        assert_eq!(
+            EnvValueSource::ProcessEnv.to_string(),
+            "process environment variable (e.g. a shell export)"
+        );
+        assert_eq!(
+            EnvValueSource::SettingsEnv.to_string(),
+            "the env map in $HOME/.gwi/settings.json"
+        );
+        assert_eq!(
+            EnvValueSource::SettingsProfile("work".to_string()).to_string(),
+            "the profile 'work' env map in $HOME/.gwi/settings.json"
+        );
+    }
+
+    #[test]
+    fn active_profile_from_reads_and_trims_empty() {
+        assert_eq!(active_profile_from(&MapEnv::new()), None);
+        assert_eq!(
+            active_profile_from(&MapEnv::new().with(PROFILE_ENV_VAR, "")),
+            None
+        );
+        assert_eq!(
+            active_profile_from(&MapEnv::new().with(PROFILE_ENV_VAR, "work")).as_deref(),
+            Some("work")
+        );
+    }
+
+    #[test]
+    fn profile_suffix_names_profile_or_is_empty() {
+        assert_eq!(profile_suffix(None), "");
+        assert_eq!(profile_suffix(Some("work")), " (profile 'work')");
+    }
+
+    #[test]
+    fn validate_profile_accepts_known() {
+        assert!(settings_with_profile().validate_profile("work").is_ok());
+    }
+
+    #[test]
+    fn validate_profile_rejects_unknown_and_lists_sorted() {
+        let mut settings = settings_with_profile();
+        settings
+            .profiles
+            .insert("personal".to_string(), Profile::default());
+        let err = settings.validate_profile("wrok").unwrap_err().to_string();
+        assert_eq!(
+            err,
+            "unknown profile 'wrok'; known profiles: personal, work"
+        );
+    }
+
+    #[test]
+    fn validate_profile_reports_none_when_empty() {
+        let settings = Settings::default();
+        let err = settings.validate_profile("work").unwrap_err().to_string();
+        assert_eq!(err, "unknown profile 'work'; known profiles: (none)");
+    }
+
+    #[test]
+    fn settings_parse_profiles_from_json() {
+        let json = r#"{
+            "env": { "BASE": "b" },
+            "profiles": {
+                "work": { "env": { "ATLASSIAN_EMAIL": "me@work.com" } }
+            }
+        }"#;
+        let settings: Settings = serde_json::from_str(json).unwrap();
+        assert_eq!(settings.env.get("BASE").unwrap(), "b");
+        assert_eq!(
+            settings
+                .profiles
+                .get("work")
+                .unwrap()
+                .env
+                .get("ATLASSIAN_EMAIL")
+                .unwrap(),
+            "me@work.com"
+        );
+    }
+
+    #[test]
+    fn settings_without_profiles_key_defaults_empty() {
+        let settings: Settings = serde_json::from_str(r#"{ "env": {} }"#).unwrap();
+        assert!(settings.profiles.is_empty());
+    }
+
+    #[test]
+    fn settings_parse_gmail_section_from_json() {
+        let json = r#"{
+            "gmail": {
+                "default_account": "work",
+                "accounts": {
+                    "work": {
+                        "client_id": "id",
+                        "client_secret": "secret",
+                        "refresh_token": "token",
+                        "scope": "https://www.googleapis.com/auth/gmail.modify",
+                        "email_address": "alice@work.com"
+                    }
+                }
+            }
+        }"#;
+        let settings: Settings = serde_json::from_str(json).unwrap();
+        assert_eq!(settings.gmail.default_account.as_deref(), Some("work"));
+        let account = settings.gmail.accounts.get("work").unwrap();
+        assert_eq!(account.client_id.as_deref(), Some("id"));
+        assert_eq!(account.client_secret.as_deref(), Some("secret"));
+        assert_eq!(account.refresh_token.as_deref(), Some("token"));
+        assert_eq!(
+            account.scope.as_deref(),
+            Some("https://www.googleapis.com/auth/gmail.modify")
+        );
+        assert_eq!(account.email_address.as_deref(), Some("alice@work.com"));
+    }
+
+    #[test]
+    fn settings_without_gmail_key_defaults_empty() {
+        let settings: Settings = serde_json::from_str(r#"{ "env": {} }"#).unwrap();
+        assert!(settings.gmail.default_account.is_none());
+        assert!(settings.gmail.accounts.is_empty());
+    }
+
+    // ── free get_env_var seam (pure: injected raw env + lazy settings loader) ──
+
+    #[test]
+    fn get_env_var_with_returns_raw_hit_without_loading() {
+        let env = MapEnv::new().with("K", "v");
+        let value = get_env_var_with(&env, || panic!("must not load settings"), "K").unwrap();
+        assert_eq!(value, "v");
+    }
+
+    #[test]
+    fn get_env_var_with_falls_back_to_base_settings() {
+        let settings = settings_with_profile();
+        let env = MapEnv::new();
+        let value = get_env_var_with(&env, || Ok(settings), "ATLASSIAN_EMAIL").unwrap();
+        assert_eq!(value, "base@x.com");
+    }
+
+    #[test]
+    fn get_env_var_with_honours_active_profile() {
+        let settings = settings_with_profile();
+        let env = MapEnv::new().with(PROFILE_ENV_VAR, "work");
+        let value = get_env_var_with(&env, || Ok(settings), "ATLASSIAN_EMAIL").unwrap();
+        assert_eq!(value, "me@work.com");
+    }
+
+    #[test]
+    fn get_env_var_with_missing_key_is_not_found() {
+        let env = MapEnv::new();
+        let err = get_env_var_with(&env, || Ok(Settings::default()), "MISSING")
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("Environment variable not found: MISSING"));
+    }
+
+    #[test]
+    fn get_env_var_with_load_error_maps_to_not_found() {
+        let env = MapEnv::new();
+        let err =
+            get_env_var_with(&env, || Err(anyhow::anyhow!("disk boom")), "MISSING").unwrap_err();
+        // The load failure is the top-level context; the not-found error is its
+        // source. The full chain (`{:#}`) carries both.
+        assert_eq!(err.to_string(), "disk boom");
+        let chain = format!("{err:#}");
+        assert!(chain.contains("Environment variable not found: MISSING"));
+    }
+
+    // ── sourced get_env_var seam (issue #1143) ──
+
+    #[test]
+    fn get_env_var_sourced_with_raw_hit_is_process_env() {
+        let env = MapEnv::new().with("K", "v");
+        let resolved =
+            get_env_var_sourced_with(&env, || panic!("must not load settings"), false, "K")
+                .unwrap();
+        assert_eq!(resolved, ("v".to_string(), EnvValueSource::ProcessEnv));
+    }
+
+    #[test]
+    fn get_env_var_sourced_with_flag_export_is_cli_flag() {
+        let env = MapEnv::new().with("K", "true");
+        let resolved =
+            get_env_var_sourced_with(&env, || panic!("must not load settings"), true, "K").unwrap();
+        assert_eq!(resolved, ("true".to_string(), EnvValueSource::CliFlag));
+    }
+
+    #[test]
+    fn get_env_var_sourced_with_falls_back_to_settings_sources() {
+        let settings = settings_with_profile();
+        let env = MapEnv::new();
+        let resolved =
+            get_env_var_sourced_with(&env, || Ok(settings), false, "ATLASSIAN_EMAIL").unwrap();
+        assert_eq!(
+            resolved,
+            ("base@x.com".to_string(), EnvValueSource::SettingsEnv)
+        );
+
+        let settings = settings_with_profile();
+        let env = MapEnv::new().with(PROFILE_ENV_VAR, "work");
+        let resolved =
+            get_env_var_sourced_with(&env, || Ok(settings), false, "ATLASSIAN_EMAIL").unwrap();
+        assert_eq!(
+            resolved,
+            (
+                "me@work.com".to_string(),
+                EnvValueSource::SettingsProfile("work".to_string())
+            )
+        );
+    }
+
+    #[test]
+    fn cli_flag_export_registry_roundtrip() {
+        // Unique key: the registry is a process-global, additive-only set, so
+        // this test must not share keys with other tests (or production code).
+        const KEY: &str = "GWI_TEST_1143_REGISTRY_ROUNDTRIP";
+        assert!(!exported_by_cli_flag(KEY));
+        note_cli_flag_export(KEY);
+        assert!(exported_by_cli_flag(KEY));
+    }
+
+    // ── env-write helpers (injected paths, no HOME mutation — issue #1030) ──
+
+    /// Creates a tempdir under `tmp/` (avoids TMPDIR issues in tarpaulin) and
+    /// returns it with a `<dir>/.gwi/settings.json` path inside it.
+    fn temp_settings_path() -> (TempDir, std::path::PathBuf) {
+        let temp_dir = {
+            std::fs::create_dir_all("tmp").ok();
+            TempDir::new_in("tmp").unwrap()
+        };
+        let path = temp_dir.path().join(".gwi").join("settings.json");
+        (temp_dir, path)
+    }
+
+    fn read_json(path: &Path) -> serde_json::Value {
+        serde_json::from_str(&fs::read_to_string(path).unwrap()).unwrap()
+    }
+
+    #[test]
+    fn upsert_env_vars_creates_file_and_dir_with_secure_permissions() {
+        let (_tmp, path) = temp_settings_path();
+
+        Settings::upsert_env_vars(&path, &[("A_KEY", "a"), ("B_KEY", "b")]).unwrap();
+
+        let val = read_json(&path);
+        assert_eq!(val["env"]["A_KEY"], "a");
+        assert_eq!(val["env"]["B_KEY"], "b");
+
+        // Credential store hardening (issue #1128): dir 0700, file 0600.
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let dir_mode = fs::metadata(path.parent().unwrap())
+                .unwrap()
+                .permissions()
+                .mode();
+            assert_eq!(dir_mode & 0o777, 0o700);
+            let file_mode = fs::metadata(&path).unwrap().permissions().mode();
+            assert_eq!(file_mode & 0o777, 0o600);
+        }
+    }
+
+    #[test]
+    fn upsert_env_vars_merges_and_preserves_unknown_fields() {
+        let (_tmp, path) = temp_settings_path();
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(&path, r#"{"env": {"OTHER_KEY": "keep_me"}, "extra": true}"#).unwrap();
+
+        Settings::upsert_env_vars(&path, &[("A_KEY", "new")]).unwrap();
+
+        let val = read_json(&path);
+        assert_eq!(val["env"]["OTHER_KEY"], "keep_me");
+        assert_eq!(val["extra"], true);
+        assert_eq!(val["env"]["A_KEY"], "new");
+    }
+
+    #[test]
+    fn upsert_env_vars_replaces_non_object_env() {
+        let (_tmp, path) = temp_settings_path();
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(&path, r#"{"env": "not-an-object"}"#).unwrap();
+
+        Settings::upsert_env_vars(&path, &[("A_KEY", "a")]).unwrap();
+
+        assert_eq!(read_json(&path)["env"]["A_KEY"], "a");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn upsert_env_vars_retightens_loose_permissions() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let (_tmp, path) = temp_settings_path();
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(&path, r#"{"env": {}}"#).unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o644)).unwrap();
+
+        Settings::upsert_env_vars(&path, &[("A_KEY", "a")]).unwrap();
+
+        let file_mode = fs::metadata(&path).unwrap().permissions().mode();
+        assert_eq!(file_mode & 0o777, 0o600);
+    }
+
+    #[test]
+    fn remove_env_vars_removes_listed_keys_and_preserves_rest() {
+        let (_tmp, path) = temp_settings_path();
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(
+            &path,
+            r#"{"env": {"A_KEY": "a", "B_KEY": "b", "OTHER_KEY": "keep"}, "extra": true}"#,
+        )
+        .unwrap();
+
+        let removed = Settings::remove_env_vars(&path, &["A_KEY", "B_KEY", "ABSENT"]).unwrap();
+        assert!(removed);
+
+        let val = read_json(&path);
+        assert!(val["env"].get("A_KEY").is_none());
+        assert!(val["env"].get("B_KEY").is_none());
+        assert_eq!(val["env"]["OTHER_KEY"], "keep");
+        assert_eq!(val["extra"], true);
+    }
+
+    #[test]
+    fn remove_env_vars_false_when_file_missing() {
+        let (_tmp, path) = temp_settings_path();
+        assert!(!Settings::remove_env_vars(&path, &["A_KEY"]).unwrap());
+        assert!(!path.exists());
+    }
+
+    #[test]
+    fn remove_env_vars_false_when_env_missing_or_not_an_object() {
+        let (_tmp, path) = temp_settings_path();
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+
+        // No "env" key at all.
+        fs::write(&path, r#"{"extra": true}"#).unwrap();
+        assert!(!Settings::remove_env_vars(&path, &["A_KEY"]).unwrap());
+
+        // "env" present but not an object.
+        fs::write(&path, r#"{"env": "not-an-object"}"#).unwrap();
+        assert!(!Settings::remove_env_vars(&path, &["A_KEY"]).unwrap());
+    }
+
+    #[test]
+    fn upsert_env_vars_bare_filename_skips_dir_creation() {
+        // A bare relative filename has an empty parent — the dir-creation
+        // branch must be skipped, not fail on `create_dir_all("")`.
+        let name = format!("tmp-upsert-bare-{}.json", std::process::id());
+        let path = Path::new(&name);
+
+        Settings::upsert_env_vars(path, &[("A_KEY", "a")]).unwrap();
+
+        assert_eq!(read_json(path)["env"]["A_KEY"], "a");
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn remove_env_vars_false_when_keys_absent_leaves_file_untouched() {
+        let (_tmp, path) = temp_settings_path();
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let original = r#"{"env": {"OTHER_KEY": "keep"}}"#;
+        fs::write(&path, original).unwrap();
+
+        let removed = Settings::remove_env_vars(&path, &["A_KEY"]).unwrap();
+        assert!(!removed);
+        // Not rewritten: the raw bytes are exactly as written.
+        assert_eq!(fs::read_to_string(&path).unwrap(), original);
+    }
+
+    // ── profile-targeted env writes (issue #1116) ────────────────────
+
+    #[test]
+    fn upsert_env_vars_in_profile_creates_profile_env() {
+        let (_tmp, path) = temp_settings_path();
+
+        Settings::upsert_env_vars_in(&path, Some("work"), &[("A_KEY", "a")]).unwrap();
+
+        let val = read_json(&path);
+        assert_eq!(val["profiles"]["work"]["env"]["A_KEY"], "a");
+        // The base env map is not touched (read-side isolation mirrored).
+        assert!(val.get("env").is_none());
+
+        // Credential store hardening (issue #1128) applies to profile
+        // writes too: dir 0700, file 0600.
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let dir_mode = fs::metadata(path.parent().unwrap())
+                .unwrap()
+                .permissions()
+                .mode();
+            assert_eq!(dir_mode & 0o777, 0o700);
+            let file_mode = fs::metadata(&path).unwrap().permissions().mode();
+            assert_eq!(file_mode & 0o777, 0o600);
+        }
+    }
+
+    #[test]
+    fn upsert_env_vars_in_profile_preserves_base_and_other_profiles() {
+        let (_tmp, path) = temp_settings_path();
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(
+            &path,
+            r#"{
+                "env": {"SHARED": "base"},
+                "profiles": {
+                    "work": {"env": {"OLD": "keep"}},
+                    "home": {"env": {"SHARED": "home"}}
+                },
+                "extra": true
+            }"#,
+        )
+        .unwrap();
+
+        Settings::upsert_env_vars_in(&path, Some("work"), &[("A_KEY", "a")]).unwrap();
+
+        let val = read_json(&path);
+        assert_eq!(val["profiles"]["work"]["env"]["A_KEY"], "a");
+        assert_eq!(val["profiles"]["work"]["env"]["OLD"], "keep");
+        assert_eq!(val["profiles"]["home"]["env"]["SHARED"], "home");
+        assert_eq!(val["env"]["SHARED"], "base");
+        assert_eq!(val["extra"], true);
+    }
+
+    #[test]
+    fn upsert_env_vars_in_profile_replaces_non_object_nodes() {
+        let (_tmp, path) = temp_settings_path();
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+
+        // "profiles" itself is not an object.
+        fs::write(&path, r#"{"profiles": "bogus"}"#).unwrap();
+        Settings::upsert_env_vars_in(&path, Some("work"), &[("A_KEY", "a")]).unwrap();
+        assert_eq!(read_json(&path)["profiles"]["work"]["env"]["A_KEY"], "a");
+
+        // The profile node is not an object.
+        fs::write(&path, r#"{"profiles": {"work": []}}"#).unwrap();
+        Settings::upsert_env_vars_in(&path, Some("work"), &[("A_KEY", "a")]).unwrap();
+        assert_eq!(read_json(&path)["profiles"]["work"]["env"]["A_KEY"], "a");
+    }
+
+    #[test]
+    fn remove_env_vars_in_profile_removes_only_profile_keys() {
+        let (_tmp, path) = temp_settings_path();
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(
+            &path,
+            r#"{
+                "env": {"A_KEY": "base"},
+                "profiles": {"work": {"env": {"A_KEY": "work", "OTHER": "keep"}}}
+            }"#,
+        )
+        .unwrap();
+
+        let removed = Settings::remove_env_vars_in(&path, Some("work"), &["A_KEY"]).unwrap();
+        assert!(removed);
+
+        let val = read_json(&path);
+        assert!(val["profiles"]["work"]["env"].get("A_KEY").is_none());
+        assert_eq!(val["profiles"]["work"]["env"]["OTHER"], "keep");
+        // The base copy of the same key survives.
+        assert_eq!(val["env"]["A_KEY"], "base");
+    }
+
+    #[test]
+    fn remove_env_vars_in_profile_false_when_profile_missing() {
+        let (_tmp, path) = temp_settings_path();
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let original = r#"{"env": {"A_KEY": "base"}}"#;
+        fs::write(&path, original).unwrap();
+
+        let removed = Settings::remove_env_vars_in(&path, Some("work"), &["A_KEY"]).unwrap();
+        assert!(!removed);
+        // Not rewritten: the raw bytes are exactly as written.
+        assert_eq!(fs::read_to_string(&path).unwrap(), original);
+    }
+
+    #[test]
+    fn remove_env_vars_in_none_targets_base_env() {
+        let (_tmp, path) = temp_settings_path();
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(
+            &path,
+            r#"{"env": {"A_KEY": "base"}, "profiles": {"work": {"env": {"A_KEY": "work"}}}}"#,
+        )
+        .unwrap();
+
+        let removed = Settings::remove_env_vars_in(&path, None, &["A_KEY"]).unwrap();
+        assert!(removed);
+
+        let val = read_json(&path);
+        assert!(val["env"].get("A_KEY").is_none());
+        assert_eq!(val["profiles"]["work"]["env"]["A_KEY"], "work");
+    }
+
+    // ── generalized path-segment walkers (issue #1500) ────────────────
+
+    #[test]
+    fn ensure_object_at_creates_nested_path_at_arbitrary_depth() {
+        let mut root = serde_json::json!({});
+        {
+            let map = ensure_object_at(&mut root, &["gmail", "accounts", "work"]).unwrap();
+            map.insert("client_id".to_string(), serde_json::json!("id"));
+        }
+        assert_eq!(root["gmail"]["accounts"]["work"]["client_id"], "id");
+    }
+
+    #[test]
+    fn ensure_object_at_replaces_non_object_nodes_along_path() {
+        let mut root = serde_json::json!({"gmail": "bogus"});
+        {
+            let map = ensure_object_at(&mut root, &["gmail", "accounts", "work"]).unwrap();
+            map.insert("client_id".to_string(), serde_json::json!("id"));
+        }
+        assert_eq!(root["gmail"]["accounts"]["work"]["client_id"], "id");
+    }
+
+    #[test]
+    fn object_at_mut_none_when_any_segment_absent() {
+        let mut root = serde_json::json!({"gmail": {"accounts": {}}});
+        assert!(object_at_mut(&mut root, &["gmail", "accounts", "work"]).is_none());
+        assert!(object_at_mut(&mut root, &["missing", "accounts"]).is_none());
+    }
+
+    // ── gmail account writes (issue #1500) ─────────────────────────────
+
+    #[test]
+    fn upsert_gmail_account_creates_nested_path_and_preserves_siblings() {
+        let (_tmp, path) = temp_settings_path();
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(
+            &path,
+            r#"{"env": {"SHARED": "base"}, "gmail": {"accounts": {"personal": {"client_id": "keep"}}}, "extra": true}"#,
+        )
+        .unwrap();
+
+        Settings::upsert_gmail_account(
+            &path,
+            "work",
+            &[
+                ("client_id", serde_json::Value::String("id".to_string())),
+                (
+                    "refresh_token",
+                    serde_json::Value::String("token".to_string()),
+                ),
+            ],
+        )
+        .unwrap();
+
+        let val = read_json(&path);
+        assert_eq!(val["gmail"]["accounts"]["work"]["client_id"], "id");
+        assert_eq!(val["gmail"]["accounts"]["work"]["refresh_token"], "token");
+        assert_eq!(val["gmail"]["accounts"]["personal"]["client_id"], "keep");
+        assert_eq!(val["env"]["SHARED"], "base");
+        assert_eq!(val["extra"], true);
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let file_mode = fs::metadata(&path).unwrap().permissions().mode();
+            assert_eq!(file_mode & 0o777, 0o600);
+        }
+    }
+
+    /// Regression test for the PR #1528 review comment: writing a non-string
+    /// field (e.g. `chrome_profile_from_email: bool`) through
+    /// `upsert_gmail_account` must round-trip through `Settings::load()` —
+    /// before the `vars` type was widened to `serde_json::Value`, this
+    /// silently wrote the JSON string `"true"` into a `bool` field and broke
+    /// parsing of the entire settings file on next load.
+    #[test]
+    fn upsert_gmail_account_writes_a_bool_value_that_round_trips_through_settings_load() {
+        let (_tmp, path) = temp_settings_path();
+
+        Settings::upsert_gmail_account(
+            &path,
+            "work",
+            &[("chrome_profile_from_email", serde_json::Value::Bool(true))],
+        )
+        .unwrap();
+
+        let val = read_json(&path);
+        assert_eq!(
+            val["gmail"]["accounts"]["work"]["chrome_profile_from_email"],
+            true
+        );
+
+        let settings = Settings::load_from_path(&path).unwrap();
+        assert!(
+            settings.gmail.accounts["work"].chrome_profile_from_email,
+            "the bool field must deserialize back to `true`, not the string \"true\""
+        );
+    }
+
+    #[test]
+    fn remove_gmail_account_true_when_present_false_when_absent() {
+        let (_tmp, path) = temp_settings_path();
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(
+            &path,
+            r#"{"gmail": {"accounts": {"work": {"client_id": "id"}, "personal": {"client_id": "keep"}}}}"#,
+        )
+        .unwrap();
+
+        assert!(Settings::remove_gmail_account(&path, "work").unwrap());
+        let val = read_json(&path);
+        assert!(val["gmail"]["accounts"].get("work").is_none());
+        assert_eq!(val["gmail"]["accounts"]["personal"]["client_id"], "keep");
+
+        assert!(!Settings::remove_gmail_account(&path, "work").unwrap());
+    }
+
+    #[test]
+    fn remove_gmail_account_clears_default_account_when_it_named_the_removed_account() {
+        let (_tmp, path) = temp_settings_path();
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(
+            &path,
+            r#"{"gmail": {"default_account": "work", "accounts": {"work": {"client_id": "id"}, "personal": {"client_id": "keep"}}}}"#,
+        )
+        .unwrap();
+
+        assert!(Settings::remove_gmail_account(&path, "work").unwrap());
+        let val = read_json(&path);
+        assert!(val["gmail"].get("default_account").is_none());
+        assert_eq!(val["gmail"]["accounts"]["personal"]["client_id"], "keep");
+    }
+
+    #[test]
+    fn remove_gmail_account_leaves_default_account_untouched_when_it_names_a_different_account() {
+        let (_tmp, path) = temp_settings_path();
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(
+            &path,
+            r#"{"gmail": {"default_account": "personal", "accounts": {"work": {"client_id": "id"}, "personal": {"client_id": "keep"}}}}"#,
+        )
+        .unwrap();
+
+        assert!(Settings::remove_gmail_account(&path, "work").unwrap());
+        let val = read_json(&path);
+        assert_eq!(val["gmail"]["default_account"], "personal");
+    }
+
+    #[test]
+    fn remove_gmail_account_false_when_file_missing() {
+        let (_tmp, path) = temp_settings_path();
+        assert!(!Settings::remove_gmail_account(&path, "work").unwrap());
+        assert!(!path.exists());
+    }
+
+    #[test]
+    fn set_gmail_default_account_sets_and_clears() {
+        let (_tmp, path) = temp_settings_path();
+
+        Settings::set_gmail_default_account(&path, Some("work")).unwrap();
+        assert_eq!(read_json(&path)["gmail"]["default_account"], "work");
+
+        Settings::set_gmail_default_account(&path, None).unwrap();
+        assert!(read_json(&path)["gmail"].get("default_account").is_none());
+    }
+
+    #[test]
+    fn upsert_account_drops_a_plain_field_that_would_conflict_with_its_file() {
+        let (tmp, path) = temp_settings_path();
+        let secret_file = tmp.path().join("client-secret");
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(
+            &path,
+            serde_json::json!({ "gmail": { "accounts": { "work": {
+                "client_secret": "stale",
+                "client_secret_file": secret_file.to_str().unwrap(),
+            }}}})
+            .to_string(),
+        )
+        .unwrap();
+
+        Settings::upsert_gmail_account(
+            &path,
+            "work",
+            &[("client_secret", serde_json::json!("fresh"))],
+        )
+        .unwrap();
+
+        let val = read_json(&path);
+        assert!(val["gmail"]["accounts"]["work"]
+            .get("client_secret")
+            .is_none());
+        assert_eq!(fs::read_to_string(&secret_file).unwrap(), "fresh\n");
+    }
+
+    /// Writes `contents` owner-only to `name` under `dir`.
+    #[expect(
+        dead_code,
+        reason = "used by the Drive tests, wired in with the Drive slice"
+    )]
+    fn owner_only(dir: &Path, name: &str, contents: &str) -> std::path::PathBuf {
+        let file = dir.join(name);
+        fs::write(&file, contents).unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&file, fs::Permissions::from_mode(0o600)).unwrap();
+        }
+        file
+    }
+
+    #[test]
+    fn upsert_gmail_account_writes_a_refresh_token_into_its_file() {
+        let (tmp, path) = temp_settings_path();
+        let token_file = tmp.path().join("gmail-refresh-token");
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(
+            &path,
+            serde_json::json!({ "gmail": { "accounts": { "work": {
+                "refresh_token_file": token_file.to_str().unwrap(),
+            }}}})
+            .to_string(),
+        )
+        .unwrap();
+
+        Settings::upsert_gmail_account(
+            &path,
+            "work",
+            &[("refresh_token", serde_json::json!("gmail-token"))],
+        )
+        .unwrap();
+
+        assert!(!fs::read_to_string(&path).unwrap().contains("gmail-token"));
+        assert_eq!(fs::read_to_string(&token_file).unwrap(), "gmail-token\n");
+        let settings = Settings::load_from_path(&path).unwrap();
+        assert!(settings.gmail.accounts["work"].refresh_token.is_none());
+    }
+}

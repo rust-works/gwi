@@ -6,7 +6,7 @@ use clap::Parser;
 use crate::gmail::account;
 use crate::utils::settings::Settings;
 
-/// Sets the account resolved when `--account`/`OMNI_DEV_GMAIL_ACCOUNT` is
+/// Sets the account resolved when `--account`/`GWI_GMAIL_ACCOUNT` is
 /// not given and more than one account is configured.
 #[derive(Parser)]
 pub struct SetDefaultCommand {
@@ -35,7 +35,7 @@ mod tests {
     fn set_default_rejects_unknown_account() {
         let guard = crate::gmail::test_support::EnvGuard::take();
         let dir = guard.clear_credentials();
-        let settings_path = dir.path().join(".omni-dev").join("settings.json");
+        let settings_path = dir.path().join(".gwi").join("settings.json");
         Settings::upsert_gmail_account(
             &settings_path,
             "work",
@@ -55,7 +55,7 @@ mod tests {
     fn set_default_writes_known_account() {
         let guard = crate::gmail::test_support::EnvGuard::take();
         let dir = guard.clear_credentials();
-        let settings_path = dir.path().join(".omni-dev").join("settings.json");
+        let settings_path = dir.path().join(".gwi").join("settings.json");
         Settings::upsert_gmail_account(
             &settings_path,
             "work",
