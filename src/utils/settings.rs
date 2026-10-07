@@ -2236,6 +2236,10 @@ mod tests {
     }
 
     /// Writes `contents` owner-only to `name` under `dir`.
+    #[expect(
+        dead_code,
+        reason = "used by the Drive tests, wired in with the Drive slice"
+    )]
     fn owner_only(dir: &Path, name: &str, contents: &str) -> std::path::PathBuf {
         let file = dir.join(name);
         fs::write(&file, contents).unwrap();

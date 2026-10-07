@@ -64,13 +64,13 @@ pub struct ImportCommand {
 
 impl ImportCommand {
     /// Discovers, parses, and saves the client id/secret. Honors
-    /// `--account`/`OMNI_DEV_GMAIL_ACCOUNT` (issue #1500).
+    /// `--account`/`GWI_GMAIL_ACCOUNT` (issue #1500).
     pub fn execute(self) -> Result<()> {
         let outcome = import::import_client_credentials_for(None, self.path.as_deref())?;
         println!("Found {} (Desktop app client)", outcome.path.display());
         println!("  Client id: {}", outcome.client_id);
         println!(
-            "Client id/secret saved to ~/.omni-dev/settings.json{}",
+            "Client id/secret saved to ~/.gwi/settings.json{}",
             profile_suffix(active_profile_from(&SystemEnv).as_deref())
         );
         println!("\nRun `omni-dev gmail auth login` to authorize.");
@@ -127,7 +127,7 @@ async fn run_login(env: &(impl EnvSource + Sync), modify: bool) -> Result<()> {
         }
     }
 
-    println!("\nCredentials saved to ~/.omni-dev/settings.json");
+    println!("\nCredentials saved to ~/.gwi/settings.json");
     println!("  Granted scope: {}", status.scope.unwrap_or_default());
     println!("\nRun `omni-dev gmail auth status` to verify.");
     Ok(())
@@ -264,7 +264,7 @@ impl LogoutCommand {
 fn run_logout() -> Result<()> {
     let removed = auth::remove_credentials_for(None)?;
     if removed {
-        println!("Gmail credentials removed from ~/.omni-dev/settings.json");
+        println!("Gmail credentials removed from ~/.gwi/settings.json");
     } else {
         println!("No Gmail credentials were configured.");
     }
@@ -673,7 +673,7 @@ mod tests {
     async fn run_login_surfaces_a_malformed_browser_command_before_the_oauth_exchange() {
         let guard = EnvGuard::take();
         let dir = guard.clear_credentials();
-        let settings_path = dir.path().join(".omni-dev").join("settings.json");
+        let settings_path = dir.path().join(".gwi").join("settings.json");
         Settings::upsert_gmail_account(
             &settings_path,
             "work",
@@ -848,7 +848,7 @@ mod tests {
     async fn run_auth_status_all_with_backfills_each_account_despite_uneven_latency() {
         let guard = EnvGuard::take();
         let dir = guard.clear_credentials();
-        let settings_path = dir.path().join(".omni-dev").join("settings.json");
+        let settings_path = dir.path().join(".gwi").join("settings.json");
         for name in ["work", "personal"] {
             Settings::upsert_gmail_account(
                 &settings_path,
@@ -930,7 +930,7 @@ mod tests {
     async fn run_auth_status_all_with_reports_error_for_one_account() {
         let guard = EnvGuard::take();
         let dir = guard.clear_credentials();
-        let settings_path = dir.path().join(".omni-dev").join("settings.json");
+        let settings_path = dir.path().join(".gwi").join("settings.json");
         for name in ["work", "broken"] {
             Settings::upsert_gmail_account(
                 &settings_path,

@@ -14,7 +14,7 @@ pub fn create_client() -> Result<GmailClient> {
 /// [`create_client`], but honoring the named-account resolution added by
 /// issue #1500. `account` is `Some(name)` to force that account (the CLI's
 /// resolved `--account` value, or an MCP tool's per-call override) or
-/// `None` to fall through to ambient `--account`/`OMNI_DEV_GMAIL_ACCOUNT`
+/// `None` to fall through to ambient `--account`/`GWI_GMAIL_ACCOUNT`
 /// resolution — [`create_client`]'s exact behavior.
 pub fn create_client_for(account: Option<&str>) -> Result<GmailClient> {
     create_client_from(auth::load_credentials_for(account)?)
@@ -138,7 +138,7 @@ mod tests {
     fn create_client_for_named_account_uses_that_accounts_credentials() {
         let guard = crate::gmail::test_support::EnvGuard::take();
         let dir = guard.clear_credentials();
-        let settings_path = dir.path().join(".omni-dev").join("settings.json");
+        let settings_path = dir.path().join(".gwi").join("settings.json");
         crate::utils::settings::Settings::upsert_gmail_account(
             &settings_path,
             "work",

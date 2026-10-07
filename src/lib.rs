@@ -8,13 +8,11 @@
 //! request log, filesystem helpers) is forked from omni-dev at a recorded baseline;
 //! the product modules follow.
 
-// Temporary: the forked helpers are unused until the Gmail modules are wired in, in the
-// next commit, which removes this.
-#![allow(dead_code)]
 #![warn(missing_docs)]
 #![deny(rustdoc::broken_intra_doc_links)]
 
 pub mod cli;
+pub mod gmail;
 pub mod request_log;
 pub mod utils;
 

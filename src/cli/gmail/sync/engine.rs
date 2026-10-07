@@ -1261,7 +1261,7 @@ fn guard_output_dir(output_dir: &Path) -> Result<()> {
             home.display()
         );
     }
-    let omni_dev_dir = canonicalize_best_effort(&home.join(".omni-dev"));
+    let omni_dev_dir = canonicalize_best_effort(&home.join(".gwi"));
     if canon_output == omni_dev_dir || canon_output.starts_with(&omni_dev_dir) {
         anyhow::bail!(
             "refusing to sync into {}: it is inside omni-dev's own settings directory",
@@ -3966,7 +3966,7 @@ not-really-a-pdf\r\n\
         let _guard = crate::gmail::test_support::EnvGuard::take();
         let home = tempfile::tempdir().unwrap();
         std::env::set_var("HOME", home.path());
-        let target = home.path().join(".omni-dev").join("mail-archive");
+        let target = home.path().join(".gwi").join("mail-archive");
         std::fs::create_dir_all(&target).unwrap();
         let err = guard_output_dir(&target).unwrap_err();
         assert!(err.to_string().contains("settings directory"));

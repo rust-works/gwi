@@ -1,19 +1,21 @@
 //! Shared HTTP helpers for the REST clients.
 //!
-//! `retry_429` is the literal-429-only driver, a thin wrapper over `retry_if`,
-//! the general driver that also lets Gmail retry its own quota-exhaustion
-//! signal (HTTP 403 with a `reason` that APIs without it never emit). Both rebuild the request per
-//! attempt, log every attempt, and on a retryable response wait per
-//! `Retry-After`, then `X-RateLimit-Reset`, then exponential backoff.
-//! Consolidating the previously per-verb loops also unified the
-//! `X-RateLimit-Reset` awareness that used to live only in Datadog (#1152).
+//! `retry_if` is the general retry driver. It lets Gmail retry its own
+//! quota-exhaustion signal (HTTP 403 with a `reason`) as well as 429. It
+//! rebuilds the request per attempt, logs every attempt, and on a retryable
+//! response waits per `Retry-After`, then `X-RateLimit-Reset`, then exponential
+//! backoff.
+//!
+//! Forked from omni-dev's `utils::http` (rust-works/omni-dev#2203) without its
+//! literal-429-only `retry_429` wrapper, which only the Atlassian and Datadog
+//! clients used.
 
 use std::time::{Duration, Instant};
 
 use reqwest::{Response, ResponseBuilderExt as _};
 
 /// Default timeout for just the connect phase (TCP + TLS handshake) of a
-/// REST client request (Atlassian, Datadog, Gmail). Overridable via
+/// REST client request. Overridable via
 /// [`CONNECT_TIMEOUT_ENV_VAR`].
 ///
 /// Deliberately short and independent of [`DEFAULT_READ_TIMEOUT`]: a
@@ -106,19 +108,6 @@ const DEFAULT_RETRY_DELAY_SECS: u64 = 2;
 /// that can tear a live `indicatif::MultiProgress` render. Callers without
 /// one (Atlassian, Datadog, Drive) pass `None` and keep the plain fallback.
 pub(crate) type RetryNotifyFn = dyn Fn(u16, u64, u32) + Send + Sync;
-
-/// Drives an HTTP request through the shared literal-429 retry loop.
-///
-/// A thin [`retry_if`] wrapper retrying only `status == 429` — Atlassian and
-/// Datadog never emit anything else worth retrying, so this keeps their call
-/// sites unchanged.
-pub(crate) async fn retry_429<B, L>(build: B, log: L) -> reqwest::Result<Response>
-where
-    B: Fn() -> reqwest::RequestBuilder,
-    L: Fn(Instant, &reqwest::Result<Response>),
-{
-    retry_if(build, log, |status, _body| status == 429, None).await
-}
 
 /// Drives an HTTP request through a retry loop with a caller-supplied
 /// retryability predicate.
@@ -234,7 +223,6 @@ fn header_u64(headers: &reqwest::header::HeaderMap, name: &str) -> Option<u64> {
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use super::*;
-    use std::sync::atomic::{AtomicUsize, Ordering};
     use wiremock::matchers::{method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
@@ -274,123 +262,6 @@ mod tests {
         // values themselves that matter here, not the env-reading path.
         assert_eq!(DEFAULT_CONNECT_TIMEOUT, Duration::from_secs(10));
         assert_eq!(DEFAULT_READ_TIMEOUT, Duration::from_secs(120));
-    }
-
-    #[tokio::test]
-    async fn retries_429_then_succeeds_and_logs_each_attempt() {
-        let server = MockServer::start().await;
-        Mock::given(method("GET"))
-            .and(path("/x"))
-            .respond_with(ResponseTemplate::new(429).append_header("Retry-After", "0"))
-            .up_to_n_times(1)
-            .with_priority(1)
-            .mount(&server)
-            .await;
-        Mock::given(method("GET"))
-            .and(path("/x"))
-            .respond_with(ResponseTemplate::new(200))
-            .with_priority(2)
-            .mount(&server)
-            .await;
-
-        let client = reqwest::Client::new();
-        let url = format!("{}/x", server.uri());
-        let calls = AtomicUsize::new(0);
-        let resp = retry_429(
-            || client.get(&url),
-            |_started, _result| {
-                calls.fetch_add(1, Ordering::SeqCst);
-            },
-        )
-        .await
-        .unwrap();
-        assert_eq!(resp.status().as_u16(), 200);
-        // Logged both the 429 attempt and the successful retry.
-        assert_eq!(calls.load(Ordering::SeqCst), 2);
-    }
-
-    #[tokio::test]
-    async fn returns_429_after_max_retries() {
-        let server = MockServer::start().await;
-        Mock::given(method("GET"))
-            .and(path("/x"))
-            .respond_with(ResponseTemplate::new(429).append_header("Retry-After", "0"))
-            .mount(&server)
-            .await;
-
-        let client = reqwest::Client::new();
-        let url = format!("{}/x", server.uri());
-        let calls = AtomicUsize::new(0);
-        let resp = retry_429(
-            || client.get(&url),
-            |_s, _r| {
-                calls.fetch_add(1, Ordering::SeqCst);
-            },
-        )
-        .await
-        .unwrap();
-        assert_eq!(resp.status().as_u16(), 429);
-        assert_eq!(calls.load(Ordering::SeqCst), (MAX_RETRIES + 1) as usize);
-    }
-
-    #[tokio::test]
-    async fn honours_x_ratelimit_reset() {
-        let server = MockServer::start().await;
-        Mock::given(method("GET"))
-            .and(path("/x"))
-            .respond_with(ResponseTemplate::new(429).append_header("X-RateLimit-Reset", "0"))
-            .up_to_n_times(1)
-            .with_priority(1)
-            .mount(&server)
-            .await;
-        Mock::given(method("GET"))
-            .and(path("/x"))
-            .respond_with(ResponseTemplate::new(200))
-            .with_priority(2)
-            .mount(&server)
-            .await;
-
-        let client = reqwest::Client::new();
-        let url = format!("{}/x", server.uri());
-        let resp = retry_429(|| client.get(&url), |_s, _r| {}).await.unwrap();
-        assert_eq!(resp.status().as_u16(), 200);
-    }
-
-    #[tokio::test]
-    async fn does_not_retry_non_429() {
-        let server = MockServer::start().await;
-        Mock::given(method("GET"))
-            .and(path("/x"))
-            .respond_with(ResponseTemplate::new(500))
-            .expect(1)
-            .mount(&server)
-            .await;
-
-        let client = reqwest::Client::new();
-        let url = format!("{}/x", server.uri());
-        let resp = retry_429(|| client.get(&url), |_s, _r| {}).await.unwrap();
-        assert_eq!(resp.status().as_u16(), 500);
-    }
-
-    #[tokio::test]
-    async fn transport_error_is_returned_without_retry() {
-        // Port 1 refuses immediately; the send fails at the transport layer.
-        let client = reqwest::Client::builder()
-            .timeout(Duration::from_millis(200))
-            .build()
-            .unwrap();
-        let url = "http://127.0.0.1:1/x".to_string();
-        let calls = AtomicUsize::new(0);
-        let result = retry_429(
-            || client.get(&url),
-            |_s, _r| {
-                calls.fetch_add(1, Ordering::SeqCst);
-            },
-        )
-        .await;
-        assert!(result.is_err());
-        // A transport error is not retried.
-        assert_eq!(calls.load(Ordering::SeqCst), 1);
     }
 
     // ── retry_if: caller-supplied predicate (the Gmail 403 case) ──────
@@ -484,28 +355,6 @@ mod tests {
         .unwrap();
         assert_eq!(resp.status().as_u16(), 200);
         assert_eq!(*calls.lock().unwrap(), vec![(429, 0, 1)]);
-    }
-
-    #[tokio::test]
-    async fn retry_if_preserves_headers_and_body_through_reconstruction_on_give_up() {
-        let server = MockServer::start().await;
-        Mock::given(method("GET"))
-            .and(path("/x"))
-            .respond_with(
-                ResponseTemplate::new(429)
-                    .append_header("X-RateLimit-Remaining", "0")
-                    .set_body_string("too many requests"),
-            )
-            .mount(&server)
-            .await;
-
-        let client = reqwest::Client::new();
-        let url = format!("{}/x", server.uri());
-        let resp = retry_429(|| client.get(&url), |_s, _r| {}).await.unwrap();
-        assert_eq!(resp.status().as_u16(), 429);
-        assert_eq!(resp.headers().get("X-RateLimit-Remaining").unwrap(), "0");
-        let body = resp.text().await.unwrap();
-        assert_eq!(body, "too many requests");
     }
 
     #[tokio::test]

@@ -66,6 +66,10 @@ impl AuditLogGuard {
 
     /// The `verdict` of every record written so far, in order — the
     /// assertion almost every audit-trail test makes.
+    #[expect(
+        dead_code,
+        reason = "used by the Drive tests, wired in with the Drive slice"
+    )]
     pub(crate) fn verdicts(&self) -> Vec<String> {
         self.records()
             .iter()
@@ -172,6 +176,10 @@ pub(crate) fn capture_at(level: tracing::Level, f: impl FnOnce()) -> String {
 /// Captures events from an async future on every poll, even across worker threads.
 /// Spawned child tasks still need their own subscriber; this does not install a
 /// global subscriber or hold a thread-local guard across an await.
+#[expect(
+    dead_code,
+    reason = "used by the Drive tests, wired in with the Drive slice"
+)]
 pub(crate) async fn capture_future_at<F: std::future::Future>(
     level: tracing::Level,
     future: F,

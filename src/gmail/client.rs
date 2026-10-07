@@ -2,9 +2,9 @@
 //!
 //! Thin `reqwest` wrapper that attaches a Bearer access token (refreshed by
 //! an owned [`GmailSession`]) to every request, retries HTTP 429 via the
-//! shared [`retry_429`](crate::utils::http::retry_429) driver, and retries
+//! shared [`retry_if`](crate::utils::http::retry_if) driver, and retries
 //! exactly once on HTTP 401 by forcing a session refresh. Modelled on
-//! [`crate::datadog::client::DatadogClient`]; the difference is Bearer-token
+//! omni-dev's `DatadogClient`; the difference is Bearer-token
 //! auth with in-process refresh instead of two static API keys.
 
 use std::sync::{Arc, PoisonError, RwLock};
@@ -187,7 +187,7 @@ impl GmailClient {
     /// the raw response — `messages.insert`'s `uploadType=multipart` media
     /// endpoint (`crate::gmail::messages_api::MessagesApi::insert`), which
     /// needs a hand-assembled `multipart/related` body rather than a JSON
-    /// one. Mirrors [`crate::drive::client::DriveClient::post_bytes`].
+    /// one. Mirrors `crate::drive::client::DriveClient::post_bytes`.
     ///
     /// The closure passed to [`Self::send_authorized`] captures `body` by
     /// reference and calls `.to_vec()` inside itself, so a retried or
