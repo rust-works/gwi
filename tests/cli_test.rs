@@ -123,3 +123,107 @@ fn binary_rejects_an_unknown_profile_before_dispatch() {
         "{stderr}"
     );
 }
+
+/// A fixture settings file shaped like omni-dev's, holding one Gmail account.
+fn write_omni_dev_settings(home: &Path) {
+    let dir = home.join(".omni-dev");
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(
+        dir.join("settings.json"),
+        r#"{"env":{"ATLASSIAN_API_TOKEN":"not-google"},
+            "gmail":{"default_account":"work","accounts":{"work":{
+                "client_id":"fixture-id","refresh_token":"fixture-token-value",
+                "scope":"gmail.readonly"}}}}"#,
+    )
+    .unwrap();
+}
+
+#[test]
+fn import_brings_an_omni_dev_account_across_without_touching_the_source() {
+    let home = tempfile::tempdir().unwrap();
+    write_omni_dev_settings(home.path());
+    let source = home.path().join(".omni-dev").join("settings.json");
+    let source_before = std::fs::read(&source).unwrap();
+    let list = |home: &Path| gwi(home, &["gmail", "account", "list"]);
+
+    // gwi cannot see omni-dev's accounts on its own.
+    assert!(!String::from_utf8_lossy(&list(home.path()).stdout).contains("work"));
+
+    // A dry run reports the plan and writes nothing, not even the directory.
+    let dry = gwi(home.path(), &["import", "--dry-run"]);
+    assert!(dry.status.success());
+    assert!(String::from_utf8_lossy(&dry.stdout).contains("Dry run, nothing written"));
+    assert!(!home.path().join(".gwi").exists());
+
+    let imported = gwi(home.path(), &["import"]);
+    assert!(imported.status.success());
+    let report = String::from_utf8_lossy(&imported.stdout);
+    assert!(
+        report.contains("added       gmail.accounts.work"),
+        "{report}"
+    );
+    assert!(!report.contains("fixture-token-value"), "{report}");
+    assert!(
+        !String::from_utf8_lossy(&imported.stderr).contains("fixture-token-value"),
+        "secrets must not appear on stderr either"
+    );
+
+    // Now gwi lists the account, as the default.
+    let listed = String::from_utf8_lossy(&list(home.path()).stdout).into_owned();
+    assert!(
+        listed.contains("work") && listed.contains("gmail.readonly"),
+        "{listed}"
+    );
+
+    // A second import is a no-op, and omni-dev's file never changed.
+    let again = gwi(home.path(), &["import"]);
+    assert!(again.status.success());
+    assert!(String::from_utf8_lossy(&again.stdout).contains("0 added, 0 overwritten, 2 unchanged"));
+    assert_eq!(std::fs::read(&source).unwrap(), source_before);
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = std::fs::metadata(home.path().join(".gwi").join("settings.json"))
+            .unwrap()
+            .permissions()
+            .mode();
+        assert_eq!(mode & 0o777, 0o600);
+    }
+}
+
+#[test]
+fn import_fails_on_a_conflict_until_forced() {
+    let home = tempfile::tempdir().unwrap();
+    write_omni_dev_settings(home.path());
+    std::fs::create_dir_all(home.path().join(".gwi")).unwrap();
+    let target = home.path().join(".gwi").join("settings.json");
+    std::fs::write(
+        &target,
+        r#"{"gmail":{"accounts":{"work":{"client_id":"already-in-gwi"}}}}"#,
+    )
+    .unwrap();
+
+    let refused = gwi(home.path(), &["import"]);
+    assert_eq!(refused.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&refused.stderr).contains("--force"));
+    assert!(std::fs::read_to_string(&target)
+        .unwrap()
+        .contains("already-in-gwi"));
+
+    let forced = gwi(home.path(), &["import", "--force"]);
+    assert!(forced.status.success());
+    assert!(std::fs::read_to_string(&target)
+        .unwrap()
+        .contains("fixture-id"));
+}
+
+#[test]
+fn import_without_a_source_file_says_how_to_find_one() {
+    let home = tempfile::tempdir().unwrap();
+
+    let output = gwi(home.path(), &["import"]);
+
+    assert_eq!(output.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&output.stderr).contains("--source"));
+}

@@ -10,6 +10,7 @@ use clap::{Parser, Subcommand};
 pub mod confirm;
 pub mod format;
 pub mod gmail;
+pub mod import;
 
 /// Google Workspace Interface: Gmail from the command line.
 #[derive(Parser)]
@@ -42,7 +43,12 @@ pub struct Cli {
 #[derive(Subcommand)]
 pub enum Commands {
     /// Gmail: search, read, and label messages via OAuth2.
-    Gmail(gmail::GmailCommand),
+    // Boxed: its subcommand tree is far larger than the other variants
+    // (`clippy::large_enum_variant`). A plain comment, since a doc comment here
+    // would become part of the command's `--help`.
+    Gmail(Box<gmail::GmailCommand>),
+    /// Import: copy Gmail and Drive settings from omni-dev.
+    Import(import::ImportCommand),
 }
 
 impl Cli {
@@ -98,7 +104,8 @@ impl Cli {
         )?;
 
         match self.command {
-            Commands::Gmail(cmd) => cmd.execute().await,
+            Commands::Gmail(cmd) => (*cmd).execute().await,
+            Commands::Import(cmd) => cmd.execute(),
         }
     }
 }

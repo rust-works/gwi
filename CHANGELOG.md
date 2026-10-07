@@ -16,14 +16,18 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   (rust-works/omni-dev#2203) with its history; the unreleased code is only available from
   source until the first Gmail release.
 - A global `--profile` flag selecting a credential profile from `~/.gwi/settings.json`.
+- `gwi import`: copies Gmail and Drive accounts, the lease settings and the Google
+  environment variables from omni-dev's `~/.omni-dev/settings.json` into gwi's, so an
+  existing omni-dev user does not have to log in again. It never modifies the source, never
+  overwrites a different value without `--force`, is safe to run twice, supports `--dry-run`
+  and never prints a secret. Drive's lease ledger is not copied yet.
 
 ### Changed
 
 - Configuration lives in `~/.gwi/settings.json` and environment variables use the `GWI_`
   prefix (`GWI_PROFILE`, `GWI_GMAIL_ACCOUNT`, `GWI_CONFIG_DIR`, ...), with no fallback to
   omni-dev's `~/.omni-dev` and `OMNI_DEV_*` names. The unprefixed `GMAIL_*` credential
-  variables keep their names. Moving existing accounts over needs the import command, which
-  is not available yet.
+  variables keep their names. Use `gwi import` to move existing accounts over.
 
 ## [0.0.1]
 
