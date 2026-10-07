@@ -78,6 +78,24 @@ jobs:
     # but not links from public docs to private items, which the imported docs use.
     - run: cargo doc --no-deps --document-private-items
 
+  coverage:
+    name: Coverage
+    # Skip on tag pushes: coverage is meaningful on PRs (diff comment) and main pushes
+    # (baseline publish); a tag has no PR and its commit was already validated on main.
+    if: github.ref_type != 'tag'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write        # required to post the coverage comment
+    steps:
+    - uses: actions/checkout@v7
+      with:
+        fetch-depth: 0          # full history so `git merge-base` can resolve the PR's fork point
+    # The coverage pipeline (cargo-llvm-cov run, merge-base baseline, `patchcov diff` sticky PR
+    # comment, summary + artifacts, baseline publish on main) is packaged in
+    # action-works/patchcov-action, as in omni-dev.
+    - uses: action-works/patchcov-action@v1.0
+
   deny:
     name: Cargo Deny
     runs-on: ubuntu-latest
