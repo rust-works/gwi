@@ -13,6 +13,8 @@
 
 pub mod cli;
 pub mod gmail;
+#[cfg(feature = "mcp")]
+pub mod mcp;
 pub mod request_log;
 pub mod utils;
 

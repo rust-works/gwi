@@ -35,6 +35,9 @@ use crate::utils::settings::{read_settings_value, write_settings_value, Settings
 /// imported; every other omni-dev credential (Atlassian, Datadog, ...) stays behind.
 const GOOGLE_ENV_PREFIXES: &[&str] = &["GMAIL_", "DRIVE_"];
 
+/// The `mcp` settings gwi reads, which are imported.
+const MCP_KEYS: &[&str] = &["log_level", "max_response_bytes"];
+
 /// omni-dev variable prefixes whose gwi spelling differs, so an imported
 /// `OMNI_DEV_GMAIL_ACCOUNT` keeps working as `GWI_GMAIL_ACCOUNT`.
 const RENAMED_ENV_PREFIXES: &[(&str, &str)] = &[
@@ -174,6 +177,20 @@ fn select_items(source: &Value) -> Vec<Item> {
             } else {
                 items.push(Item {
                     path: vec![block.into(), key.clone()],
+                    renamed_from: None,
+                    value: value.clone(),
+                });
+            }
+        }
+    }
+
+    // The two `mcp` defaults `gwi-mcp` reads. omni-dev's other MCP setting, the AI
+    // `default_model`, has no use here and stays behind.
+    if let Some(mcp) = source.get("mcp").and_then(Value::as_object) {
+        for key in MCP_KEYS {
+            if let Some(value) = mcp.get(*key) {
+                items.push(Item {
+                    path: vec!["mcp".into(), (*key).into()],
                     renamed_from: None,
                     value: value.clone(),
                 });
@@ -429,7 +446,7 @@ mod tests {
                 "accounts": {"work": {"client_id": "id", "backup_folder_id": "backup1"}}
             },
             "lease": {"expiry_minutes": 15},
-            "mcp": {"something": "not google"}
+            "mcp": {"log_level": "info", "max_response_bytes": 2048, "default_model": "not-for-gwi"}
         })
     }
 
@@ -477,7 +494,10 @@ mod tests {
         ] {
             assert!(selected.contains(&expected.to_string()), "{selected:?}");
         }
-        for foreign in ["ATLASSIAN", "DATADOG", "SNOWFLAKE", "mcp"] {
+        for expected in ["mcp.log_level", "mcp.max_response_bytes"] {
+            assert!(selected.contains(&expected.to_string()), "{selected:?}");
+        }
+        for foreign in ["ATLASSIAN", "DATADOG", "SNOWFLAKE", "default_model"] {
             assert!(
                 selected.iter().all(|p| !p.contains(foreign)),
                 "{foreign} must not be imported: {selected:?}"

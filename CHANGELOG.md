@@ -16,11 +16,17 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   (rust-works/omni-dev#2203) with its history; the unreleased code is only available from
   source until the first Gmail release.
 - A global `--profile` flag selecting a credential profile from `~/.gwi/settings.json`.
-- `gwi import`: copies Gmail and Drive accounts, the lease settings and the Google
-  environment variables from omni-dev's `~/.omni-dev/settings.json` into gwi's, so an
-  existing omni-dev user does not have to log in again. It never modifies the source, never
-  overwrites a different value without `--force`, is safe to run twice, supports `--dry-run`
-  and never prints a secret. Drive's lease ledger is not copied yet.
+- `gwi-mcp`, an MCP server (built with the `mcp` feature) exposing the eight read-only
+  Gmail tools (`gmail_auth_status`, `gmail_account_list`, `gmail_search`,
+  `gmail_message_read`, `gmail_thread_read`, `gmail_label_list`, `gmail_draft_list`,
+  `gmail_draft_show`) under the names omni-dev used. An optional `mcp` block in
+  `~/.gwi/settings.json` sets `log_level` and `max_response_bytes`.
+- `gwi import`: copies Gmail and Drive accounts, the lease settings, the Google environment
+  variables, and the `mcp` log level and response cap from omni-dev's
+  `~/.omni-dev/settings.json` into gwi's, so an existing omni-dev user does not have to log in
+  again. It never modifies the source, never overwrites a different value without `--force`,
+  is safe to run twice, supports `--dry-run` and never prints a secret. Drive's lease ledger
+  is not copied yet.
 
 ### Changed
 
