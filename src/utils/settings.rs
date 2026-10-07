@@ -1301,43 +1301,46 @@ mod tests {
         // serialises with every other test that does, and starts with no
         // profile selected.
         let guard = crate::gmail::test_support::EnvGuard::take();
-        let _home = guard.clear_credentials();
+        let home = guard.clear_credentials();
 
-        // Create a temporary directory (use current dir to avoid TMPDIR issues in tarpaulin)
-        let temp_dir = {
-            std::fs::create_dir_all("tmp").ok();
-            TempDir::new_in("tmp").unwrap()
-        };
-        let settings_path = temp_dir.path().join("settings.json");
-
-        // Create a test settings file
-        let settings_json = r#"{
-            "env": {
-                "TEST_VAR": "test_value",
-                "CLAUDE_API_KEY": "test_api_key"
+        /// Removes the variables the test exports, even when an assertion fails.
+        struct Unset;
+        impl Drop for Unset {
+            fn drop(&mut self) {
+                std::env::remove_var("GWI_TEST_GET_ENV_VAR");
+                std::env::remove_var("GWI_TEST_GET_ENV_VAR_ONLY");
             }
-        }"#;
-        fs::write(&settings_path, settings_json).unwrap();
+        }
+        let _unset = Unset;
 
-        // Load settings
+        let settings_path = home.path().join("settings.json");
+        fs::write(
+            &settings_path,
+            r#"{"env": {"GWI_TEST_GET_ENV_VAR": "test_value", "OTHER_KEY": "other_value"}}"#,
+        )
+        .unwrap();
         let settings = Settings::load_from_path(&settings_path).unwrap();
 
-        // Set actual environment variable
-        std::env::set_var("TEST_VAR_ENV", "env_value");
+        // The process environment takes precedence over settings.
+        std::env::set_var("GWI_TEST_GET_ENV_VAR", "env_override");
+        assert_eq!(
+            settings.get_env_var("GWI_TEST_GET_ENV_VAR").unwrap(),
+            "env_override"
+        );
 
-        // Test precedence - env var should take precedence
-        std::env::set_var("TEST_VAR", "env_override");
-        assert_eq!(settings.get_env_var("TEST_VAR").unwrap(), "env_override");
+        // With it unset, the settings value is the fallback.
+        std::env::remove_var("GWI_TEST_GET_ENV_VAR");
+        assert_eq!(
+            settings.get_env_var("GWI_TEST_GET_ENV_VAR").unwrap(),
+            "test_value"
+        );
 
-        // Test fallback to settings
-        std::env::remove_var("TEST_VAR"); // Remove from environment
-        assert_eq!(settings.get_env_var("TEST_VAR").unwrap(), "test_value");
-
-        // Test actual env var
-        assert_eq!(settings.get_env_var("TEST_VAR_ENV").unwrap(), "env_value");
-
-        // Clean up
-        std::env::remove_var("TEST_VAR_ENV");
+        // A variable only the process environment has still resolves.
+        std::env::set_var("GWI_TEST_GET_ENV_VAR_ONLY", "env_value");
+        assert_eq!(
+            settings.get_env_var("GWI_TEST_GET_ENV_VAR_ONLY").unwrap(),
+            "env_value"
+        );
     }
 
     // ── profile resolution (pure: MapEnv raw env, explicit active profile) ──
