@@ -1,4 +1,4 @@
-//! CLI commands for `omni-dev drive lease` — the Drive write lease
+//! CLI commands for `gwi drive lease` — the Drive write lease
 //! ([ADR-0080](../../../docs/adrs/adr-0080.md)).
 
 use anyhow::Result;
@@ -149,14 +149,14 @@ impl LeaseCommand {
 #[derive(Parser)]
 pub struct LeaseFlags {
     /// Local directory byte backups are written under. Defaults to
-    /// `OMNI_DEV_DRIVE_LEASE_BACKUP_DIR`, then `settings.json`'s
-    /// `lease.backup_dir`, then `<state dir>/omni-dev/drive-backups`.
+    /// `GWI_DRIVE_LEASE_BACKUP_DIR`, then `settings.json`'s
+    /// `lease.backup_dir`, then `<state dir>/gwi/drive-backups`.
     #[arg(long, value_name = "PATH")]
     pub backup_dir: Option<std::path::PathBuf>,
 
     /// Minutes the lease stays live once authorised. A write never extends
     /// this — a fresh window means a fresh `drive lease acquire` (ADR-0080
-    /// §5). Defaults to `OMNI_DEV_DRIVE_LEASE_EXPIRY_MINUTES`, then
+    /// §5). Defaults to `GWI_DRIVE_LEASE_EXPIRY_MINUTES`, then
     /// `settings.json`'s `lease.default_expiry_minutes`, then 30.
     #[arg(long, value_name = "N", value_parser = parse_expiry_minutes)]
     pub expiry_minutes: Option<i64>,
@@ -165,7 +165,7 @@ pub struct LeaseFlags {
     /// back to the account password (ADR-0080 §7). Needs Touch ID hardware;
     /// the default policy works on any Mac. Also settable via
     /// `settings.json`'s `lease.biometrics_only` or
-    /// `OMNI_DEV_DRIVE_LEASE_BIOMETRICS_ONLY`; any layer selecting it wins.
+    /// `GWI_DRIVE_LEASE_BIOMETRICS_ONLY`; any layer selecting it wins.
     #[arg(long)]
     pub biometrics_only: bool,
 
@@ -173,14 +173,14 @@ pub struct LeaseFlags {
     /// context — off-macOS, or a macOS process with no attached GUI session
     /// (ADR-0080 §8) — waiving the human-presence guarantee instead of
     /// refusing outright. Also settable via `settings.json`'s
-    /// `lease.allow_headless` or `OMNI_DEV_DRIVE_LEASE_ALLOW_HEADLESS`; any
+    /// `lease.allow_headless` or `GWI_DRIVE_LEASE_ALLOW_HEADLESS`; any
     /// layer opting in wins.
     #[arg(long)]
     pub allow_headless: bool,
 }
 
 /// What [`LeaseFlags`] resolved to, after layering the CLI flags over
-/// `OMNI_DEV_DRIVE_LEASE_*`/`settings.json`/hard-coded defaults.
+/// `GWI_DRIVE_LEASE_*`/`settings.json`/hard-coded defaults.
 pub(crate) struct ResolvedLeaseFlags {
     pub(crate) backup_dir: std::path::PathBuf,
     pub(crate) expiry: chrono::Duration,
@@ -375,7 +375,7 @@ impl ReleaseCommand {
 }
 
 /// Bounds the lease ledger's and the backup directory/folder's growth
-/// (ADR-0080 Consequences fast-follow, #1678). Mirrors `omni-dev log
+/// (ADR-0080 Consequences fast-follow, #1678). Mirrors `gwi log
 /// prune`'s shape: `--older-than`/`--max-size`, at least one required,
 /// applied sequentially (age first, then size trims what's left),
 /// `--dry-run` reports without mutating anything. Unlike `log prune`, there
@@ -418,7 +418,7 @@ impl PruneCommand {
         }
         let older_than = match self.older_than.as_deref() {
             Some(s) => Some(
-                crate::cli::log::parse_since(s)
+                crate::utils::duration::parse_since(s)
                     .map_err(|e| anyhow::anyhow!("invalid --older-than: {e}"))?,
             ),
             None => None,
@@ -656,7 +656,7 @@ fn print_restore_result(result: &RestoreResult) {
             eprintln!(
                 "Refused: a different live lease already covers this file (expires \
                  {expires_at}) — its token is printed above. Present it to `--lease`, or stand \
-                 it down with `omni-dev drive lease release {}` and re-run this restore.",
+                 it down with `gwi drive lease release {}` and re-run this restore.",
                 sanitize_for_terminal(token)
             );
         }
@@ -696,7 +696,7 @@ fn print_restore_result(result: &RestoreResult) {
                  live (expires {expires_at}) — present it to `--lease` for an ordinary write.\n\
                  Do not restore from it: its backup is this file's pre-restore content, which \
                  is what you were undoing.\nTo retry the restore, stand it down first:\n  \
-                 omni-dev drive lease release {}\n  omni-dev drive lease restore <the original \
+                 gwi drive lease release {}\n  gwi drive lease restore <the original \
                  backup token>",
                 sanitize_for_terminal(token)
             );
@@ -713,7 +713,7 @@ fn print_release_result(result: &ReleaseResult) {
         } => {
             eprintln!(
                 "Released {} (covered file {}, would have expired {expires_at}). Its backup is \
-                 kept — `omni-dev drive lease restore {}` still works.",
+                 kept — `gwi drive lease restore {}` still works.",
                 sanitize_for_terminal(token),
                 sanitize_for_terminal(file_id),
                 sanitize_for_terminal(token)
@@ -1177,7 +1177,7 @@ mod tests {
         )
         .unwrap();
         assert!(
-            dir.ends_with(std::path::Path::new("omni-dev").join("drive-backups")),
+            dir.ends_with(std::path::Path::new("gwi").join("drive-backups")),
             "{}",
             dir.display()
         );
@@ -1192,7 +1192,7 @@ mod tests {
         // `lease.biometrics_only`/`backup_dir`/`default_expiry_minutes`.
         let guard = crate::drive::test_support::EnvGuard::take();
         let dir = guard.clear_credentials();
-        let settings_dir = dir.path().join(".omni-dev");
+        let settings_dir = dir.path().join(".gwi");
         std::fs::create_dir_all(&settings_dir).unwrap();
         std::fs::write(settings_dir.join("settings.json"), "{not valid json").unwrap();
 
@@ -1266,7 +1266,7 @@ mod tests {
     }
 
     fn parse(args: &[&str]) -> AcquireCommand {
-        let mut full = vec!["omni-dev", "lease"];
+        let mut full = vec!["gwi", "lease"];
         full.extend_from_slice(args);
         match Wrapper::try_parse_from(full).unwrap().cmd {
             Wrapped::Lease(cmd) => match cmd.action {
@@ -1280,7 +1280,7 @@ mod tests {
     }
 
     fn parse_prune(args: &[&str]) -> PruneCommand {
-        let mut full = vec!["omni-dev", "lease"];
+        let mut full = vec!["gwi", "lease"];
         full.extend_from_slice(args);
         match Wrapper::try_parse_from(full).unwrap().cmd {
             Wrapped::Lease(cmd) => match cmd.action {
@@ -1295,7 +1295,7 @@ mod tests {
 
     /// Like [`parse`], but for a value expected to fail `clap` validation.
     fn parse_err(args: &[&str]) -> String {
-        let mut full = vec!["omni-dev", "lease"];
+        let mut full = vec!["gwi", "lease"];
         full.extend_from_slice(args);
         Wrapper::try_parse_from(full)
             .err()
@@ -1398,7 +1398,7 @@ mod tests {
 
     #[test]
     fn release_parses_its_token_and_output_format() {
-        let mut full = vec!["omni-dev", "lease"];
+        let mut full = vec!["gwi", "lease"];
         full.extend_from_slice(&["release", "tok-1", "-o", "json"]);
         let Wrapped::Lease(cmd) = Wrapper::try_parse_from(full).unwrap().cmd;
         let LeaseAction::Release(release) = cmd.action else {

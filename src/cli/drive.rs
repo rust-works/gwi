@@ -32,14 +32,14 @@ use crate::drive::client::DriveClient;
 #[derive(Parser)]
 pub struct DriveCommand {
     /// Selects a named Drive account configured in
-    /// `~/.omni-dev/settings.json` (AWS-CLI style, mirrors the top-level
+    /// `~/.gwi/settings.json` (AWS-CLI style, mirrors the top-level
     /// `--profile`) for this invocation.
     ///
     /// Orthogonal to `--profile`: switching the Drive account never changes
     /// which profile is active, and vice versa (see
     /// [ADR-0066](../../../docs/adrs/adr-0066.md),
     /// [ADR-0069](../../../docs/adrs/adr-0069.md)). Overrides
-    /// `OMNI_DEV_DRIVE_ACCOUNT`. Scoped to the `drive` subtree — not usable
+    /// `GWI_DRIVE_ACCOUNT`. Scoped to the `drive` subtree — not usable
     /// before the `drive` subcommand name, only after it, so it can't
     /// collide with an unrelated subcommand's own `--account` flag.
     #[arg(long, global = true, value_name = "NAME")]
@@ -74,7 +74,7 @@ pub enum DriveSubcommands {
     Upload(upload::UploadCommand),
     /// Replaces an existing file's content, gated by the
     /// write-permission rules (issues #1574, #1612). Requires the `drive.file`
-    /// scope if `omni-dev` created the file, or the unrestricted `drive`
+    /// scope if `gwi` created the file, or the unrestricted `drive`
     /// scope for any pre-existing file (`drive auth login --write-file`
     /// or `--write-full`).
     Edit(edit::EditCommand),
@@ -514,7 +514,7 @@ mod tests {
     ///
     /// `clear_credentials` is what makes that deterministic: without it
     /// `active_account_rules` reads the developer's real
-    /// `~/.omni-dev/settings.json`, so the result depends on the machine.
+    /// `~/.gwi/settings.json`, so the result depends on the machine.
     #[tokio::test]
     async fn dispatch_routes_docs_replace() {
         let guard = crate::drive::test_support::EnvGuard::take();
@@ -2431,7 +2431,7 @@ mod tests {
         // dispatch_routes_* tests): `create`'s CLI layer resolves the
         // active account's write_permissions.rules via `Settings::load()`,
         // so without a clean $HOME it reads whatever real
-        // ~/.omni-dev/settings.json this process has.
+        // ~/.gwi/settings.json this process has.
         let guard = crate::drive::test_support::EnvGuard::take();
         let _dir = guard.clear_credentials();
 

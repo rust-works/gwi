@@ -1,4 +1,4 @@
-//! CLI command for `omni-dev drive permissions check`.
+//! CLI command for `gwi drive permissions check`.
 
 use anyhow::Result;
 use clap::Parser;

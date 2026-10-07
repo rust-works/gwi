@@ -1,4 +1,4 @@
-//! CLI command for `omni-dev drive move`.
+//! CLI command for `gwi drive move`.
 
 use anyhow::Result;
 use clap::Parser;

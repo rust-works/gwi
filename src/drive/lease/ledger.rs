@@ -435,7 +435,7 @@ impl LeaseLedger {
     /// temp-file-in-the-same-directory-then-rename pattern
     /// `InsertLedger::save`/`sync::manifest::Manifest::save` use.
     pub(crate) fn save(&self, path: &Path) -> Result<()> {
-        crate::daemon::paths::ensure_parent_dir_0700(path)?;
+        crate::utils::fs::ensure_parent_dir_0700(path)?;
         let dir = path
             .parent()
             .filter(|p| !p.as_os_str().is_empty())
@@ -457,12 +457,12 @@ impl LeaseLedger {
 }
 
 /// Resolves `lease-ledger.jsonl`'s path: `state_dir` (falling back to
-/// `data_dir`) joined with `omni-dev/lease-ledger.jsonl` — the same
+/// `data_dir`) joined with `gwi/lease-ledger.jsonl` — the same
 /// resolution `crate::request_log::log_file_path` uses, no env override
 /// (unlike the log files, nothing about *which* ledger a write consults is
 /// meant to be redirectable per-invocation).
 pub(crate) fn ledger_path() -> Result<PathBuf> {
-    crate::request_log::omni_dev_state_subpath("lease-ledger.jsonl")
+    crate::request_log::gwi_state_subpath("lease-ledger.jsonl")
         .context("could not resolve the state/data directory for the lease ledger")
 }
 
@@ -479,7 +479,7 @@ fn lock_path_for(ledger_path: &Path) -> PathBuf {
 /// Env var overriding [`default_lock_wait_timeout`]. Value is whole
 /// seconds; a missing, non-numeric, or non-positive value falls back to the
 /// derived default.
-const LEASE_LOCK_WAIT_ENV_VAR: &str = "OMNI_DEV_LEASE_LOCK_WAIT_SECS";
+const LEASE_LOCK_WAIT_ENV_VAR: &str = "GWI_LEASE_LOCK_WAIT_SECS";
 
 /// How long [`LedgerLock::acquire_waiting`] waits for a busy lock before
 /// giving up, absent [`LEASE_LOCK_WAIT_ENV_VAR`].
@@ -560,7 +560,7 @@ impl<'a> LockWait<'a> {
 /// rewrite racing the first would silently discard whichever lease state
 /// lost the race.
 ///
-/// Backed by [`crate::daemon::paths::FileLock`] (`flock(2)` on Unix):
+/// Backed by [`crate::utils::fs::FileLock`] (`flock(2)` on Unix):
 /// kernel-released on process death, so — unlike the `create_new` marker
 /// this replaced — a crashed or SIGKILLed holder never leaves a stale
 /// lock, and `Drop` never unlinks the lock file. That matters: the old
@@ -569,13 +569,13 @@ impl<'a> LockWait<'a> {
 /// a new marker that the first holder's own `Drop` would then delete by
 /// path with no identity check, reopening a lease-token double-spend
 /// (issue #1687). Nothing in this module ever tells an operator to delete
-/// this file. On non-Unix, [`crate::daemon::paths::FileLock`] falls back
+/// this file. On non-Unix, [`crate::utils::fs::FileLock`] falls back
 /// to the old `create_new`-marker-plus-`Drop`-unlink scheme, so that
 /// double-spend window is only closed on Unix.
 #[derive(Debug)]
 pub(crate) struct LedgerLock {
     #[allow(dead_code)] // Held only for its Drop (releases the flock); never read.
-    inner: crate::daemon::paths::FileLock,
+    inner: crate::utils::fs::FileLock,
 }
 
 impl LedgerLock {
@@ -593,7 +593,7 @@ impl LedgerLock {
     /// the grant's (issue #1737).
     pub(crate) fn acquire(ledger_path: &Path) -> Result<Self> {
         let path = lock_path_for(ledger_path);
-        crate::daemon::paths::ensure_parent_dir_0700(&path)?;
+        crate::utils::fs::ensure_parent_dir_0700(&path)?;
         match Self::try_acquire_once(&path)? {
             Some(lock) => Ok(lock),
             None => anyhow::bail!(
@@ -610,7 +610,7 @@ impl LedgerLock {
     /// `None` is worth waiting out.
     fn try_acquire_once(path: &Path) -> Result<Option<Self>> {
         Ok(
-            crate::daemon::paths::try_lock_or_busy(path, "the lease lock file")?
+            crate::utils::fs::try_lock_or_busy(path, "the lease lock file")?
                 .map(|inner| Self { inner }),
         )
     }
@@ -654,7 +654,7 @@ impl LedgerLock {
         max_wait: Duration,
     ) -> Result<Self> {
         let path = lock_path_for(ledger_path);
-        crate::daemon::paths::ensure_parent_dir_0700(&path)?;
+        crate::utils::fs::ensure_parent_dir_0700(&path)?;
 
         let mut wait = LockWait::new(&path, max_wait);
         loop {
@@ -687,7 +687,7 @@ impl LedgerLock {
         max_wait: Duration,
     ) -> Result<Self> {
         let path = lock_path_for(ledger_path);
-        crate::daemon::paths::ensure_parent_dir_0700(&path)?;
+        crate::utils::fs::ensure_parent_dir_0700(&path)?;
 
         let mut wait = LockWait::new(&path, max_wait);
         loop {
@@ -1115,7 +1115,7 @@ mod tests {
         assert!(err.to_string().contains("already be in progress"));
     }
 
-    // Unix-only: on non-unix, `crate::daemon::paths::FileLock::drop` falls
+    // Unix-only: on non-unix, `crate::utils::fs::FileLock::drop` falls
     // back to a `create_new`-marker-plus-`Drop`-unlink scheme, so the lock
     // file does *not* survive its own drop there (#1742).
     #[cfg(unix)]

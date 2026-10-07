@@ -489,7 +489,7 @@ pub struct BatchGetValuesResponse {
 /// Response to `values.update`.
 ///
 /// The counts are what the request log records as context, so
-/// `omni-dev log --query kind:drivemutation` can answer "what did that write
+/// `gwi log --query kind:drivemutation` can answer "what did that write
 /// actually touch" rather than only "a write happened".
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct UpdateValuesResponse {

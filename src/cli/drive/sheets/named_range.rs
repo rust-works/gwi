@@ -1,4 +1,4 @@
-//! CLI commands for `omni-dev drive sheets add-named-range`/
+//! CLI commands for `gwi drive sheets add-named-range`/
 //! `update-named-range`/`delete-named-range`/`list-named-ranges` (issue
 //! #1796).
 //!

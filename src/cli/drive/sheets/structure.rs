@@ -1,4 +1,4 @@
-//! CLI commands for `omni-dev drive sheets add-sheet`/`rename-sheet`/
+//! CLI commands for `gwi drive sheets add-sheet`/`rename-sheet`/
 //! `insert-rows`/`insert-columns` (issue #1613), `insert-range` (issue
 //! #1838), `duplicate-sheet`/
 //! `reorder-sheet`/`hide-sheet`/`show-sheet` (issue #1643),
@@ -201,7 +201,7 @@ pub struct MoveColumnsCommand {
 /// Gated by the folder write-permission rules' `sheets-delete` operation
 /// (issue #1623) — distinct from `sheets-structure`, so an existing
 /// `allow: ["sheets-structure"]` rule does not also grant this. This cannot
-/// be undone through omni-dev; the `--lease` this delete requires (ADR-0080
+/// be undone through gwi; the `--lease` this delete requires (ADR-0080
 /// §9) backed the whole spreadsheet up when it was acquired, and that copy
 /// — named in the real-run message, not Google Drive's own version history
 /// — is the primary recovery path. A rule that opts out with

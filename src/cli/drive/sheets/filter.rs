@@ -1,4 +1,4 @@
-//! CLI commands for `omni-dev drive sheets set-basic-filter`/
+//! CLI commands for `gwi drive sheets set-basic-filter`/
 //! `clear-basic-filter`/`add-filter-view`/`update-filter-view`/
 //! `delete-filter-view`/`list-filter-views` (issue #1794).
 //!

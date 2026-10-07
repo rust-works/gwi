@@ -1,4 +1,4 @@
-//! CLI command for `omni-dev drive permissions lookup-folder`.
+//! CLI command for `gwi drive permissions lookup-folder`.
 
 use std::io::Write;
 

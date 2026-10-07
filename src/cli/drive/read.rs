@@ -1,4 +1,4 @@
-//! CLI command for `omni-dev drive read`.
+//! CLI command for `gwi drive read`.
 
 use anyhow::{Context, Result};
 use clap::Parser;

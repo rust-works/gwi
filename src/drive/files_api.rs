@@ -290,7 +290,7 @@ impl<'a> FilesApi<'a> {
     /// a Google Sheet/Doc/Slide has no bytes [`FilesApi::download`] can
     /// read, so a lossless, Drive-side copy is the only backup a native
     /// document can have. Requires the unrestricted `drive` scope — a copy
-    /// reads a file `omni-dev` did not necessarily create, which
+    /// reads a file `gwi` did not necessarily create, which
     /// `drive.file` cannot do.
     ///
     /// Restricted to `crate::drive`, for the identical reason
@@ -366,7 +366,7 @@ impl<'a> FilesApi<'a> {
     /// Replaces an existing file's content (`files.update` with
     /// `uploadType=media` — content-only, no multipart envelope since
     /// there's no accompanying metadata change). Requires the `drive.file`
-    /// scope if `omni-dev` created `file_id`, or the unrestricted `drive`
+    /// scope if `gwi` created `file_id`, or the unrestricted `drive`
     /// scope for any pre-existing file.
     ///
     /// Refuses content over [`MAX_UPLOAD_BYTES`] before ever sending it.
@@ -604,7 +604,7 @@ pub(crate) enum WriteCapability {
     /// Creating a new file/folder, or uploading new content — `drive.file`
     /// or `drive`.
     CreateOrUpload,
-    /// Editing an existing file's content — `drive.file` if `omni-dev`
+    /// Editing an existing file's content — `drive.file` if `gwi`
     /// created it, `drive` (unrestricted) for any pre-existing file. The
     /// client has no cheap way to know which a given file id is, so the
     /// hint names both.
@@ -613,7 +613,7 @@ pub(crate) enum WriteCapability {
     /// ([ADR-0080](../../docs/adrs/adr-0080.md) §3) — always the
     /// unrestricted `drive` scope: unlike [`Self::EditContent`], there is
     /// no app-created-it case to consider, since the lease exists
-    /// precisely to back up files `omni-dev` did not create.
+    /// precisely to back up files `gwi` did not create.
     CopyForBackup,
 }
 
@@ -645,19 +645,19 @@ pub(in crate::drive) fn append_write_scope_hint(
     }
     let hint = match capability {
         WriteCapability::Metadata => {
-            "Run `omni-dev drive auth login --write` to grant the drive.metadata scope needed \
+            "Run `gwi drive auth login --write` to grant the drive.metadata scope needed \
              for rename/move/trash"
         }
         WriteCapability::CreateOrUpload => {
-            "Run `omni-dev drive auth login --write-file` (or `--write-full`) to grant the \
+            "Run `gwi drive auth login --write-file` (or `--write-full`) to grant the \
              scope needed to create files/folders and upload content"
         }
         WriteCapability::EditContent => {
-            "Run `omni-dev drive auth login --write-file` if this file was created by \
-             omni-dev, or `--write-full` to edit any pre-existing file's content, then retry"
+            "Run `gwi drive auth login --write-file` if this file was created by \
+             gwi, or `--write-full` to edit any pre-existing file's content, then retry"
         }
         WriteCapability::CopyForBackup => {
-            "Run `omni-dev drive auth login --write-full` to grant the unrestricted scope \
+            "Run `gwi drive auth login --write-full` to grant the unrestricted scope \
              needed to back up a native document before a leased write, then retry"
         }
     };

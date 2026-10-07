@@ -1,4 +1,4 @@
-//! CLI command for `omni-dev drive rename`.
+//! CLI command for `gwi drive rename`.
 
 use anyhow::Result;
 use clap::Parser;

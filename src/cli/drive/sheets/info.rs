@@ -1,4 +1,4 @@
-//! CLI command for `omni-dev drive sheets info`.
+//! CLI command for `gwi drive sheets info`.
 
 use anyhow::{Context, Result};
 use clap::Parser;

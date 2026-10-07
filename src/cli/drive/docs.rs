@@ -1,4 +1,4 @@
-//! CLI commands for `omni-dev drive docs` — reading the *structural model*
+//! CLI commands for `gwi drive docs` — reading the *structural model*
 //! of a Google Doc via the Docs v1 API (issue #1615).
 //!
 //! Nested under `drive` rather than given its own top-level tree, for the

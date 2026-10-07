@@ -1,4 +1,4 @@
-//! CLI commands for `omni-dev drive sheets protect-range`/
+//! CLI commands for `gwi drive sheets protect-range`/
 //! `update-protection`/`unprotect-range`/`list-protections` (issue #1643).
 //!
 //! The first three are gated by

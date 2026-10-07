@@ -1,4 +1,4 @@
-//! CLI commands for `omni-dev drive sheets cut-paste`/`copy-paste`/
+//! CLI commands for `gwi drive sheets cut-paste`/`copy-paste`/
 //! `paste-data` (issue #1839, [ADR-0083](../../../../docs/adrs/adr-0083.md)
 //! §4).
 //!

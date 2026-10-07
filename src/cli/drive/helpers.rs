@@ -58,7 +58,7 @@ pub fn create_client() -> Result<DriveClient> {
 /// ([ADR-0069](../../../docs/adrs/adr-0069.md)). `account` is `Some(name)`
 /// to force that account (the CLI's resolved `--account` value, or an MCP
 /// tool's per-call override) or `None` to fall through to ambient
-/// `--account`/`OMNI_DEV_DRIVE_ACCOUNT` resolution — [`create_client`]'s
+/// `--account`/`GWI_DRIVE_ACCOUNT` resolution — [`create_client`]'s
 /// exact behavior.
 pub fn create_client_for(account: Option<&str>) -> Result<DriveClient> {
     create_client_from(auth::load_credentials_for(account)?)
@@ -93,7 +93,7 @@ fn account_field<T>(
 }
 
 /// Reads the active account's `write_permissions.rules` from
-/// `~/.omni-dev/settings.json` (issue #1574). An
+/// `~/.gwi/settings.json` (issue #1574). An
 /// [`ResolvedAccount::Unconfigured`] account has no `write_permissions`
 /// block to read, so it resolves to an empty rule set — every write is
 /// refused, per the gate's default policy.
@@ -199,7 +199,7 @@ mod tests {
     fn create_client_for_named_account_uses_that_accounts_credentials() {
         let guard = crate::drive::test_support::EnvGuard::take();
         let dir = guard.clear_credentials();
-        let settings_path = dir.path().join(".omni-dev").join("settings.json");
+        let settings_path = dir.path().join(".gwi").join("settings.json");
         crate::utils::settings::Settings::upsert_drive_account(
             &settings_path,
             "work",
@@ -247,7 +247,7 @@ mod tests {
     fn active_account_rules_reads_the_sole_configured_accounts_rules() {
         let guard = crate::drive::test_support::EnvGuard::take();
         let dir = guard.clear_credentials();
-        let settings_path = dir.path().join(".omni-dev").join("settings.json");
+        let settings_path = dir.path().join(".gwi").join("settings.json");
         crate::utils::settings::Settings::upsert_drive_account(
             &settings_path,
             "work",
@@ -280,7 +280,7 @@ mod tests {
         // set — closing the gap named in issue #1744.
         let guard = crate::drive::test_support::EnvGuard::take();
         let dir = guard.clear_credentials();
-        let settings_dir = dir.path().join(".omni-dev");
+        let settings_dir = dir.path().join(".gwi");
         std::fs::create_dir_all(&settings_dir).unwrap();
         std::fs::write(settings_dir.join("settings.json"), "{not valid json").unwrap();
 
@@ -304,7 +304,7 @@ mod tests {
     fn active_account_lease_backup_folder_id_is_none_when_the_account_sets_none() {
         let guard = crate::drive::test_support::EnvGuard::take();
         let dir = guard.clear_credentials();
-        let settings_path = dir.path().join(".omni-dev").join("settings.json");
+        let settings_path = dir.path().join(".gwi").join("settings.json");
         crate::utils::settings::Settings::upsert_drive_account(
             &settings_path,
             "work",
@@ -322,7 +322,7 @@ mod tests {
     fn active_account_lease_backup_folder_id_reads_the_sole_configured_accounts_folder() {
         let guard = crate::drive::test_support::EnvGuard::take();
         let dir = guard.clear_credentials();
-        let settings_path = dir.path().join(".omni-dev").join("settings.json");
+        let settings_path = dir.path().join(".gwi").join("settings.json");
         crate::utils::settings::Settings::upsert_drive_account(
             &settings_path,
             "work",

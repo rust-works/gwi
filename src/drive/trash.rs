@@ -495,8 +495,7 @@ mod tests {
         let _env = crate::drive::test_support::EnvGuard::take();
         let dir = tempfile::tempdir().unwrap();
         let log_path = dir.path().join("mutations.jsonl");
-        let _log =
-            crate::utils::env::ScopedEnvVar::set("OMNI_DEV_LOG_FILE", log_path.to_str().unwrap());
+        let _log = crate::utils::env::ScopedEnvVar::set("GWI_LOG_FILE", log_path.to_str().unwrap());
         for (restore, returned) in [(true, Some(true)), (false, Some(false)), (true, None)] {
             let server = MockServer::start().await;
             let client = client_with_bootstrapped_token(&server).await;
@@ -530,9 +529,8 @@ mod tests {
         let _env = crate::drive::test_support::EnvGuard::take();
         let dir = tempfile::tempdir().unwrap();
         let log_path = dir.path().join("mutations.jsonl");
-        let _log =
-            crate::utils::env::ScopedEnvVar::set("OMNI_DEV_LOG_FILE", log_path.to_str().unwrap());
-        let _enabled = crate::utils::env::ScopedEnvVar::set("OMNI_DEV_LOG_DISABLE", "false");
+        let _log = crate::utils::env::ScopedEnvVar::set("GWI_LOG_FILE", log_path.to_str().unwrap());
+        let _enabled = crate::utils::env::ScopedEnvVar::set("GWI_LOG_DISABLE", "false");
         for (restore, trashed, dry_run, code, expected, count) in [
             (false, false, false, 200, "trashed", 1),
             (true, true, false, 200, "untrashed", 1),

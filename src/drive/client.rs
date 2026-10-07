@@ -28,7 +28,7 @@ use crate::utils::env::{EnvSource, SystemEnv};
 /// `SheetsClient` deliberately uses this **same** tag: the mutation records
 /// are already hardcoded `service: "drive"`
 /// (`crate::request_log::build_drive_mutation_record`), so splitting the HTTP
-/// records off under a separate service would make `omni-dev log --service
+/// records off under a separate service would make `gwi log --service
 /// drive` stop covering half of one feature's traffic. The host stays visible
 /// in each record's URL.
 pub(crate) const SERVICE_TAG: &str = "drive";

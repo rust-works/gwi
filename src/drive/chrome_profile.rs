@@ -436,7 +436,7 @@ mod tests {
         // fail-open branch (missing/unreadable file, no match) converges on
         // `None` regardless of the host running the test.
         assert_eq!(
-            resolve_launch_command("definitely-not-a-real-account+omni-dev-test@invalid.example"),
+            resolve_launch_command("definitely-not-a-real-account+gwi-test@invalid.example"),
             None
         );
     }

@@ -6379,7 +6379,7 @@ mod tests {
         // `row_count`/`column_count` unknown. With no count to compare
         // against there is no ceiling to enforce, so the request goes
         // through and Sheets stays the authority on whether it is legal,
-        // rather than omni-dev guessing a bound (ADR-0073 §7).
+        // rather than gwi guessing a bound (ADR-0073 §7).
         let server = wiremock::MockServer::start().await;
         let (drive, sheets) = clients(&server).await;
         mount_file("sheet-1", GOOGLE_SHEET_MIME_TYPE, &["parent-1"])

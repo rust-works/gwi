@@ -55,10 +55,9 @@ fn write_outcome(outcome: &TrashOutcome, out: &mut dyn std::io::Write) -> std::i
     let id = sanitize_for_terminal(&outcome.file_id);
     match &outcome.result {
         TrashResult::WouldTrash => writeln!(out, "Would trash: {id}"),
-        TrashResult::Trashed => writeln!(
-            out,
-            "Trashed: {id}. Restore with `omni-dev drive untrash {id}`."
-        ),
+        TrashResult::Trashed => {
+            writeln!(out, "Trashed: {id}. Restore with `gwi drive untrash {id}`.")
+        }
         TrashResult::WouldUntrash => writeln!(out, "Would untrash: {id}"),
         TrashResult::Untrashed => writeln!(out, "Untrashed: {id}"),
         TrashResult::AlreadyTrashed => writeln!(out, "Already trashed: {id}"),

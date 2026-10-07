@@ -1,4 +1,4 @@
-//! CLI command for `omni-dev drive sheets create`.
+//! CLI command for `gwi drive sheets create`.
 
 use anyhow::Result;
 use clap::Parser;
@@ -185,7 +185,7 @@ mod tests {
     async fn run_create_allowed_creates_and_renders_table_output() {
         let guard = crate::drive::test_support::EnvGuard::take();
         let dir = guard.clear_credentials();
-        let settings_path = dir.path().join(".omni-dev").join("settings.json");
+        let settings_path = dir.path().join(".gwi").join("settings.json");
         crate::utils::settings::Settings::upsert_drive_account(
             &settings_path,
             "work",
@@ -254,7 +254,7 @@ mod tests {
     async fn create_command_execute_reads_values_from_a_file() {
         let guard = crate::drive::test_support::EnvGuard::take();
         let dir = guard.clear_credentials();
-        let settings_path = dir.path().join(".omni-dev").join("settings.json");
+        let settings_path = dir.path().join(".gwi").join("settings.json");
         crate::utils::settings::Settings::upsert_drive_account(
             &settings_path,
             "work",

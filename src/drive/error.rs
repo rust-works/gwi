@@ -25,14 +25,14 @@ impl fmt::Display for GrantContext {
                 "the authorization code was invalid, already used, expired (codes are \
                  single-use and valid only a few minutes), or the PKCE code_verifier did not \
                  match the code_challenge sent at the start of login. Run \
-                 `omni-dev drive auth login` again."
+                 `gwi drive auth login` again."
             ),
             Self::Refresh => write!(
                 f,
                 "this almost always means either (1) your Drive OAuth client is in \"Testing\" \
                  publishing status, where refresh tokens expire after 7 days — publish it to \
                  \"In production\" in Google Cloud Console to avoid this, or (2) access was \
-                 revoked. Run `omni-dev drive auth login` again to re-authenticate."
+                 revoked. Run `gwi drive auth login` again to re-authenticate."
             ),
         }
     }
@@ -42,7 +42,7 @@ impl fmt::Display for GrantContext {
 #[derive(Error, Debug)]
 pub enum DriveError {
     /// Drive credentials are not configured.
-    #[error("Drive credentials not configured. Run `omni-dev drive auth login`")]
+    #[error("Drive credentials not configured. Run `gwi drive auth login`")]
     CredentialsNotFound,
 
     /// A Drive API request failed.
@@ -82,7 +82,7 @@ pub enum DriveError {
     /// No browser callback arrived within the timeout.
     #[error(
         "Timed out after {0}s waiting for the browser sign-in callback; re-run \
-         `omni-dev drive auth login`"
+         `gwi drive auth login`"
     )]
     CallbackTimeout(u64),
 
@@ -105,7 +105,7 @@ pub enum DriveError {
     #[error(
         "Google did not grant the drive.readonly scope (received: {0}).\n  On the consent \
          screen, tick the Drive permission — restricted scopes are not granted by default. \
-         Re-run `omni-dev drive auth login`."
+         Re-run `gwi drive auth login`."
     )]
     NoScopeGranted(String),
 

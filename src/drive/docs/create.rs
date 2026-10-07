@@ -388,7 +388,7 @@ pub fn describe(outcome: &CreateOutcome) -> String {
         CreateResult::CreatedTextFailed { file_id, detail } => format!(
             "Partially failed: created '{name}' ({file_id}) in {folder}, but seeding its text \
              failed: {detail} The document exists and is empty — it cannot be rolled back \
-             automatically. Clean up explicitly with `omni-dev drive trash {file_id}` \
+             automatically. Clean up explicitly with `gwi drive trash {file_id}` \
              (requires trash permission on the file or its folder)."
         ),
         CreateResult::Failed { detail } => format!("Failed: '{name}' in {folder}: {detail}"),
@@ -599,7 +599,7 @@ mod tests {
             "the orphan must be findable: {text}"
         );
         assert!(text.contains("cannot be rolled back"), "{text}");
-        assert!(text.contains("omni-dev drive trash new-1"), "{text}");
+        assert!(text.contains("gwi drive trash new-1"), "{text}");
         assert!(text.contains("requires trash permission"), "{text}");
     }
 

@@ -1,4 +1,4 @@
-//! CLI command for `omni-dev drive create`.
+//! CLI command for `gwi drive create`.
 
 use anyhow::Result;
 use clap::Parser;
