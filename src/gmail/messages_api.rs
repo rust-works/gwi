@@ -125,7 +125,7 @@ pub struct MessageSummary {
 
 impl MessageSummary {
     /// Builds a summary row from an already-fetched [`Message`] — the seam
-    /// `omni-dev gmail thread` reuses to render its per-message rows with
+    /// `gwi gmail thread` reuses to render its per-message rows with
     /// the same table renderer `search` uses, without a second API call.
     #[must_use]
     pub fn from_message(message: &Message) -> Self {

@@ -1,4 +1,4 @@
-//! CLI command for `omni-dev gmail account set-default`.
+//! CLI command for `gwi gmail account set-default`.
 
 use anyhow::Result;
 use clap::Parser;

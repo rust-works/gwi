@@ -1,4 +1,4 @@
-//! CLI command for `omni-dev gmail label remove`.
+//! CLI command for `gwi gmail label remove`.
 
 use std::io::{self, BufRead, Write};
 

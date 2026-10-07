@@ -1,4 +1,4 @@
-//! CLI command for `omni-dev gmail draft show`.
+//! CLI command for `gwi gmail draft show`.
 
 use anyhow::Result;
 use clap::Parser;

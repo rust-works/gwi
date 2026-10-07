@@ -27,18 +27,17 @@ use crate::gmail::client::GmailClient;
 #[derive(Parser)]
 pub struct GmailCommand {
     /// Selects a named Gmail account configured in
-    /// `~/.omni-dev/settings.json` (AWS-CLI style, mirrors the top-level
+    /// `~/.gwi/settings.json` (AWS-CLI style, mirrors the top-level
     /// `--profile`) for this invocation.
     ///
     /// Orthogonal to `--profile`: switching the Gmail account never changes
     /// which profile is active, and vice versa (see
     /// [ADR-0066](../../../docs/adrs/adr-0066.md)). Overrides
-    /// `OMNI_DEV_GMAIL_ACCOUNT`. Scoped to the `gmail` subtree — unlike
-    /// `--profile`/`--instance` it is not usable before the `gmail`
-    /// subcommand name, only after it (`gmail --account NAME <cmd>` or
-    /// `gmail <cmd> --account NAME`), so it can't collide with an unrelated
-    /// subcommand's own `--account` flag elsewhere in the CLI (e.g.
-    /// `snowflake query --account`).
+    /// `GWI_GMAIL_ACCOUNT`. Scoped to the `gmail` subtree — unlike
+    /// `--profile` it is not usable before the `gmail` subcommand name, only
+    /// after it (`gmail --account NAME <cmd>` or `gmail <cmd> --account NAME`),
+    /// so it can't collide with another product's own `--account` flag (Drive
+    /// has the same one) as more command trees are added.
     #[arg(long, global = true, value_name = "NAME")]
     pub account: Option<String>,
     /// The Gmail subcommand to execute.
@@ -68,7 +67,7 @@ pub enum GmailSubcommands {
     /// Maintains a durable local archive of a mailbox (CLI-only; no MCP equivalent).
     Sync(sync::SyncCommand),
     /// Maintains durable local archives for every account in
-    /// `.omni-dev/gmail-sync.yaml`, concurrently (CLI-only; no MCP
+    /// `.gwi/gmail-sync.yaml`, concurrently (CLI-only; no MCP
     /// equivalent; ADR-0068).
     SyncAll(sync_all::SyncAllCommand),
     /// Retroactively extracts attachments for already-archived messages,
@@ -109,7 +108,7 @@ impl GmailCommand {
                 anyhow::ensure!(
                     account.is_none(),
                     "--account is not compatible with sync-all; configure accounts in \
-                     .omni-dev/gmail-sync.yaml instead"
+                     .gwi/gmail-sync.yaml instead"
                 );
                 cmd.execute().await
             }
@@ -134,7 +133,7 @@ impl GmailCommand {
                 // this call only (`gmail::account::resolve_account` reads
                 // it, issue #1500), mirroring `Cli::propagate_profile_flag`'s
                 // pattern: only set when present, so an existing ambient
-                // OMNI_DEV_GMAIL_ACCOUNT still works when the flag is
+                // GWI_GMAIL_ACCOUNT still works when the flag is
                 // omitted. The guard restores/removes it on drop at the end
                 // of this scope, so execute() is safe to call more than once
                 // per process (#1538).

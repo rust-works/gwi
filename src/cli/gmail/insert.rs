@@ -1,4 +1,4 @@
-//! CLI command for `omni-dev gmail insert` (#1655).
+//! CLI command for `gwi gmail insert` (#1655).
 //!
 //! Restores archived `.eml` messages into a mailbox via `messages.insert`,
 //! closing the loop on the local archive: `sync` captures, `render`/

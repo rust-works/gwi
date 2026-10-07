@@ -56,7 +56,7 @@ pub(crate) fn with_modify_scope_hint(err: anyhow::Error) -> anyhow::Error {
     if is_insufficient_scope(&err) {
         err.context(
             "This Gmail account is authorised read-only, and this command needs the \
-             `gmail.modify` scope. Re-run `omni-dev gmail auth login --modify` (adding \
+             `gmail.modify` scope. Re-run `gwi gmail auth login --modify` (adding \
              `--account NAME` for a named account) to grant it.",
         )
     } else {

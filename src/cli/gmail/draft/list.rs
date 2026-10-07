@@ -1,4 +1,4 @@
-//! CLI command for `omni-dev gmail draft list`.
+//! CLI command for `gwi gmail draft list`.
 
 use std::io::Write;
 

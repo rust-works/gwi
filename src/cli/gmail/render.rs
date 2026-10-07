@@ -1,4 +1,4 @@
-//! CLI command for `omni-dev gmail render`.
+//! CLI command for `gwi gmail render`.
 //!
 //! Renders one or more `.eml` files as human-readable Markdown (CLI-only; no
 //! MCP equivalent; purely local, no client/credentials needed — #1513). By

@@ -1,4 +1,4 @@
-//! CLI command for `omni-dev gmail sync-all` (issue #1504,
+//! CLI command for `gwi gmail sync-all` (issue #1504,
 //! [ADR-0068](../../../docs/adrs/adr-0068.md)).
 //!
 //! Fans a `.gwi/gmail-sync.yaml`-configured list of named accounts out

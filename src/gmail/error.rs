@@ -25,14 +25,14 @@ impl fmt::Display for GrantContext {
                 "the authorization code was invalid, already used, expired (codes are \
                  single-use and valid only a few minutes), or the PKCE code_verifier did not \
                  match the code_challenge sent at the start of login. Run \
-                 `omni-dev gmail auth login` again."
+                 `gwi gmail auth login` again."
             ),
             Self::Refresh => write!(
                 f,
                 "this almost always means either (1) your Gmail OAuth client is in \"Testing\" \
                  publishing status, where refresh tokens expire after 7 days — publish it to \
                  \"In production\" in Google Cloud Console to avoid this, or (2) access was \
-                 revoked. Run `omni-dev gmail auth login` again to re-authenticate."
+                 revoked. Run `gwi gmail auth login` again to re-authenticate."
             ),
         }
     }
@@ -42,7 +42,7 @@ impl fmt::Display for GrantContext {
 #[derive(Error, Debug)]
 pub enum GmailError {
     /// Gmail credentials are not configured.
-    #[error("Gmail credentials not configured. Run `omni-dev gmail auth login`")]
+    #[error("Gmail credentials not configured. Run `gwi gmail auth login`")]
     CredentialsNotFound,
 
     /// A Gmail API request failed.
@@ -74,7 +74,7 @@ pub enum GmailError {
     /// No browser callback arrived within the timeout.
     #[error(
         "Timed out after {0}s waiting for the browser sign-in callback; re-run \
-         `omni-dev gmail auth login`"
+         `gwi gmail auth login`"
     )]
     CallbackTimeout(u64),
 
@@ -97,7 +97,7 @@ pub enum GmailError {
     #[error(
         "Google did not grant a Gmail scope (received: {0}).\n  On the consent screen, tick the \
          Gmail permission — restricted scopes are not granted by default. Re-run \
-         `omni-dev gmail auth login`."
+         `gwi gmail auth login`."
     )]
     NoGmailScopeGranted(String),
 

@@ -20,6 +20,10 @@ autotests = false
 name = "gwi"
 path = "src/main.rs"
 
+[[test]]
+name = "cli_test"
+path = "tests/cli_test.rs"
+
 [features]
 # Reserved for the `gwi-mcp` server (rmcp); gates code shared with the MCP tools.
 mcp = []
@@ -61,6 +65,7 @@ url = "2.5.8"
 nix = { version = "0.31", default-features = false, features = ["fs", "hostname", "resource", "signal", "user"] }
 
 [dev-dependencies]
+insta = { version = "1.47", features = ["filters"] }
 indicatif = { version = "0.18", features = ["in_memory"] }
 regex = "1.12.3"
 tokio = { version = "1.52", features = ["full", "test-util"] }

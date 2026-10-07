@@ -9,7 +9,7 @@
 //!
 //! **`drafts.send` and `drafts.delete` are deliberately absent** (#1920):
 //! `send` delivers mail that can't be recalled, and `delete` skips Trash, so
-//! a deleted draft can't be recovered. omni-dev only ever *stages* drafts;
+//! a deleted draft can't be recovered. gwi only ever *stages* drafts;
 //! sending and discarding stay in Gmail, done by a person. The
 //! `drafts_api_exposes_no_send_or_delete` test below pins this.
 //!
@@ -217,7 +217,7 @@ impl<'a> DraftsApi<'a> {
             .map_err(|err| {
                 if is_not_found(&err) {
                     err.context(format!(
-                        "No draft with id {draft_id:?}. Run `omni-dev gmail draft list` to see \
+                        "No draft with id {draft_id:?}. Run `gwi gmail draft list` to see \
                          draft ids; a message id from `gmail search` or `gmail read` is not a \
                          draft id"
                     ))
