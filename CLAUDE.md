@@ -26,4 +26,9 @@ strategy (Phase 1) is undecided, so do not copy modules from omni-dev ad hoc.
 - Merge commits were chosen because GitHub refuses to rebase-merge a pull request of a few
   hundred commits (`rebaseable: false` although `mergeable: true`), which the omni-dev
   history import (591 commits) hit. Squash merging stays off: it discards history.
-- Add changelog bullets under `[Unreleased]` only.
+- Never edit `CHANGELOG.md` in a PR. Add a changelog fragment, `changelog.d/<issue>.<type>.md`
+  (`<type>` is `added`, `changed`, `deprecated`, `removed`, `fixed` or `security`; `+<slug>`
+  replaces the issue number when there is none), holding the entry exactly as it would read
+  in `CHANGELOG.md`. A PR with no user-visible effect waives the CI check with a
+  `[no changelog]` line in its body or the `no-changelog` label. See
+  [changelog.d/README.md](changelog.d/README.md); `python3 scripts/changelog.py check` validates.

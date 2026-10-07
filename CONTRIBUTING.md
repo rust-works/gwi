@@ -12,5 +12,7 @@ now is to comment on the design in
 3. Use [conventional commits](https://www.conventionalcommits.org/); see
    [.omni-dev/commit-guidelines.md](.omni-dev/commit-guidelines.md) and
    [docs/STYLE_GUIDE.md](docs/STYLE_GUIDE.md).
-4. Add a bullet under `[Unreleased]` in [CHANGELOG.md](CHANGELOG.md).
+4. Add a changelog fragment, `changelog.d/<issue>.<type>.md`, instead of editing
+   [CHANGELOG.md](CHANGELOG.md) (see [changelog.d/README.md](changelog.d/README.md)). A change
+   with no user-visible effect puts `[no changelog]` in the PR body instead.
 5. Open a pull request. It merges with a merge commit through a merge queue.

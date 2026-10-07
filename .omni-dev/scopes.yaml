@@ -14,7 +14,11 @@ scopes:
   - name: "changelog"
     description: "Changelog entries"
     examples: ["changelog: note the new drive command"]
-    file_patterns: ["CHANGELOG.md"]
+    file_patterns: ["CHANGELOG.md", "changelog.d/**", "scripts/changelog.py", "scripts/test_changelog.py"]
+  - name: "release"
+    description: "Release preparation: version bump and assembled changelog"
+    examples: ["chore(release): prepare v0.1.0"]
+    file_patterns: ["CHANGELOG.md", "changelog.d/**", "Cargo.toml", "Cargo.lock"]
   - name: "gmail"
     description: "Gmail client, engines and CLI surface"
     examples: ["gmail: add label filter", "gmail: fix thread pagination"]
