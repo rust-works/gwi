@@ -32,7 +32,7 @@ pub struct GmailCommand {
     ///
     /// Orthogonal to `--profile`: switching the Gmail account never changes
     /// which profile is active, and vice versa (see
-    /// [ADR-0066](../../../docs/adrs/adr-0066.md)). Overrides
+    /// docs/adrs/adr-0066.md). Overrides
     /// `GWI_GMAIL_ACCOUNT`. Scoped to the `gmail` subtree — unlike
     /// `--profile` it is not usable before the `gmail` subcommand name, only
     /// after it (`gmail --account NAME <cmd>` or `gmail <cmd> --account NAME`),

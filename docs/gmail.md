@@ -1,11 +1,11 @@
 # Gmail Integration
 
-omni-dev exposes read access (and, opt-in, label mutation) to the Gmail v1
-API through the `omni-dev gmail` command tree, with a matching `gmail_*` MCP
+gwi exposes read access (and, opt-in, label mutation) to the Gmail v1
+API through the `gwi gmail` command tree, with a matching `gmail_*` MCP
 tool for every read-only subcommand. Authentication and output formats are
 identical across both surfaces; the MCP tools simply return YAML matching the
 CLI's `-o yaml` output. For the MCP-tool reference (parameters only), see
-[docs/mcp.md](mcp.md#gmail-8-tools).
+[the MCP section of the README](../README.md#mcp-server).
 
 New to this integration? Follow the
 [Gmail Quickstart](gmail-quickstart.md) for a linear, zero-to-synced-archive
@@ -35,7 +35,7 @@ walkthrough — this page is the topic-by-topic reference.
 
 Gmail read scopes are Google **restricted scopes** — an application
 distributed to third parties that requests them must pass a Google CASA
-security assessment with annual recertification. omni-dev doesn't carry that
+security assessment with annual recertification. gwi doesn't carry that
 burden, so **each user creates their own Google Cloud OAuth2 client**:
 
 1. Create (or reuse) a project in the [Google Cloud console].
@@ -54,7 +54,7 @@ burden, so **each user creates their own Google Cloud OAuth2 client**:
 
 **Prominent callout:** a freshly created OAuth2 client's consent screen
 defaults to **Testing** publishing status. In that status, Google expires
-issued refresh tokens after **7 days**, so `omni-dev gmail auth login` will
+issued refresh tokens after **7 days**, so `gwi gmail auth login` will
 need to be re-run weekly until you push the project to **In production**
 (no Google verification review is required below 100 test users for a
 self-scoped read/label-modify request). See
@@ -88,18 +88,18 @@ don't trigger it.
 | `GMAIL_API_URL`         | Explicit API base URL; overrides the real `gmail.googleapis.com` host entirely. Use for a proxy or a forced egress gateway. | _unset_ |
 
 `GMAIL_CLIENT_ID`/`GMAIL_CLIENT_SECRET` can reach `gmail auth login` three
-ways: run `omni-dev gmail auth import [PATH]` first to read them straight
+ways: run `gwi gmail auth import [PATH]` first to read them straight
 out of the `client_secret.json` Google Cloud Console hands out (the
 secret never transits a shell, an env var, or an agent's context — see
 [below](#interactive-setup)); set them by hand (in your shell profile, or
-in `~/.omni-dev/settings.json`'s `env` map); or leave them unset and
+in `~/.gwi/settings.json`'s `env` map); or leave them unset and
 `gmail auth login` prompts for them interactively — the client id echoes
 normally, the secret does not.
 
 `GMAIL_REFRESH_TOKEN` also accepts a `GMAIL_REFRESH_TOKEN_FILE` companion
 naming an absolute path to a file holding the token, instead of the value
 itself — the Docker/Kubernetes secrets convention described in
-[ADR-0089](adrs/adr-0089.md). `GMAIL_CLIENT_SECRET` is deliberately **not**
+[omni-dev ADR-0089](https://github.com/rust-works/omni-dev/blob/main/docs/adrs/adr-0089.md). `GMAIL_CLIENT_SECRET` is deliberately **not**
 part of this convention: `GMAIL_CLIENT_SECRET_FILE` already means something
 else (above) — the path to a Google `client_secret.json` for `gmail auth
 import` — and an installed-app OAuth client secret isn't confidential per
@@ -107,7 +107,8 @@ Google in the first place, so `gmail auth import` already covers the
 file-based case.
 
 `GMAIL_REFRESH_TOKEN_COMMAND` fetches the token on demand from a password
-manager or keychain; see [secret-commands.md](secret-commands.md).
+manager or keychain, as designed in
+[omni-dev ADR-0090](https://github.com/rust-works/omni-dev/blob/main/docs/adrs/adr-0090.md).
 `gmail auth login` refuses, before opening a browser, when the map it would
 write to holds one.
 
@@ -118,11 +119,11 @@ console, import it directly — the client id/secret are saved to
 `settings.json` without ever passing through your shell:
 
 ```bash
-$ omni-dev gmail auth import
+$ gwi gmail auth import
 Found ~/Downloads/client_secret_1234.apps.googleusercontent.com.json (Desktop app client)
-Client id/secret saved to ~/.omni-dev/settings.json
+Client id/secret saved to ~/.gwi/settings.json
 
-Run `omni-dev gmail auth login` to authorize.
+Run `gwi gmail auth login` to authorize.
 ```
 
 `PATH` is optional: discovery tries `$GMAIL_CLIENT_SECRET_FILE`, then
@@ -135,30 +136,30 @@ id/secret aren't in the environment or `settings.json` either, it prompts
 for them instead:
 
 ```bash
-$ omni-dev gmail auth login
+$ gwi gmail auth login
 
-Credentials saved to ~/.omni-dev/settings.json
+Credentials saved to ~/.gwi/settings.json
   Granted scope: https://www.googleapis.com/auth/gmail.readonly
 
-Run `omni-dev gmail auth status` to verify.
+Run `gwi gmail auth status` to verify.
 ```
 
 This opens a browser to Google's consent screen via a loopback OAuth2
 authorization-code + PKCE flow (see [ADR-0063](adrs/adr-0063.md)); once you
-approve, the refresh token is written to `~/.omni-dev/settings.json`. Pass
+approve, the refresh token is written to `~/.gwi/settings.json`. Pass
 `--modify` to additionally request the `gmail.modify` scope, needed by
 every command that changes the mailbox — `gmail label add`/`remove`,
 [`draft create`](#creating-drafts)/[`update`](#updating-drafts) and
 [`insert`](#insert):
 
 ```bash
-$ omni-dev gmail auth login --modify
+$ gwi gmail auth login --modify
 ```
 
 ### Verifying credentials
 
 ```bash
-$ omni-dev gmail auth status
+$ gwi gmail auth status
 Checking Gmail authentication...
 Authenticated as: user@example.com
 Messages in mailbox: 5842
@@ -175,7 +176,7 @@ Pass `--all` to report every configured named account (see
 resolved one:
 
 ```bash
-$ omni-dev gmail auth status --all
+$ gwi gmail auth status --all
 
 == work ==
 Checking Gmail authentication...
@@ -200,8 +201,8 @@ previous check backfilled it, is never overwritten.
 ### Removing credentials
 
 ```bash
-$ omni-dev gmail auth logout
-Gmail credentials removed from ~/.omni-dev/settings.json
+$ gwi gmail auth logout
+Gmail credentials removed from ~/.gwi/settings.json
 ```
 
 Idempotent: if no credentials are configured, it prints
@@ -211,14 +212,14 @@ pass `--account NAME` to target a specific named account.
 
 ## Multiple accounts
 
-`--profile` (see [Prerequisites](#prerequisites) and
-[ADR-0045](adrs/adr-0045.md)) selects a whole credential bundle — Atlassian,
-Datadog, the Claude API key, *and* Gmail all at once. That's the wrong tool
+`--profile` (see [Prerequisites](#prerequisites); the design is omni-dev's
+ADR-0045, which gwi inherits) selects a whole credential bundle — every
+variable in its `env` map, Gmail's included, all at once. That's the wrong tool
 for "I just want a second mailbox while everything else about my
 environment stays the same," so Gmail accounts are a second, independent
-axis: named entries in a `gmail` block of `~/.omni-dev/settings.json`,
+axis: named entries in a `gmail` block of `~/.gwi/settings.json`,
 selected per invocation via an `--account NAME` flag or the
-`OMNI_DEV_GMAIL_ACCOUNT` environment variable (AWS-CLI style, mirroring
+`GWI_GMAIL_ACCOUNT` environment variable (AWS-CLI style, mirroring
 `--profile`). `--account` is scoped to the `gmail` command tree — usable
 either right after `gmail` or after the leaf subcommand
 (`gmail --account work search ...` or `gmail search --account work ...`),
@@ -235,8 +236,8 @@ Create a second (or subsequent) account the same way you configured the
 first, adding `--account NAME`:
 
 ```bash
-$ omni-dev gmail auth import --account personal
-$ omni-dev gmail auth login --account personal
+$ gwi gmail auth import --account personal
+$ gwi gmail auth login --account personal
 ```
 
 `--account` need not already exist — `auth login`/`auth import` are how an
@@ -249,7 +250,7 @@ If you already have a single-account setup and want to migrate it into a
 named account instead of starting over:
 
 ```bash
-$ omni-dev gmail account import-legacy --name work
+$ gwi gmail account import-legacy --name work
 Legacy Gmail credentials migrated to account 'work'. Legacy credentials left
 in place — pass --remove-legacy to delete them.
 ```
@@ -266,7 +267,7 @@ name `default` if omitted.
 `auth login --account NAME` or `account import-legacy` — while legacy
 credentials still exist, those legacy credentials become **shadowed**: a
 no-`--account` invocation from then on resolves through the named-account
-rules below and no longer falls back to them. omni-dev prints a one-time
+rules below and no longer falls back to them. gwi prints a one-time
 stderr notice at that exact transition, pointing at `gmail account
 import-legacy` (to migrate any other legacy account) or `gmail auth logout`
 (to remove the now-unreachable legacy credentials).
@@ -274,12 +275,12 @@ import-legacy` (to migrate any other legacy account) or `gmail auth logout`
 ### Managing accounts
 
 ```bash
-$ omni-dev gmail account list
+$ gwi gmail account list
 NAME      EMAIL              SCOPE                          DEFAULT
 personal  alice@gmail.com    gmail.readonly                 
 work      alice@work.com     gmail.readonly, gmail.modify   *
 
-$ omni-dev gmail account set-default work
+$ gwi gmail account set-default work
 Default Gmail account set to 'work'.
 ```
 
@@ -295,7 +296,7 @@ When a command runs, the account it uses is resolved in this order:
 1. A literal `GMAIL_CLIENT_ID`/`GMAIL_CLIENT_SECRET`/`GMAIL_REFRESH_TOKEN`
    set directly in the process environment bypasses account resolution
    entirely — today's exact single-account behaviour, unchanged.
-2. `--account NAME` / `OMNI_DEV_GMAIL_ACCOUNT`, if set, selects that named
+2. `--account NAME` / `GWI_GMAIL_ACCOUNT`, if set, selects that named
    account. An unknown name is a hard error listing the accounts that
    *are* configured — never a silent fallback to the wrong mailbox.
 3. No explicit account, with one or more named accounts configured: the
@@ -326,7 +327,7 @@ secret ([#2008](https://github.com/rust-works/omni-dev/issues/2008)):
 ```
 
 The file rules are the ones `GMAIL_REFRESH_TOKEN_FILE` uses
-([ADR-0089](adrs/adr-0089.md)). The path must be absolute. The file must be
+([omni-dev ADR-0089](https://github.com/rust-works/omni-dev/blob/main/docs/adrs/adr-0089.md)). The path must be absolute. The file must be
 a regular file, and either yours and owner-only (`chmod 600`) or owned by
 root and not writable by others. One trailing newline is ignored. Setting a
 field and its `_file` on the same account is an error that names both keys.
@@ -424,8 +425,8 @@ failure. See [ADR-0067](adrs/adr-0067.md) for the full design rationale.
 Every subcommand that renders a list or record (`search`, `read`, `thread`,
 `label list`, `draft list`, `draft show`, `sync`, `sync-all`, `extract-attachments`, `render`, `account
 list`) accepts `-o <format>` (`table` / `json` / `yaml` / `yamls` / `jsonl`,
-default `table`) — the same convention as every other `omni-dev` domain
-(see [ADR-0046](adrs/adr-0046.md)). `auth login`/`auth logout`/`auth
+default `table`) — the same convention omni-dev's command trees use
+(see [omni-dev ADR-0046](https://github.com/rust-works/omni-dev/blob/main/docs/adrs/adr-0046.md)). `auth login`/`auth logout`/`auth
 status`, `label add`/`label remove`, and `account set-default`/`account
 import-legacy` print a fixed human-readable status line instead and have no
 `-o` flag. `--out-file` exists only on `gmail read`, the one command with a
@@ -439,12 +440,12 @@ see [Messages](#messages) and [Render](#render).
 ## Search
 
 ```bash
-$ omni-dev gmail search --query 'label:finance after:2026/01/01' --limit 50
-$ omni-dev gmail search --query 'label:finance' --limit 50 --enrich --concurrency 4
+$ gwi gmail search --query 'label:finance after:2026/01/01' --limit 50
+$ gwi gmail search --query 'label:finance' --limit 50 --enrich --concurrency 4
 ```
 
 `--query` uses [Gmail's own search syntax] (the same operators as the Gmail
-search box: `from:`, `label:`, `after:`, `has:attachment`, etc.) — omni-dev
+search box: `from:`, `label:`, `after:`, `has:attachment`, etc.) — gwi
 does not reinterpret it. `--limit 0` fetches every match up to a 10,000
 hard cap, auto-paginating underneath.
 
@@ -466,17 +467,17 @@ quota math before raising it or combining `--enrich` with a large `--limit`.
 ## Messages
 
 ```bash
-$ omni-dev gmail read <message-id>
-$ omni-dev gmail read <message-id> --detail minimal
-$ omni-dev gmail read <message-id> --detail metadata
-$ omni-dev gmail read <message-id> --detail raw --out-file message.eml
-$ omni-dev gmail read <message-id> -o markdown
-$ omni-dev gmail read <message-id> -o markdown --out-file message.md
+$ gwi gmail read <message-id>
+$ gwi gmail read <message-id> --detail minimal
+$ gwi gmail read <message-id> --detail metadata
+$ gwi gmail read <message-id> --detail raw --out-file message.eml
+$ gwi gmail read <message-id> -o markdown
+$ gwi gmail read <message-id> -o markdown --out-file message.md
 ```
 
 `--detail` controls how much of the message is fetched — named `--detail`,
 not `--format`, since `-o/--output` already owns that word for this
-project's rendering axis (see [ADR-0046](adrs/adr-0046.md)); the values
+project's rendering axis (see [omni-dev ADR-0046](https://github.com/rust-works/omni-dev/blob/main/docs/adrs/adr-0046.md)); the values
 match Gmail's own wire values verbatim: `minimal` (only
 `id`/`threadId`/`labelIds`/`sizeEstimate` — no headers or body), `metadata`
 (headers + snippet only), `full` (default; parsed MIME structure), or `raw`
@@ -519,7 +520,7 @@ messages/attachments that would exceed the response size limit).
 ## Threads
 
 ```bash
-$ omni-dev gmail thread <thread-id>
+$ gwi gmail thread <thread-id>
 ```
 
 Fetches the whole conversation (`format=full` always — a thread's point is
@@ -534,15 +535,15 @@ risk on the whole Gmail surface.
 ## Labels
 
 ```bash
-$ omni-dev gmail label list
-$ omni-dev gmail label add <message-id...> --label IMPORTANT
-$ omni-dev gmail label remove <message-id...> --label UNREAD
+$ gwi gmail label list
+$ gwi gmail label add <message-id...> --label IMPORTANT
+$ gwi gmail label remove <message-id...> --label UNREAD
 ```
 
 `label add`/`remove` require the `gmail.modify` scope (`gmail auth login
 --modify`) — a `gmail.readonly`-only token gets a 403
 `insufficientPermissions` error. `label add` is unconditional; `label
-remove` prompts for confirmation by default (per [ADR-0027](adrs/adr-0027.md)),
+remove` prompts for confirmation by default (per [omni-dev ADR-0027](https://github.com/rust-works/omni-dev/blob/main/docs/adrs/adr-0027.md)),
 accepting `--force` to skip the prompt and `--dry-run` to preview without
 calling the API (`--dry-run` wins if both are set).
 
@@ -555,9 +556,9 @@ is CLI-only.
 ## Drafts
 
 ```bash
-$ omni-dev gmail draft list
-$ omni-dev gmail draft list --query 'to:alice subject:report' --limit 10
-$ omni-dev gmail --account work draft list -o yaml
+$ gwi gmail draft list
+$ gwi gmail draft list --query 'to:alice subject:report' --limit 10
+$ gwi gmail --account work draft list -o yaml
 ```
 
 `draft list` lists the mailbox's drafts. Each row shows the **draft id**,
@@ -589,9 +590,9 @@ headers, and running the command again shows it in full.
 ### Showing a draft
 
 ```bash
-$ omni-dev gmail draft show r-1234567890
-$ omni-dev gmail draft show r-1234567890 -o markdown
-$ omni-dev gmail draft show r-1234567890 --detail raw --out-file draft.eml
+$ gwi gmail draft show r-1234567890
+$ gwi gmail draft show r-1234567890 -o markdown
+$ gwi gmail draft show r-1234567890 --detail raw --out-file draft.eml
 ```
 
 `draft show` fetches one draft by its **draft id** (the `DRAFT_ID` column of
@@ -625,18 +626,18 @@ work for an account authorised without `--modify`.
 ### Creating drafts
 
 ```bash
-$ omni-dev gmail draft create --to alice@example.com --subject 'Quarterly report' \
+$ gwi gmail draft create --to alice@example.com --subject 'Quarterly report' \
     --body 'Figures attached.' --attach q3.pdf
-$ omni-dev gmail draft create --to 'Zoë Ångström <zoe@example.com>' --cc bob@example.com \
+$ gwi gmail draft create --to 'Zoë Ångström <zoe@example.com>' --cc bob@example.com \
     --subject 'Grüße' --body-file note.txt
-$ git log -1 --format=%B | omni-dev gmail draft create --to team@example.com --subject 'Release notes'
-$ omni-dev gmail draft create --to alice@example.com --subject 'Quarterly report' \
+$ git log -1 --format=%B | gwi gmail draft create --to team@example.com --subject 'Release notes'
+$ gwi gmail draft create --to alice@example.com --subject 'Quarterly report' \
     --html-body-file note.html --attach q3.pdf
-$ omni-dev gmail draft create --to alice@example.com --reply-to 18c2f0a1b2c3d4e5 --body 'Thanks!'
-$ omni-dev gmail draft create --reply-to 18c2f0a1b2c3d4e5 --reply-all --body 'Thanks, all!'
-$ omni-dev gmail draft create --from 'Sales Team <sales@example.com>' --to alice@example.com \
+$ gwi gmail draft create --to alice@example.com --reply-to 18c2f0a1b2c3d4e5 --body 'Thanks!'
+$ gwi gmail draft create --reply-to 18c2f0a1b2c3d4e5 --reply-all --body 'Thanks, all!'
+$ gwi gmail draft create --from 'Sales Team <sales@example.com>' --to alice@example.com \
     --subject 'Your order' --body 'It shipped today.'
-$ omni-dev gmail draft create --raw message.eml
+$ gwi gmail draft create --raw message.eml
 ```
 
 `draft create` stages a new draft and prints its `DRAFT_ID`, `MESSAGE_ID`
@@ -772,10 +773,10 @@ review and send.
 
 **Needs `gmail.modify`.** `drafts.create` isn't allowed with
 `gmail.readonly`. A read-only account gets an error telling it to re-run
-`omni-dev gmail auth login --modify` (see
+`gwi gmail auth login --modify` (see
 [`insufficientPermissions`](#insufficientpermissions)).
 
-**Drafts are never sent or deleted.** omni-dev can only stage a draft for a
+**Drafts are never sent or deleted.** gwi can only stage a draft for a
 person to review. It deliberately has no `draft send` and no `draft delete`:
 Gmail's `drafts.send` delivers mail that can't be recalled, and
 `drafts.delete` skips Trash, so a deleted draft can't be recovered. Send
@@ -785,13 +786,13 @@ endpoint is ever added to the drafts client (#1920).
 ### Updating drafts
 
 ```bash
-$ omni-dev gmail draft update r-1234567890 --subject 'Quarterly report (final)'
-$ omni-dev gmail draft update r-1234567890 --cc bob@example.com --cc carol@example.com
-$ omni-dev gmail draft update r-1234567890 --body-file revised.txt --remove-attachment q3-draft.pdf \
+$ gwi gmail draft update r-1234567890 --subject 'Quarterly report (final)'
+$ gwi gmail draft update r-1234567890 --cc bob@example.com --cc carol@example.com
+$ gwi gmail draft update r-1234567890 --body-file revised.txt --remove-attachment q3-draft.pdf \
     --attach q3.pdf
-$ omni-dev gmail draft update r-1234567890 --html-body-file revised.html
-$ omni-dev gmail draft update r-1234567890 --from sales@example.com
-$ omni-dev gmail draft update r-1234567890 --raw draft.eml --if-message-id 18c2f0a1b2c3d4e5
+$ gwi gmail draft update r-1234567890 --html-body-file revised.html
+$ gwi gmail draft update r-1234567890 --from sales@example.com
+$ gwi gmail draft update r-1234567890 --raw draft.eml --if-message-id 18c2f0a1b2c3d4e5
 ```
 
 `draft update` revises a staged draft and prints its `DRAFT_ID` (unchanged),
@@ -856,7 +857,7 @@ for `draft create`, so after an update `draft show` returns a new
 
 **Concurrent edits.** Drafts have no ETag or precondition, so an update
 always overwrites whatever is stored, including an edit made in the Gmail UI
-after omni-dev read the draft. The draft's message id changes on every save,
+after gwi read the draft. The draft's message id changes on every save,
 which gives a cheap check. `draft update` reads the draft again
 (`format=minimal`) just before the upload and refuses with `draft changed since it
 was read` if the message id moved. `--if-message-id ID` extends the check
@@ -892,12 +893,12 @@ own review. `send` and `delete` are not offered on either surface.
 ## Sync
 
 ```bash
-$ omni-dev gmail sync --output-dir ~/mail-archive
-$ omni-dev gmail sync --output-dir ~/mail-archive --query 'label:finance'
-$ omni-dev gmail sync --output-dir ~/mail-archive --full
-$ omni-dev gmail sync --output-dir ~/mail-archive --dry-run
-$ omni-dev gmail sync --output-dir ~/mail-archive --extract-attachments
-$ omni-dev gmail sync --output-dir ~/mail-archive --exclude-label SPAM --exclude-label TRASH
+$ gwi gmail sync --output-dir ~/mail-archive
+$ gwi gmail sync --output-dir ~/mail-archive --query 'label:finance'
+$ gwi gmail sync --output-dir ~/mail-archive --full
+$ gwi gmail sync --output-dir ~/mail-archive --dry-run
+$ gwi gmail sync --output-dir ~/mail-archive --extract-attachments
+$ gwi gmail sync --output-dir ~/mail-archive --exclude-label SPAM --exclude-label TRASH
 ```
 
 Maintains a durable, greppable local archive of a mailbox — full-fidelity
@@ -1135,25 +1136,25 @@ label mutation CLI-only above).
 ## Sync all accounts
 
 ```bash
-$ omni-dev gmail sync-all
-$ omni-dev gmail sync-all --concurrency 10
-$ omni-dev gmail sync-all --full --dry-run
-$ omni-dev gmail sync-all --retry-pending   # retry ids deferred by backoff now
-$ omni-dev gmail sync-all -o json
+$ gwi gmail sync-all
+$ gwi gmail sync-all --concurrency 10
+$ gwi gmail sync-all --full --dry-run
+$ gwi gmail sync-all --retry-pending   # retry ids deferred by backoff now
+$ gwi gmail sync-all -o json
 ```
 
-Runs [`sync`](#sync) for every account listed in `.omni-dev/gmail-sync.yaml`,
+Runs [`sync`](#sync) for every account listed in `.gwi/gmail-sync.yaml`,
 concurrently, replacing a wrapper script that loops `gmail sync --account
 ...` over each mailbox one at a time. Each account keeps its own archive
 and its own [rate limit](#rate-limits-and-retry-behaviour) budget — nothing
 about a single account's sync changes, only that several now run at once.
 See [ADR-0068](adrs/adr-0068.md) for the full design rationale.
 
-**Config file:** `.omni-dev/gmail-sync.yaml`, discovered the same way as
-every other `.omni-dev/` file (see
-[docs/omni-dev-directory.md](omni-dev-directory.md#gmail-syncyaml)) — walk-up
+**Config file:** `.gwi/gmail-sync.yaml`, discovered the same way as
+every other `.gwi/` file (the convention is inherited from omni-dev's
+`.omni-dev` directory) — walk-up
 from the current directory, a `local/` override, `--context-dir`/
-`OMNI_DEV_CONFIG_DIR`:
+`GWI_CONFIG_DIR`:
 
 ```yaml
 concurrency: 20
@@ -1171,14 +1172,13 @@ accounts:
 [Multiple accounts](#multiple-accounts) — `gmail-sync.yaml` says only
 *which* accounts to sync and *where*, never a second credential store.
 `output_dir` resolves relative to the project root (the parent of the
-discovered `.omni-dev/`) unless absolute. Unlike every other `.omni-dev/`
+discovered `.gwi/`) unless absolute. Unlike every other `.gwi/`
 config file, a missing, empty, or malformed `gmail-sync.yaml`, or one
 naming an account `gmail account list` doesn't know about, is a hard error
-before any network call is made — see
-[docs/omni-dev-directory.md's Validation behaviour](omni-dev-directory.md#gmail-syncyaml-1).
+before any network call is made.
 
 **`--account` is incompatible with `sync-all`:** the global `--account`/
-`OMNI_DEV_GMAIL_ACCOUNT` selector picks one mailbox; `sync-all` always
+`GWI_GMAIL_ACCOUNT` selector picks one mailbox; `sync-all` always
 targets the whole `gmail-sync.yaml` list, so passing both is a hard error
 rather than a silent no-op or an ignored flag.
 
@@ -1229,9 +1229,9 @@ once is an even poorer fit for a synchronous MCP tool call.
 ## Extract attachments
 
 ```bash
-$ omni-dev gmail extract-attachments --archive-dir ~/mail-archive
-$ omni-dev gmail extract-attachments --archive-dir ~/mail-archive --dry-run
-$ omni-dev gmail extract-attachments --archive-dir ~/mail-archive -o json
+$ gwi gmail extract-attachments --archive-dir ~/mail-archive
+$ gwi gmail extract-attachments --archive-dir ~/mail-archive --dry-run
+$ gwi gmail extract-attachments --archive-dir ~/mail-archive -o json
 ```
 
 Retroactively extracts attachments for messages [`sync`](#sync)/[`sync-all`](#sync-all-accounts)
@@ -1276,13 +1276,13 @@ it is for `sync` itself.
 ## Render
 
 ```bash
-$ omni-dev gmail render message.eml
-$ omni-dev gmail render messages/2026/01/*/*/*.eml
-$ omni-dev gmail render message.eml --out-dir rendered/
-$ omni-dev gmail render *.eml -o json
-$ omni-dev gmail render message.eml --fold-quotes
-$ omni-dev gmail render --archive-dir archive/ --all --out-dir rendered/
-$ omni-dev gmail render --archive-dir archive/ --since 2026-01-01 --until 2026-01-31 --out-dir rendered/
+$ gwi gmail render message.eml
+$ gwi gmail render messages/2026/01/*/*/*.eml
+$ gwi gmail render message.eml --out-dir rendered/
+$ gwi gmail render *.eml -o json
+$ gwi gmail render message.eml --fold-quotes
+$ gwi gmail render --archive-dir archive/ --all --out-dir rendered/
+$ gwi gmail render --archive-dir archive/ --since 2026-01-01 --until 2026-01-31 --out-dir rendered/
 ```
 
 Renders one or more `.eml` files as human-readable Markdown: a header
@@ -1314,7 +1314,7 @@ against a growing archive only renders what's new.
 
 By default (no `--out-dir`), each input's rendered Markdown is printed
 directly to stdout — with more than one input, successive renderings are
-separated by a `---` thematic break — so `omni-dev gmail render *.eml >
+separated by a `---` thematic break — so `gwi gmail render *.eml >
 combined.md` produces clean, redirectable Markdown as long as every input
 renders successfully. **`--out-dir DIR`** instead writes one `.md` file
 per input into `DIR` (named after the input's stem, e.g. `abc123.eml` ->
@@ -1344,11 +1344,11 @@ No MCP equivalent — same reasoning as
 ## Insert
 
 ```bash
-$ omni-dev gmail insert --archive-dir ~/mail-archive --all --label RESTORED --dry-run
-$ omni-dev gmail insert --archive-dir ~/mail-archive --all --label RESTORED
-$ omni-dev gmail insert --archive-dir ~/mail-archive --since 2020-01-01 --until 2020-12-31 --label RESTORED
-$ omni-dev gmail insert --archive-dir ~/mail-archive --all --label RESTORED --drop-label INBOX --drop-label UNREAD
-$ omni-dev gmail insert --archive-dir ~/mail-archive --all --label RESTORED --verify-remote
+$ gwi gmail insert --archive-dir ~/mail-archive --all --label RESTORED --dry-run
+$ gwi gmail insert --archive-dir ~/mail-archive --all --label RESTORED
+$ gwi gmail insert --archive-dir ~/mail-archive --since 2020-01-01 --until 2020-12-31 --label RESTORED
+$ gwi gmail insert --archive-dir ~/mail-archive --all --label RESTORED --drop-label INBOX --drop-label UNREAD
+$ gwi gmail insert --archive-dir ~/mail-archive --all --label RESTORED --verify-remote
 ```
 
 Restores archived `.eml` messages into a mailbox via `messages.insert`,
@@ -1465,7 +1465,7 @@ is enough to trash everything a run inserted into a given destination:
 
 ```bash
 $ jq -r 'select(.destination=="throwaway@example.com") | .inserted_id' \
-    ~/mail-archive/insert-ledger.jsonl | xargs omni-dev gmail label add --label TRASH
+    ~/mail-archive/insert-ledger.jsonl | xargs gwi gmail label add --label TRASH
 ```
 
 No MCP equivalent — a bulk, mutating, potentially long-running operation is
@@ -1519,12 +1519,12 @@ Any non-zero `--limit` is upper-bounded by the same cap.
 ### Credentials not configured
 
 ```
-Error: Gmail credentials not configured. Run `omni-dev gmail auth login`
+Error: Gmail credentials not configured. Run `gwi gmail auth login`
 ```
 
 Means `GMAIL_CLIENT_ID`, `GMAIL_CLIENT_SECRET`, or `GMAIL_REFRESH_TOKEN` is
 missing from both the environment and `settings.json`. Run
-`omni-dev gmail auth import` or just `omni-dev gmail auth login` — it
+`gwi gmail auth import` or just `gwi gmail auth login` — it
 prompts for the first two if they're still absent — to fix the first two;
 the third is written by `auth login` itself.
 
@@ -1532,12 +1532,12 @@ the third is written by `auth login` itself.
 
 ```
 Error: Failed to obtain a Gmail access token
-  Caused by: Google rejected the request (invalid_grant): this almost always means either (1) your Gmail OAuth client is in "Testing" publishing status, where refresh tokens expire after 7 days — publish it to "In production" in Google Cloud Console to avoid this, or (2) access was revoked. Run `omni-dev gmail auth login` again to re-authenticate.
+  Caused by: Google rejected the request (invalid_grant): this almost always means either (1) your Gmail OAuth client is in "Testing" publishing status, where refresh tokens expire after 7 days — publish it to "In production" in Google Cloud Console to avoid this, or (2) access was revoked. Run `gwi gmail auth login` again to re-authenticate.
 ```
 
 The most common cause by far is the 7-day testing-mode refresh-token
 expiry described in [Prerequisites](#prerequisites). Re-run
-`omni-dev gmail auth login`, or push your OAuth client to "In production"
+`gwi gmail auth login`, or push your OAuth client to "In production"
 in Google Cloud Console to stop it recurring.
 
 ### `access_denied`
@@ -1549,7 +1549,7 @@ Error: Google denied the authorization request: access_denied
 You (or another user) clicked "Cancel" on Google's consent screen, or your
 OAuth client's test-user allowlist doesn't include the account you tried to
 authorize (a Testing-mode consent screen only allows explicitly added test
-users). Re-run `omni-dev gmail auth login` and either approve the prompt or
+users). Re-run `gwi gmail auth login` and either approve the prompt or
 add the account under **OAuth consent screen → Test users** in Google Cloud
 Console.
 
@@ -1562,7 +1562,7 @@ Error: Failed to start the local OAuth callback listener
 The loopback listener binds an OS-assigned ephemeral port
 (`127.0.0.1:0`), so this should be rare. The one common cause is a stale
 process from a previously interrupted `gmail auth login` holding a socket
-resource open — retry, and if it persists, check for a leftover `omni-dev`
+resource open — retry, and if it persists, check for a leftover `gwi`
 process.
 
 ### Browser did not open
@@ -1581,14 +1581,14 @@ targeting](#browser-profile-targeting) above.
 ```
 Error: Google did not grant a Gmail scope (received: openid, email, profile).
   On the consent screen, tick the Gmail permission — restricted scopes are
-  not granted by default. Re-run `omni-dev gmail auth login`.
+  not granted by default. Re-run `gwi gmail auth login`.
 ```
 
 Cause: the consent screen's Gmail permission tick-box (see
 [Prerequisites](#prerequisites)) was left unticked, so Google granted only
 `openid`/`email`/`profile` — no Gmail scope at all. `auth login` rejects
 this immediately, naming the scopes Google actually granted, and writes
-nothing to `settings.json`. Fix: re-run `omni-dev gmail auth login` and
+nothing to `settings.json`. Fix: re-run `gwi gmail auth login` and
 tick the Gmail permission this time — `--modify` does not help here,
 since the problem isn't *which* Gmail scope was granted, it's that none
 was.
@@ -1602,12 +1602,12 @@ Error: Gmail API request failed: HTTP 403: Insufficient Permission (reason: insu
 `gmail.readonly` was granted, but `label add`/`remove`, `insert`,
 `draft create` or `draft update` fails — read commands (`search`, `read`, `thread`,
 `draft list`, `auth status`) all work fine; only mailbox writes 403. Fix is
-`omni-dev gmail auth login --modify` (re-consent with the write scope), not
+`gwi gmail auth login --modify` (re-consent with the write scope), not
 a retry. `draft create`, `draft update`, `label add`/`remove` and `insert` say so
 themselves:
 
 ```
-Error: This Gmail account is authorised read-only, and this command needs the `gmail.modify` scope. Re-run `omni-dev gmail auth login --modify` (adding `--account NAME` for a named account) to grant it.
+Error: This Gmail account is authorised read-only, and this command needs the `gmail.modify` scope. Re-run `gwi gmail auth login --modify` (adding `--account NAME` for a named account) to grant it.
   Caused by: Gmail API request failed: HTTP 403: …
 ```
 
@@ -1621,9 +1621,9 @@ flight when the 403 arrives still finish, so the ledger misses nothing.
 
 Same as every other domain: environment variables exported in your
 interactive shell are not inherited by an MCP client unless it launched
-the server from that same shell. Run `omni-dev gmail auth login` once —
+the server from that same shell. Run `gwi gmail auth login` once —
 this persists the refresh token (plus client id/secret) to
-`~/.omni-dev/settings.json`, read by every invocation regardless of how
+`~/.gwi/settings.json`, read by every invocation regardless of how
 the process started.
 
 ### `operation timed out` fetching a message during `sync`
@@ -1653,12 +1653,12 @@ make it succeed:
 
 - Lower `--concurrency` (even down to `1`) so each large download gets
   more of the available bandwidth to itself.
-- Raise the read timeout instead via `OMNI_DEV_HTTP_READ_TIMEOUT_SECS`
+- Raise the read timeout instead via `GWI_HTTP_READ_TIMEOUT_SECS`
   (whole seconds; a missing, non-numeric, or non-positive value falls back
   to the 120-second default) — shared by the Gmail, Atlassian, and Datadog
   REST clients, e.g.
-  `OMNI_DEV_HTTP_READ_TIMEOUT_SECS=300 omni-dev gmail sync ...`. The
-  connect timeout has its own override, `OMNI_DEV_HTTP_CONNECT_TIMEOUT_SECS`
+  `GWI_HTTP_READ_TIMEOUT_SECS=300 gwi gmail sync ...`. The
+  connect timeout has its own override, `GWI_HTTP_CONNECT_TIMEOUT_SECS`
   (default 10s), for the unrelated case of a slow-to-establish connection.
 
 ### `Vanished <id>` in a `sync` report
@@ -1685,10 +1685,8 @@ still surfaces as an ordinary error and is retried on the next run. See
   walkthrough for first-time setup.
 - [Drive Integration](drive.md) — the sibling Google integration; shares
   the same named-account/OAuth2 storage pattern.
-- [User Guide](user-guide.md#gmail-integration) — short reference; primary
-  content lives here.
-- [MCP Reference — Gmail](mcp.md#gmail-8-tools) — parameter-only listing of
-  all 8 `gmail_*` MCP tools.
+- [MCP server](../README.md#mcp-server) — the 8 `gmail_*` MCP tools and how to
+  register `gwi-mcp`.
 - [ADR-0063](adrs/adr-0063.md) — OAuth2 authorization-code + PKCE design,
   refresh-token-only persistence, and the bring-your-own Google Cloud
   project rationale.
