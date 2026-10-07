@@ -7,6 +7,11 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- CI coverage job using `action-works/patchcov-action`, which posts a coverage diff on pull
+  requests and publishes the baseline from `main`.
+
 ## [0.0.1]
 
 ### Added
