@@ -25,7 +25,7 @@
 //! Every tool below takes an optional `account` parameter (issue #1500,
 //! [ADR-0066](../../docs/adrs/adr-0066.md)): `Some(name)` forces that
 //! named Gmail account, `None` falls through to ambient
-//! `--account`/`OMNI_DEV_GMAIL_ACCOUNT` resolution (relevant if the MCP
+//! `--account`/`GWI_GMAIL_ACCOUNT` resolution (relevant if the MCP
 //! server process itself was launched with that env var pinned) — see
 //! [`crate::gmail::account::resolve_account`].
 
@@ -50,9 +50,9 @@ use crate::gmail::threads_api::{ThreadFormat, ThreadsApi};
 use crate::utils::settings::Settings;
 
 use super::error::tool_error;
-use super::git_tools::build_truncated_result;
 use super::output_file::write_to_file_yaml;
-use super::server::OmniDevServer;
+use super::server::GwiServer;
+use super::truncate::build_truncated_result;
 
 // ── Parameter structs ───────────────────────────────────────────────
 
@@ -61,7 +61,7 @@ use super::server::OmniDevServer;
 macro_rules! account_param_doc {
     () => {
         "Selects a named Gmail account instead of the ambient \
-         `--account`/`OMNI_DEV_GMAIL_ACCOUNT` resolution — e.g. `work`. Omit to use the \
+         `--account`/`GWI_GMAIL_ACCOUNT` resolution — e.g. `work`. Omit to use the \
          resolved default account (or the legacy single-account credentials, if no named \
          accounts are configured). Call `gmail_account_list` to discover configured names."
     };
@@ -190,7 +190,7 @@ pub struct GmailAccountListParams {}
 
 #[allow(missing_docs)] // #[tool_router] generates a pub `gmail_tool_router` fn.
 #[tool_router(router = gmail_tool_router, vis = "pub")]
-impl OmniDevServer {
+impl GwiServer {
     /// Reports whether Gmail OAuth2 credentials are configured.
     ///
     /// Presence flags only — never calls the Gmail API and never returns
@@ -200,11 +200,11 @@ impl OmniDevServer {
                        (GMAIL_CLIENT_ID/GMAIL_CLIENT_SECRET/refresh token present) and which \
                        scope was granted at login (readonly vs. modify). Returns presence flags \
                        and the granted scope only — NEVER the client secret, refresh token, or \
-                       access token. Unlike the CLI `omni-dev gmail auth status`, this tool does \
+                       access token. Unlike the CLI `gwi gmail auth status`, this tool does \
                        not call the Gmail API and cannot confirm the refresh token is still \
                        accepted (a testing-mode Google Cloud project's refresh tokens expire \
                        after 7 days — use the CLI status command to actually verify). \
-                       Read-only. Mirrors `omni-dev gmail auth status`."
+                       Read-only. Mirrors `gwi gmail auth status`."
     )]
     pub async fn gmail_auth_status(
         &self,
@@ -223,7 +223,7 @@ impl OmniDevServer {
                        request per hit, bounded by `concurrency` (default 4). `limit` defaults \
                        to 50 when omitted; pass `0` explicitly to auto-paginate up to a hard cap \
                        (10000) — expensive combined with `enrich: true`, use deliberately. \
-                       Read-only. Mirrors `omni-dev gmail search`. Output is YAML."
+                       Read-only. Mirrors `gwi gmail search`. Output is YAML."
     )]
     pub async fn gmail_search(
         &self,
@@ -243,7 +243,7 @@ impl OmniDevServer {
                        message to that path and returns a short YAML summary instead of the \
                        inline body — use it for large messages or ones with attachments that \
                        would exceed the response size limit. Read-only. \
-                       Mirrors `omni-dev gmail read`. Output is YAML."
+                       Mirrors `gwi gmail read`. Output is YAML."
     )]
     pub async fn gmail_message_read(
         &self,
@@ -268,7 +268,7 @@ impl OmniDevServer {
                        the single highest-risk payload on the whole Gmail surface for exceeding \
                        the response size limit, so large threads are automatically truncated \
                        with a marker. Read-only. \
-                       Mirrors `omni-dev gmail thread`. Output is YAML."
+                       Mirrors `gwi gmail thread`. Output is YAML."
     )]
     pub async fn gmail_thread_read(
         &self,
@@ -286,9 +286,9 @@ impl OmniDevServer {
         description = "List every label on the Gmail mailbox (system labels like INBOX/TRASH \
                        and user-created ones), with unread/total message counts. Adding or \
                        removing labels on messages is CLI-only in this release \
-                       (`omni-dev gmail label add`/`remove`) — no MCP tool mutates labels yet. \
+                       (`gwi gmail label add`/`remove`) — no MCP tool mutates labels yet. \
                        Read-only. \
-                       Mirrors `omni-dev gmail label list`. Output is YAML."
+                       Mirrors `gwi gmail label list`. Output is YAML."
     )]
     pub async fn gmail_label_list(
         &self,
@@ -301,13 +301,13 @@ impl OmniDevServer {
 
     /// Tool: list configured named Gmail accounts.
     #[tool(
-        description = "List Gmail accounts configured in ~/.omni-dev/settings.json — name, \
+        description = "List Gmail accounts configured in ~/.gwi/settings.json — name, \
                        cached email address (if known), granted scope, and which one is the \
                        default. Call this first to discover valid `account` values before \
                        passing one to `gmail_search`/`gmail_message_read`/`gmail_thread_read`/\
                        `gmail_label_list`/`gmail_draft_list`/`gmail_draft_show`/\
                        `gmail_auth_status`. Never returns a secret. \
-                       Read-only, no parameters. Mirrors `omni-dev gmail account list`."
+                       Read-only, no parameters. Mirrors `gwi gmail account list`."
     )]
     pub async fn gmail_account_list(
         &self,
@@ -327,7 +327,7 @@ impl OmniDevServer {
                        search syntax (e.g. `to:alice subject:report`); omit it to list every \
                        draft. `limit` defaults to 50; pass `0` for every draft up to a hard cap \
                        (10000). Each row costs one extra `messages.get` request. Read-only \
-                       (`gmail.readonly` is enough). Mirrors `omni-dev gmail draft list`. \
+                       (`gmail.readonly` is enough). Mirrors `gwi gmail draft list`. \
                        Output is YAML."
     )]
     pub async fn gmail_draft_list(
@@ -349,7 +349,7 @@ impl OmniDevServer {
                        or `raw`, the same values as `gmail_message_read`. When `output_file` is \
                        set, writes the YAML to that path and returns a short summary instead \
                        (always YAML, even for `raw` — not a decoded `.eml`). Read-only \
-                       (`gmail.readonly` is enough). Mirrors `omni-dev gmail draft show`. \
+                       (`gmail.readonly` is enough). Mirrors `gwi gmail draft show`. \
                        Output is YAML."
     )]
     pub async fn gmail_draft_show(
@@ -379,7 +379,7 @@ impl OmniDevServer {
 ///
 /// Pure: never touches the network and never reads any secret values.
 /// `account`, when `Some`, forces that named account (issue #1500) instead
-/// of falling through to ambient `--account`/`OMNI_DEV_GMAIL_ACCOUNT`
+/// of falling through to ambient `--account`/`GWI_GMAIL_ACCOUNT`
 /// resolution.
 fn run_auth_status(account: Option<&str>) -> Result<String> {
     let status = auth::status_for(account)?;
@@ -608,7 +608,7 @@ mod tests {
     fn run_auth_status_never_emits_secret_values() {
         let guard = EnvGuard::take();
         let dir = guard.clear_credentials();
-        let omni_dir = dir.path().join(".omni-dev");
+        let omni_dir = dir.path().join(".gwi");
         std::fs::create_dir_all(&omni_dir).unwrap();
         std::fs::write(
             omni_dir.join("settings.json"),
@@ -1115,7 +1115,7 @@ mod tests {
     async fn gmail_auth_status_handler_returns_yaml_no_secrets() {
         let guard = EnvGuard::take();
         let dir = guard.clear_credentials();
-        let omni_dir = dir.path().join(".omni-dev");
+        let omni_dir = dir.path().join(".gwi");
         std::fs::create_dir_all(&omni_dir).unwrap();
         std::fs::write(
             omni_dir.join("settings.json"),
@@ -1130,7 +1130,7 @@ mod tests {
         std::env::remove_var(auth::GMAIL_CLIENT_SECRET);
         std::env::remove_var(auth::GMAIL_REFRESH_TOKEN);
 
-        let server = OmniDevServer::new();
+        let server = GwiServer::new();
         let result = server
             .gmail_auth_status(Parameters(GmailAuthStatusParams::default()))
             .await
@@ -1146,7 +1146,7 @@ mod tests {
         let guard = EnvGuard::take();
         let _dir = guard.clear_credentials();
 
-        let server = OmniDevServer::new();
+        let server = GwiServer::new();
         let err = server
             .gmail_search(Parameters(GmailSearchParams {
                 query: "*".to_string(),
@@ -1169,7 +1169,7 @@ mod tests {
         let guard = EnvGuard::take();
         let _dir = guard.clear_credentials();
 
-        let server = OmniDevServer::new();
+        let server = GwiServer::new();
         let err = server
             .gmail_message_read(Parameters(GmailMessageReadParams {
                 message_id: "m1".to_string(),
@@ -1190,7 +1190,7 @@ mod tests {
         // (issue #1500).
         let guard = EnvGuard::take();
         let dir = guard.clear_credentials();
-        let settings_path = dir.path().join(".omni-dev").join("settings.json");
+        let settings_path = dir.path().join(".gwi").join("settings.json");
         Settings::upsert_gmail_account(
             &settings_path,
             "work",
@@ -1198,7 +1198,7 @@ mod tests {
         )
         .unwrap();
 
-        let server = OmniDevServer::new();
+        let server = GwiServer::new();
         let err = server
             .gmail_search(Parameters(GmailSearchParams {
                 query: "*".to_string(),
@@ -1217,7 +1217,7 @@ mod tests {
         let guard = EnvGuard::take();
         let _dir = guard.clear_credentials();
 
-        let server = OmniDevServer::new();
+        let server = GwiServer::new();
         let err = server
             .gmail_draft_list(Parameters(GmailDraftListParams::default()))
             .await
@@ -1230,7 +1230,7 @@ mod tests {
         let guard = EnvGuard::take();
         let _dir = guard.clear_credentials();
 
-        let server = OmniDevServer::new();
+        let server = GwiServer::new();
         let err = server
             .gmail_draft_show(Parameters(draft_show_params("r1", None, None)))
             .await
@@ -1242,7 +1242,7 @@ mod tests {
     async fn gmail_draft_handlers_honor_named_account_param() {
         let guard = EnvGuard::take();
         let dir = guard.clear_credentials();
-        let settings_path = dir.path().join(".omni-dev").join("settings.json");
+        let settings_path = dir.path().join(".gwi").join("settings.json");
         Settings::upsert_gmail_account(
             &settings_path,
             "work",
@@ -1250,7 +1250,7 @@ mod tests {
         )
         .unwrap();
 
-        let server = OmniDevServer::new();
+        let server = GwiServer::new();
         let err = server
             .gmail_draft_list(Parameters(GmailDraftListParams {
                 account: Some("bogus".to_string()),
@@ -1284,7 +1284,7 @@ mod tests {
     fn run_account_list_renders_configured_accounts() {
         let guard = EnvGuard::take();
         let dir = guard.clear_credentials();
-        let settings_path = dir.path().join(".omni-dev").join("settings.json");
+        let settings_path = dir.path().join(".gwi").join("settings.json");
         Settings::upsert_gmail_account(
             &settings_path,
             "work",
@@ -1319,7 +1319,7 @@ mod tests {
     async fn gmail_account_list_handler_returns_yaml_no_client_needed() {
         let guard = EnvGuard::take();
         let dir = guard.clear_credentials();
-        let settings_path = dir.path().join(".omni-dev").join("settings.json");
+        let settings_path = dir.path().join(".gwi").join("settings.json");
         Settings::upsert_gmail_account(
             &settings_path,
             "work",
@@ -1327,7 +1327,7 @@ mod tests {
         )
         .unwrap();
 
-        let server = OmniDevServer::new();
+        let server = GwiServer::new();
         // Succeeds with no legacy credentials configured at all — proving
         // this tool never resolves a client.
         let result = server

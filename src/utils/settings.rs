@@ -105,6 +105,26 @@ pub struct Profile {
     pub env: HashMap<String, String>,
 }
 
+/// The `mcp` section of `settings.json`: defaults for the `gwi-mcp` server.
+///
+/// Every field is optional; an unset field falls back to the built-in default, so an
+/// absent `mcp` block leaves the server's behaviour unchanged. Forked from omni-dev's
+/// `McpSettings` (rust-works/omni-dev#2203) without its `default_model`, which only
+/// the AI tools used.
+#[derive(Debug, Default, Deserialize)]
+pub struct McpSettings {
+    /// Default tracing directive for the server (e.g. `"info"`, `"gwi::mcp=debug"`).
+    /// `RUST_LOG` overrides this when set; the built-in fallback is `"warn"`.
+    #[serde(default)]
+    pub log_level: Option<String>,
+
+    /// Default cap, in bytes, on an MCP tool response before it is truncated. Falls
+    /// back to the server's built-in `DEFAULT_MAX_RESPONSE_BYTES` (100 KB). A value of
+    /// `0` disables truncation.
+    #[serde(default)]
+    pub max_response_bytes: Option<usize>,
+}
+
 /// A single named Gmail account's stored OAuth2 credentials, inside the
 /// `gmail.accounts` map (issue #1500, [ADR-0066](../../docs/adrs/adr-0066.md)).
 ///
@@ -201,6 +221,10 @@ pub struct Settings {
     /// [`GmailSettings::default`], which is an empty account map.
     #[serde(default)]
     pub gmail: GmailSettings,
+
+    /// MCP server defaults; an absent block yields [`McpSettings::default`].
+    #[serde(default)]
+    pub mcp: McpSettings,
 }
 
 /// Returns the active profile name from `raw` (the process environment), or
@@ -425,6 +449,14 @@ impl Settings {
                 Self::default()
             }
         }
+    }
+
+    /// Loads just the [`mcp`](McpSettings) section, warning and falling back to its
+    /// defaults when the settings file is absent or unreadable, so the MCP server
+    /// always boots even with a malformed `settings.json`. Same warn-then-default
+    /// contract as [`Self::load_or_warn_default`].
+    pub fn load_mcp() -> McpSettings {
+        Self::load_or_warn_default().mcp
     }
 
     /// Records a bootstrap settings failure after tracing has been installed.
@@ -2289,5 +2321,33 @@ mod tests {
         assert_eq!(fs::read_to_string(&token_file).unwrap(), "gmail-token\n");
         let settings = Settings::load_from_path(&path).unwrap();
         assert!(settings.gmail.accounts["work"].refresh_token.is_none());
+    }
+
+    #[test]
+    fn an_absent_mcp_block_yields_the_defaults() {
+        let settings: Settings = serde_json::from_str("{}").unwrap();
+
+        assert_eq!(settings.mcp.log_level, None);
+        assert_eq!(settings.mcp.max_response_bytes, None);
+    }
+
+    #[test]
+    fn the_mcp_block_reads_its_two_defaults_and_ignores_the_rest() {
+        let settings: Settings = serde_json::from_str(
+            r#"{"mcp": {"log_level": "info", "max_response_bytes": 4096, "default_model": "x"}}"#,
+        )
+        .unwrap();
+
+        assert_eq!(settings.mcp.log_level.as_deref(), Some("info"));
+        assert_eq!(settings.mcp.max_response_bytes, Some(4096));
+    }
+
+    #[test]
+    fn a_partial_mcp_block_leaves_the_other_default_unset() {
+        let settings: Settings =
+            serde_json::from_str(r#"{"mcp": {"max_response_bytes": 0}}"#).unwrap();
+
+        assert_eq!(settings.mcp.log_level, None);
+        assert_eq!(settings.mcp.max_response_bytes, Some(0));
     }
 }
