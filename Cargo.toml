@@ -30,9 +30,31 @@ name = "cli_test"
 path = "tests/cli_test.rs"
 
 [[test]]
+name = "drive_lease_exit_code_test"
+path = "tests/drive_lease_exit_code_test.rs"
+
+[[test]]
 name = "mcp_test"
 path = "tests/mcp_test.rs"
 required-features = ["mcp"]
+
+# LocalAuthentication for the Drive write lease's Touch ID/device-owner prompt
+# (`drive lease acquire`, omni-dev ADR-0080 §7). `LAContext` is an Objective-C
+# class with a block-based completion handler, so this uses the upstream-generated
+# bindings. The only `unsafe` in the crate lives in `drive::lease::authenticate::macos`.
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = { version = "0.6", default-features = false, features = ["std"] }
+block2 = { version = "0.6", default-features = false, features = ["std"] }
+objc2-foundation = { version = "0.3.2", default-features = false, features = [
+  "std",
+  "NSString",
+  "NSError",
+] }
+objc2-local-authentication = { version = "0.3.2", default-features = false, features = [
+  "std",
+  "LAContext",
+  "block2",
+] }
 
 [features]
 # The `gwi-mcp` server and the MCP tools (rmcp); also gates code shared with them.
@@ -42,6 +64,11 @@ mcp = ["dep:rmcp"]
 anyhow = "1.0"
 base64 = "0.23"
 chrono = { version = "0.4", features = ["serde"] }
+# The embedded IANA zone database, so `sheets update-workbook-properties
+# --time-zone` can refuse an unknown zone locally: the Sheets API accepts one
+# with a 200 and silently resets the workbook to `Etc/GMT` (omni-dev issue #1938).
+# Compile-time data, no system-zoneinfo I/O.
+chrono-tz = "0.10"
 clap = { version = "4.6", features = ["derive", "color"] }
 crossterm = "0.29"
 csv = "1.3"
@@ -55,6 +82,7 @@ mail-parser = "0.11"
 mime_guess = "2"
 percent-encoding = "2.3"
 rand = "0.10"
+regex = "1.12.3"
 reqwest = { version = "0.13", features = ["form", "json", "multipart", "stream"] }
 rmcp = { version = "3.1", features = ["server", "transport-io", "macros"], optional = true }
 same-file = "1.0"
@@ -79,7 +107,7 @@ nix = { version = "0.31", default-features = false, features = ["fs", "hostname"
 rmcp = { version = "3.1", features = ["client", "server", "transport-io", "macros"] }
 insta = { version = "1.47", features = ["filters"] }
 indicatif = { version = "0.18", features = ["in_memory"] }
-regex = "1.12.3"
+proptest = "1"
 tokio = { version = "1.52", features = ["full", "test-util"] }
 wiremock = "0.6"
 

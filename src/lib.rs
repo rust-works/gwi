@@ -12,6 +12,7 @@
 #![deny(rustdoc::broken_intra_doc_links)]
 
 pub mod cli;
+pub mod drive;
 pub mod gmail;
 #[cfg(feature = "mcp")]
 pub mod mcp;

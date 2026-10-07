@@ -66,10 +66,6 @@ impl AuditLogGuard {
 
     /// The `verdict` of every record written so far, in order — the
     /// assertion almost every audit-trail test makes.
-    #[expect(
-        dead_code,
-        reason = "used by the Drive tests, wired in with the Drive slice"
-    )]
     pub(crate) fn verdicts(&self) -> Vec<String> {
         self.records()
             .iter()
