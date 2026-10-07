@@ -13,4 +13,4 @@ now is to comment on the design in
    [.omni-dev/commit-guidelines.md](.omni-dev/commit-guidelines.md) and
    [docs/STYLE_GUIDE.md](docs/STYLE_GUIDE.md).
 4. Add a bullet under `[Unreleased]` in [CHANGELOG.md](CHANGELOG.md).
-5. Open a pull request. It merges by rebase through a merge queue.
+5. Open a pull request. It merges with a merge commit through a merge queue.
