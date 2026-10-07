@@ -1241,7 +1241,7 @@ fn is_message_not_found(err: &anyhow::Error) -> bool {
 }
 
 /// Refuses an obviously-wrong `--output-dir`: `$HOME` itself, or anywhere
-/// inside omni-dev's own settings directory.
+/// inside gwi's own settings directory.
 ///
 /// `output_dir` may not exist yet (sync creates it), so ancestors are
 /// canonicalised walking up to the deepest existing one first — the same
@@ -1264,7 +1264,7 @@ fn guard_output_dir(output_dir: &Path) -> Result<()> {
     let omni_dev_dir = canonicalize_best_effort(&home.join(".gwi"));
     if canon_output == omni_dev_dir || canon_output.starts_with(&omni_dev_dir) {
         anyhow::bail!(
-            "refusing to sync into {}: it is inside omni-dev's own settings directory",
+            "refusing to sync into {}: it is inside gwi's own settings directory",
             output_dir.display()
         );
     }

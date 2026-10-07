@@ -1,4 +1,4 @@
-//! CLI command for `omni-dev gmail sync`.
+//! CLI command for `gwi gmail sync`.
 //!
 //! Maintains a durable, incrementally-updated local archive of a mailbox as
 //! `.eml` files + a JSONL manifest (#1467, Phase 2 of the Gmail

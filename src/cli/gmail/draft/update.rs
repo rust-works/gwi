@@ -1,4 +1,4 @@
-//! CLI command for `omni-dev gmail draft update` (#1924).
+//! CLI command for `gwi gmail draft update` (#1924).
 
 use std::io::Write;
 use std::path::PathBuf;
@@ -329,7 +329,7 @@ fn ensure_unchanged(expected: &str, current: &str) -> Result<()> {
     if expected != current {
         bail!(
             "draft changed since it was read (message {expected} is now {current}); nothing was \
-             updated. Run `omni-dev gmail draft show` to see the current version, then retry"
+             updated. Run `gwi gmail draft show` to see the current version, then retry"
         );
     }
     Ok(())

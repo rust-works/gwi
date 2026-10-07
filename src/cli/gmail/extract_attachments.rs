@@ -1,4 +1,4 @@
-//! CLI command for `omni-dev gmail extract-attachments`.
+//! CLI command for `gwi gmail extract-attachments`.
 //!
 //! Retroactively extracts attachments for messages already archived by
 //! `gmail sync`/`sync-all`, without any network call — closes the gap

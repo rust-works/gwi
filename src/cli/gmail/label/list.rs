@@ -1,4 +1,4 @@
-//! CLI command for `omni-dev gmail label list`.
+//! CLI command for `gwi gmail label list`.
 
 use std::io::Write;
 

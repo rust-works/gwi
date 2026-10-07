@@ -73,7 +73,7 @@ impl ImportCommand {
             "Client id/secret saved to ~/.gwi/settings.json{}",
             profile_suffix(active_profile_from(&SystemEnv).as_deref())
         );
-        println!("\nRun `omni-dev gmail auth login` to authorize.");
+        println!("\nRun `gwi gmail auth login` to authorize.");
         Ok(())
     }
 }
@@ -129,7 +129,7 @@ async fn run_login(env: &(impl EnvSource + Sync), modify: bool) -> Result<()> {
 
     println!("\nCredentials saved to ~/.gwi/settings.json");
     println!("  Granted scope: {}", status.scope.unwrap_or_default());
-    println!("\nRun `omni-dev gmail auth status` to verify.");
+    println!("\nRun `gwi gmail auth status` to verify.");
     Ok(())
 }
 
@@ -157,7 +157,7 @@ fn resolve_login_credentials(
 /// login regardless, same rationale as `GmailCredentials::client_id`).
 fn prompt_client_id() -> Result<String> {
     print!(
-        "GMAIL_CLIENT_ID is not set. Run `omni-dev gmail auth import` first, or paste it here \
+        "GMAIL_CLIENT_ID is not set. Run `gwi gmail auth import` first, or paste it here \
          (see docs/gmail.md).\nClient id: "
     );
     io::stdout().flush().context("Failed to flush stdout")?;

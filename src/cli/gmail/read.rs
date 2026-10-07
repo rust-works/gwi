@@ -1,4 +1,4 @@
-//! CLI command for `omni-dev gmail read`.
+//! CLI command for `gwi gmail read`.
 
 use std::fs;
 use std::io::Write;

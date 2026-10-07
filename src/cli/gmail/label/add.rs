@@ -1,4 +1,4 @@
-//! CLI command for `omni-dev gmail label add`.
+//! CLI command for `gwi gmail label add`.
 
 use anyhow::Result;
 use clap::Parser;

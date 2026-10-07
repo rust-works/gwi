@@ -1,4 +1,4 @@
-//! CLI command for `omni-dev gmail account import-legacy`.
+//! CLI command for `gwi gmail account import-legacy`.
 
 use anyhow::Result;
 use clap::Parser;

@@ -19,5 +19,7 @@ pub mod utils;
 #[cfg(test)]
 pub(crate) mod test_support;
 
+pub use crate::cli::Cli;
+
 /// The current version of gwi.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");

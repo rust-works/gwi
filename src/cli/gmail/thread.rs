@@ -1,4 +1,4 @@
-//! CLI command for `omni-dev gmail thread`.
+//! CLI command for `gwi gmail thread`.
 
 use anyhow::Result;
 use clap::Parser;

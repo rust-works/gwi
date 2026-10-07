@@ -1,0 +1,1077 @@
+---
+source: tests/cli_test.rs
+expression: help
+---
+===== gwi =====
+Google Workspace Interface: Gmail from the command line.
+
+Usage: gwi [OPTIONS] <COMMAND>
+
+Commands:
+  gmail  Gmail: search, read, and label messages via OAuth2
+  help   Print this message or the help of the given subcommand(s)
+
+Options:
+      --profile <NAME>
+          Selects a named credential/config profile from `~/.gwi/settings.json` (AWS-CLI style).
+          
+          When set, the profile's `env` bundle replaces the base `env` map in the settings-fallback chain (process env still wins); the base map is not consulted. Overrides `GWI_PROFILE`. An unknown name is a hard error listing the known profiles.
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+  -V, --version
+          Print version
+
+===== gwi gmail =====
+Gmail: search, read, and label messages via OAuth2
+
+Usage: gwi gmail [OPTIONS] <COMMAND>
+
+Commands:
+  auth                 Manages Gmail OAuth2 credentials (mirrors the `gmail_auth_status` MCP tool for `status`)
+  account              Manages named Gmail accounts (mirrors the `gmail_account_list` MCP tool for `list`)
+  search               Searches Gmail messages (mirrors the `gmail_search` MCP tool)
+  read                 Reads a single Gmail message (mirrors the `gmail_message_read` MCP tool)
+  thread               Reads a Gmail thread (mirrors the `gmail_thread_read` MCP tool)
+  label                Manages Gmail labels (mirrors the `gmail_label_list` MCP tool; `add`/`remove` are CLI-only in Phase 1)
+  draft                Manages Gmail drafts; never sends or deletes one (mirrors the `gmail_draft_list`/`gmail_draft_show` MCP tools for `list`/`show`; `create`/`update` are CLI-only; #1920)
+  sync                 Maintains a durable local archive of a mailbox (CLI-only; no MCP equivalent)
+  sync-all             Maintains durable local archives for every account in `.gwi/gmail-sync.yaml`, concurrently (CLI-only; no MCP equivalent; ADR-0068)
+  extract-attachments  Retroactively extracts attachments for already-archived messages, without re-fetching from Gmail (CLI-only; no MCP equivalent; purely local, no client/credentials needed; #1510)
+  render               Renders one or more archived `.eml` files as human-readable Markdown (CLI-only; no MCP equivalent; purely local, no client/credentials needed; #1513)
+  insert               Restores archived `.eml` messages into a mailbox (needs `gmail.modify`; CLI-only; no MCP equivalent; #1655)
+  help                 Print this message or the help of the given subcommand(s)
+
+Options:
+      --account <NAME>
+          Selects a named Gmail account configured in `~/.gwi/settings.json` (AWS-CLI style, mirrors the top-level `--profile`) for this invocation.
+          
+          Orthogonal to `--profile`: switching the Gmail account never changes which profile is active, and vice versa (see [ADR-0066](../../../docs/adrs/adr-0066.md)). Overrides `GWI_GMAIL_ACCOUNT`. Scoped to the `gmail` subtree — unlike `--profile` it is not usable before the `gmail` subcommand name, only after it (`gmail --account NAME <cmd>` or `gmail <cmd> --account NAME`), so it can't collide with another product's own `--account` flag (Drive has the same one) as more command trees are added.
+
+      --profile <NAME>
+          Selects a named credential/config profile from `~/.gwi/settings.json` (AWS-CLI style).
+          
+          When set, the profile's `env` bundle replaces the base `env` map in the settings-fallback chain (process env still wins); the base map is not consulted. Overrides `GWI_PROFILE`. An unknown name is a hard error listing the known profiles.
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+===== gwi gmail auth =====
+Manages Gmail OAuth2 credentials (mirrors the `gmail_auth_status` MCP tool for `status`)
+
+Usage: gwi gmail auth [OPTIONS] <COMMAND>
+
+Commands:
+  import  Imports an OAuth2 client id/secret from a downloaded `client_secret.json`
+  login   Runs the Gmail OAuth2 login flow (opens a browser). Interactive-only — login has no MCP equivalent
+  logout  Removes the stored Gmail refresh token from settings.json
+  status  Shows the current authentication status (mirrors the `gmail_auth_status` MCP tool)
+  help    Print this message or the help of the given subcommand(s)
+
+Options:
+      --account <NAME>
+          Selects a named Gmail account configured in `~/.gwi/settings.json` (AWS-CLI style, mirrors the top-level `--profile`) for this invocation.
+          
+          Orthogonal to `--profile`: switching the Gmail account never changes which profile is active, and vice versa (see [ADR-0066](../../../docs/adrs/adr-0066.md)). Overrides `GWI_GMAIL_ACCOUNT`. Scoped to the `gmail` subtree — unlike `--profile` it is not usable before the `gmail` subcommand name, only after it (`gmail --account NAME <cmd>` or `gmail <cmd> --account NAME`), so it can't collide with another product's own `--account` flag (Drive has the same one) as more command trees are added.
+
+      --profile <NAME>
+          Selects a named credential/config profile from `~/.gwi/settings.json` (AWS-CLI style).
+          
+          When set, the profile's `env` bundle replaces the base `env` map in the settings-fallback chain (process env still wins); the base map is not consulted. Overrides `GWI_PROFILE`. An unknown name is a hard error listing the known profiles.
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+===== gwi gmail auth import =====
+Imports an OAuth2 client id/secret from a downloaded `client_secret.json`
+
+Usage: gwi gmail auth import [OPTIONS] [PATH]
+
+Arguments:
+  [PATH]
+          Explicit path to client_secret.json. Omit to auto-discover via $GMAIL_CLIENT_SECRET_FILE, ~/.config/gws/client_secret.json, or ~/Downloads/client_secret_*.apps.googleusercontent.com.json
+
+Options:
+      --account <NAME>
+          Selects a named Gmail account configured in `~/.gwi/settings.json` (AWS-CLI style, mirrors the top-level `--profile`) for this invocation.
+          
+          Orthogonal to `--profile`: switching the Gmail account never changes which profile is active, and vice versa (see [ADR-0066](../../../docs/adrs/adr-0066.md)). Overrides `GWI_GMAIL_ACCOUNT`. Scoped to the `gmail` subtree — unlike `--profile` it is not usable before the `gmail` subcommand name, only after it (`gmail --account NAME <cmd>` or `gmail <cmd> --account NAME`), so it can't collide with another product's own `--account` flag (Drive has the same one) as more command trees are added.
+
+      --profile <NAME>
+          Selects a named credential/config profile from `~/.gwi/settings.json` (AWS-CLI style).
+          
+          When set, the profile's `env` bundle replaces the base `env` map in the settings-fallback chain (process env still wins); the base map is not consulted. Overrides `GWI_PROFILE`. An unknown name is a hard error listing the known profiles.
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+===== gwi gmail auth login =====
+Runs the Gmail OAuth2 login flow (opens a browser). Interactive-only — login has no MCP equivalent
+
+Usage: gwi gmail auth login [OPTIONS]
+
+Options:
+      --account <NAME>
+          Selects a named Gmail account configured in `~/.gwi/settings.json` (AWS-CLI style, mirrors the top-level `--profile`) for this invocation.
+          
+          Orthogonal to `--profile`: switching the Gmail account never changes which profile is active, and vice versa (see [ADR-0066](../../../docs/adrs/adr-0066.md)). Overrides `GWI_GMAIL_ACCOUNT`. Scoped to the `gmail` subtree — unlike `--profile` it is not usable before the `gmail` subcommand name, only after it (`gmail --account NAME <cmd>` or `gmail <cmd> --account NAME`), so it can't collide with another product's own `--account` flag (Drive has the same one) as more command trees are added.
+
+      --modify
+          Request the `gmail.modify` scope in addition to `gmail.readonly`. It is needed by every command that changes the mailbox: `label add`/`remove`, `draft create`/`update` and `insert`. Without this flag, only read access is granted
+
+      --profile <NAME>
+          Selects a named credential/config profile from `~/.gwi/settings.json` (AWS-CLI style).
+          
+          When set, the profile's `env` bundle replaces the base `env` map in the settings-fallback chain (process env still wins); the base map is not consulted. Overrides `GWI_PROFILE`. An unknown name is a hard error listing the known profiles.
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+===== gwi gmail auth logout =====
+Removes the stored Gmail refresh token from settings.json
+
+Usage: gwi gmail auth logout [OPTIONS]
+
+Options:
+      --account <NAME>
+          Selects a named Gmail account configured in `~/.gwi/settings.json` (AWS-CLI style, mirrors the top-level `--profile`) for this invocation.
+          
+          Orthogonal to `--profile`: switching the Gmail account never changes which profile is active, and vice versa (see [ADR-0066](../../../docs/adrs/adr-0066.md)). Overrides `GWI_GMAIL_ACCOUNT`. Scoped to the `gmail` subtree — unlike `--profile` it is not usable before the `gmail` subcommand name, only after it (`gmail --account NAME <cmd>` or `gmail <cmd> --account NAME`), so it can't collide with another product's own `--account` flag (Drive has the same one) as more command trees are added.
+
+      --profile <NAME>
+          Selects a named credential/config profile from `~/.gwi/settings.json` (AWS-CLI style).
+          
+          When set, the profile's `env` bundle replaces the base `env` map in the settings-fallback chain (process env still wins); the base map is not consulted. Overrides `GWI_PROFILE`. An unknown name is a hard error listing the known profiles.
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+===== gwi gmail auth status =====
+Shows the current authentication status (mirrors the `gmail_auth_status` MCP tool)
+
+Usage: gwi gmail auth status [OPTIONS]
+
+Options:
+      --account <NAME>
+          Selects a named Gmail account configured in `~/.gwi/settings.json` (AWS-CLI style, mirrors the top-level `--profile`) for this invocation.
+          
+          Orthogonal to `--profile`: switching the Gmail account never changes which profile is active, and vice versa (see [ADR-0066](../../../docs/adrs/adr-0066.md)). Overrides `GWI_GMAIL_ACCOUNT`. Scoped to the `gmail` subtree — unlike `--profile` it is not usable before the `gmail` subcommand name, only after it (`gmail --account NAME <cmd>` or `gmail <cmd> --account NAME`), so it can't collide with another product's own `--account` flag (Drive has the same one) as more command trees are added.
+
+      --all
+          Reports status for every configured Gmail account instead of just the resolved one. Degenerates to today's single-account output when no named accounts are configured (issue #1500)
+
+      --profile <NAME>
+          Selects a named credential/config profile from `~/.gwi/settings.json` (AWS-CLI style).
+          
+          When set, the profile's `env` bundle replaces the base `env` map in the settings-fallback chain (process env still wins); the base map is not consulted. Overrides `GWI_PROFILE`. An unknown name is a hard error listing the known profiles.
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+===== gwi gmail account =====
+Manages named Gmail accounts (mirrors the `gmail_account_list` MCP tool for `list`)
+
+Usage: gwi gmail account [OPTIONS] <COMMAND>
+
+Commands:
+  list           Lists configured Gmail accounts (name/email/scope/default only — no secrets, no network)
+  set-default    Sets the account resolved when `--account`/`GWI_GMAIL_ACCOUNT` is not given
+  import-legacy  Migrates today's legacy (profile/base `env`) Gmail credentials into a named account
+  help           Print this message or the help of the given subcommand(s)
+
+Options:
+      --account <NAME>
+          Selects a named Gmail account configured in `~/.gwi/settings.json` (AWS-CLI style, mirrors the top-level `--profile`) for this invocation.
+          
+          Orthogonal to `--profile`: switching the Gmail account never changes which profile is active, and vice versa (see [ADR-0066](../../../docs/adrs/adr-0066.md)). Overrides `GWI_GMAIL_ACCOUNT`. Scoped to the `gmail` subtree — unlike `--profile` it is not usable before the `gmail` subcommand name, only after it (`gmail --account NAME <cmd>` or `gmail <cmd> --account NAME`), so it can't collide with another product's own `--account` flag (Drive has the same one) as more command trees are added.
+
+      --profile <NAME>
+          Selects a named credential/config profile from `~/.gwi/settings.json` (AWS-CLI style).
+          
+          When set, the profile's `env` bundle replaces the base `env` map in the settings-fallback chain (process env still wins); the base map is not consulted. Overrides `GWI_PROFILE`. An unknown name is a hard error listing the known profiles.
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+===== gwi gmail account list =====
+Lists configured Gmail accounts (name/email/scope/default only — no secrets, no network)
+
+Usage: gwi gmail account list [OPTIONS]
+
+Options:
+      --account <NAME>
+          Selects a named Gmail account configured in `~/.gwi/settings.json` (AWS-CLI style, mirrors the top-level `--profile`) for this invocation.
+          
+          Orthogonal to `--profile`: switching the Gmail account never changes which profile is active, and vice versa (see [ADR-0066](../../../docs/adrs/adr-0066.md)). Overrides `GWI_GMAIL_ACCOUNT`. Scoped to the `gmail` subtree — unlike `--profile` it is not usable before the `gmail` subcommand name, only after it (`gmail --account NAME <cmd>` or `gmail <cmd> --account NAME`), so it can't collide with another product's own `--account` flag (Drive has the same one) as more command trees are added.
+
+  -o, --output <OUTPUT>
+          Output format
+
+          Possible values:
+          - table: Human-readable table
+          - json:  JSON
+          - yaml:  YAML (single document)
+          - yamls: YAML stream (`---`-separated multi-document)
+          - jsonl: JSON Lines: one compact JSON object per line, streaming-friendly
+          
+          [default: table]
+
+      --profile <NAME>
+          Selects a named credential/config profile from `~/.gwi/settings.json` (AWS-CLI style).
+          
+          When set, the profile's `env` bundle replaces the base `env` map in the settings-fallback chain (process env still wins); the base map is not consulted. Overrides `GWI_PROFILE`. An unknown name is a hard error listing the known profiles.
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+===== gwi gmail account set-default =====
+Sets the account resolved when `--account`/`GWI_GMAIL_ACCOUNT` is not given
+
+Usage: gwi gmail account set-default [OPTIONS] <NAME>
+
+Arguments:
+  <NAME>
+          The account name to make the default. Must already be configured
+
+Options:
+      --account <NAME>
+          Selects a named Gmail account configured in `~/.gwi/settings.json` (AWS-CLI style, mirrors the top-level `--profile`) for this invocation.
+          
+          Orthogonal to `--profile`: switching the Gmail account never changes which profile is active, and vice versa (see [ADR-0066](../../../docs/adrs/adr-0066.md)). Overrides `GWI_GMAIL_ACCOUNT`. Scoped to the `gmail` subtree — unlike `--profile` it is not usable before the `gmail` subcommand name, only after it (`gmail --account NAME <cmd>` or `gmail <cmd> --account NAME`), so it can't collide with another product's own `--account` flag (Drive has the same one) as more command trees are added.
+
+      --profile <NAME>
+          Selects a named credential/config profile from `~/.gwi/settings.json` (AWS-CLI style).
+          
+          When set, the profile's `env` bundle replaces the base `env` map in the settings-fallback chain (process env still wins); the base map is not consulted. Overrides `GWI_PROFILE`. An unknown name is a hard error listing the known profiles.
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+===== gwi gmail account import-legacy =====
+Migrates today's legacy (profile/base `env`) Gmail credentials into a named account
+
+Usage: gwi gmail account import-legacy [OPTIONS]
+
+Options:
+      --account <NAME>
+          Selects a named Gmail account configured in `~/.gwi/settings.json` (AWS-CLI style, mirrors the top-level `--profile`) for this invocation.
+          
+          Orthogonal to `--profile`: switching the Gmail account never changes which profile is active, and vice versa (see [ADR-0066](../../../docs/adrs/adr-0066.md)). Overrides `GWI_GMAIL_ACCOUNT`. Scoped to the `gmail` subtree — unlike `--profile` it is not usable before the `gmail` subcommand name, only after it (`gmail --account NAME <cmd>` or `gmail <cmd> --account NAME`), so it can't collide with another product's own `--account` flag (Drive has the same one) as more command trees are added.
+
+      --name <NAME>
+          Name to migrate the legacy credentials into.
+          
+          Deliberately `--name`, not `--account`: the global `--account` flag is inherited by every subcommand (clap rejects two args bound to the same long flag on one command), and it means something different here anyway — this names the account being *created*, not one being selected.
+          
+          [default: default]
+
+      --profile <NAME>
+          Selects a named credential/config profile from `~/.gwi/settings.json` (AWS-CLI style).
+          
+          When set, the profile's `env` bundle replaces the base `env` map in the settings-fallback chain (process env still wins); the base map is not consulted. Overrides `GWI_PROFILE`. An unknown name is a hard error listing the known profiles.
+
+      --remove-legacy
+          Also remove the legacy credentials after a successful migration
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+===== gwi gmail search =====
+Searches Gmail messages (mirrors the `gmail_search` MCP tool)
+
+Usage: gwi gmail search [OPTIONS] --query <QUERY>
+
+Options:
+      --account <NAME>
+          Selects a named Gmail account configured in `~/.gwi/settings.json` (AWS-CLI style, mirrors the top-level `--profile`) for this invocation.
+          
+          Orthogonal to `--profile`: switching the Gmail account never changes which profile is active, and vice versa (see [ADR-0066](../../../docs/adrs/adr-0066.md)). Overrides `GWI_GMAIL_ACCOUNT`. Scoped to the `gmail` subtree — unlike `--profile` it is not usable before the `gmail` subcommand name, only after it (`gmail --account NAME <cmd>` or `gmail <cmd> --account NAME`), so it can't collide with another product's own `--account` flag (Drive has the same one) as more command trees are added.
+
+      --profile <NAME>
+          Selects a named credential/config profile from `~/.gwi/settings.json` (AWS-CLI style).
+          
+          When set, the profile's `env` bundle replaces the base `env` map in the settings-fallback chain (process env still wins); the base map is not consulted. Overrides `GWI_PROFILE`. An unknown name is a hard error listing the known profiles.
+
+      --query <QUERY>
+          Gmail search query (same syntax as the Gmail search box, e.g. `label:finance after:2026/01/01`)
+
+      --limit <LIMIT>
+          Maximum results to return. `0` means "fetch every match" (capped at a hard ceiling to bound run time and quota)
+          
+          [default: 50]
+
+      --enrich
+          Enrich each hit with From/Subject/Date/snippet via one extra `messages.get` request per hit. Without this flag, `search` returns only `id`/`threadId` — the cheaper default. Combined with `--limit 0` this can issue thousands of requests; use deliberately
+
+      --concurrency <CONCURRENCY>
+          Bounds concurrent `messages.get` calls when `--enrich` is set (has no effect otherwise). Clamped to 1..=5, based on a 100-units/second pacing budget and 20 units per get. Bounds fan-out, not request rate
+          
+          [default: 4]
+
+  -o, --output <OUTPUT>
+          Output format
+
+          Possible values:
+          - table: Human-readable table
+          - json:  JSON
+          - yaml:  YAML (single document)
+          - yamls: YAML stream (`---`-separated multi-document)
+          - jsonl: JSON Lines: one compact JSON object per line, streaming-friendly
+          
+          [default: table]
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+===== gwi gmail read =====
+Reads a single Gmail message (mirrors the `gmail_message_read` MCP tool)
+
+Usage: gwi gmail read [OPTIONS] <MESSAGE_ID>
+
+Arguments:
+  <MESSAGE_ID>
+          Gmail message id
+
+Options:
+      --account <NAME>
+          Selects a named Gmail account configured in `~/.gwi/settings.json` (AWS-CLI style, mirrors the top-level `--profile`) for this invocation.
+          
+          Orthogonal to `--profile`: switching the Gmail account never changes which profile is active, and vice versa (see [ADR-0066](../../../docs/adrs/adr-0066.md)). Overrides `GWI_GMAIL_ACCOUNT`. Scoped to the `gmail` subtree — unlike `--profile` it is not usable before the `gmail` subcommand name, only after it (`gmail --account NAME <cmd>` or `gmail <cmd> --account NAME`), so it can't collide with another product's own `--account` flag (Drive has the same one) as more command trees are added.
+
+      --out-file <PATH>
+          Output file (writes to stdout if omitted). With `--detail raw`, the message's exact RFC 2822 bytes, i.e. an `.eml` file
+
+      --profile <NAME>
+          Selects a named credential/config profile from `~/.gwi/settings.json` (AWS-CLI style).
+          
+          When set, the profile's `env` bundle replaces the base `env` map in the settings-fallback chain (process env still wins); the base map is not consulted. Overrides `GWI_PROFILE`. An unknown name is a hard error listing the known profiles.
+
+      --detail <DETAIL>
+          How much of the message to fetch
+
+          Possible values:
+          - minimal:  Only `id`/`threadId`/`labelIds`/`sizeEstimate` — no headers or body
+          - metadata: Headers and snippet only, no body
+          - full:     The full parsed MIME structure. Default
+          - raw:      The full RFC 2822 message, base64url-encoded
+          
+          [default: full]
+
+  -o, --output <OUTPUT>
+          Output format
+
+          Possible values:
+          - table:    Human-readable table (id/thread-id/labels/snippet). Default
+          - json:     JSON
+          - yaml:     YAML (single document)
+          - yamls:    YAML stream (`---`-separated multi-document)
+          - jsonl:    JSON Lines
+          - markdown: Human-readable Markdown rendering of the full message (headers + body). Always fetches the complete raw MIME message regardless of `--detail`, since rendering needs the full message structure
+          
+          [default: table]
+
+      --fold-quotes
+          Collapses `>`-quoted reply history nested more than one level deep into a one-line `*(N quoted lines omitted)*` marker (#1514). Only affects `-o markdown`, mirroring `--detail`'s reverse asymmetry (it is silently ignored elsewhere). Off by default: verbatim rendering is fully information-preserving, and the full text is one re-render away without this flag
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+===== gwi gmail thread =====
+Reads a Gmail thread (mirrors the `gmail_thread_read` MCP tool)
+
+Usage: gwi gmail thread [OPTIONS] <THREAD_ID>
+
+Arguments:
+  <THREAD_ID>
+          Gmail thread id
+
+Options:
+      --account <NAME>
+          Selects a named Gmail account configured in `~/.gwi/settings.json` (AWS-CLI style, mirrors the top-level `--profile`) for this invocation.
+          
+          Orthogonal to `--profile`: switching the Gmail account never changes which profile is active, and vice versa (see [ADR-0066](../../../docs/adrs/adr-0066.md)). Overrides `GWI_GMAIL_ACCOUNT`. Scoped to the `gmail` subtree — unlike `--profile` it is not usable before the `gmail` subcommand name, only after it (`gmail --account NAME <cmd>` or `gmail <cmd> --account NAME`), so it can't collide with another product's own `--account` flag (Drive has the same one) as more command trees are added.
+
+  -o, --output <OUTPUT>
+          Output format
+
+          Possible values:
+          - table: Human-readable table
+          - json:  JSON
+          - yaml:  YAML (single document)
+          - yamls: YAML stream (`---`-separated multi-document)
+          - jsonl: JSON Lines: one compact JSON object per line, streaming-friendly
+          
+          [default: table]
+
+      --profile <NAME>
+          Selects a named credential/config profile from `~/.gwi/settings.json` (AWS-CLI style).
+          
+          When set, the profile's `env` bundle replaces the base `env` map in the settings-fallback chain (process env still wins); the base map is not consulted. Overrides `GWI_PROFILE`. An unknown name is a hard error listing the known profiles.
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+===== gwi gmail label =====
+Manages Gmail labels (mirrors the `gmail_label_list` MCP tool; `add`/`remove` are CLI-only in Phase 1)
+
+Usage: gwi gmail label [OPTIONS] <COMMAND>
+
+Commands:
+  list    Lists Gmail labels (mirrors the `gmail_label_list` MCP tool)
+  add     Adds a label to one or more messages (`gmail.modify` scope required)
+  remove  Removes a label from one or more messages (`gmail.modify` scope required)
+  help    Print this message or the help of the given subcommand(s)
+
+Options:
+      --account <NAME>
+          Selects a named Gmail account configured in `~/.gwi/settings.json` (AWS-CLI style, mirrors the top-level `--profile`) for this invocation.
+          
+          Orthogonal to `--profile`: switching the Gmail account never changes which profile is active, and vice versa (see [ADR-0066](../../../docs/adrs/adr-0066.md)). Overrides `GWI_GMAIL_ACCOUNT`. Scoped to the `gmail` subtree — unlike `--profile` it is not usable before the `gmail` subcommand name, only after it (`gmail --account NAME <cmd>` or `gmail <cmd> --account NAME`), so it can't collide with another product's own `--account` flag (Drive has the same one) as more command trees are added.
+
+      --profile <NAME>
+          Selects a named credential/config profile from `~/.gwi/settings.json` (AWS-CLI style).
+          
+          When set, the profile's `env` bundle replaces the base `env` map in the settings-fallback chain (process env still wins); the base map is not consulted. Overrides `GWI_PROFILE`. An unknown name is a hard error listing the known profiles.
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+===== gwi gmail label list =====
+Lists Gmail labels (mirrors the `gmail_label_list` MCP tool)
+
+Usage: gwi gmail label list [OPTIONS]
+
+Options:
+      --account <NAME>
+          Selects a named Gmail account configured in `~/.gwi/settings.json` (AWS-CLI style, mirrors the top-level `--profile`) for this invocation.
+          
+          Orthogonal to `--profile`: switching the Gmail account never changes which profile is active, and vice versa (see [ADR-0066](../../../docs/adrs/adr-0066.md)). Overrides `GWI_GMAIL_ACCOUNT`. Scoped to the `gmail` subtree — unlike `--profile` it is not usable before the `gmail` subcommand name, only after it (`gmail --account NAME <cmd>` or `gmail <cmd> --account NAME`), so it can't collide with another product's own `--account` flag (Drive has the same one) as more command trees are added.
+
+  -o, --output <OUTPUT>
+          Output format
+
+          Possible values:
+          - table: Human-readable table
+          - json:  JSON
+          - yaml:  YAML (single document)
+          - yamls: YAML stream (`---`-separated multi-document)
+          - jsonl: JSON Lines: one compact JSON object per line, streaming-friendly
+          
+          [default: table]
+
+      --profile <NAME>
+          Selects a named credential/config profile from `~/.gwi/settings.json` (AWS-CLI style).
+          
+          When set, the profile's `env` bundle replaces the base `env` map in the settings-fallback chain (process env still wins); the base map is not consulted. Overrides `GWI_PROFILE`. An unknown name is a hard error listing the known profiles.
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+===== gwi gmail label add =====
+Adds a label to one or more messages (`gmail.modify` scope required)
+
+Usage: gwi gmail label add [OPTIONS] --label <LABEL> <MESSAGE_IDS>...
+
+Arguments:
+  <MESSAGE_IDS>...
+          Gmail message ids to add the label to
+
+Options:
+      --account <NAME>
+          Selects a named Gmail account configured in `~/.gwi/settings.json` (AWS-CLI style, mirrors the top-level `--profile`) for this invocation.
+          
+          Orthogonal to `--profile`: switching the Gmail account never changes which profile is active, and vice versa (see [ADR-0066](../../../docs/adrs/adr-0066.md)). Overrides `GWI_GMAIL_ACCOUNT`. Scoped to the `gmail` subtree — unlike `--profile` it is not usable before the `gmail` subcommand name, only after it (`gmail --account NAME <cmd>` or `gmail <cmd> --account NAME`), so it can't collide with another product's own `--account` flag (Drive has the same one) as more command trees are added.
+
+      --label <LABEL>
+          Label id to add (see `gmail label list` for ids)
+
+      --profile <NAME>
+          Selects a named credential/config profile from `~/.gwi/settings.json` (AWS-CLI style).
+          
+          When set, the profile's `env` bundle replaces the base `env` map in the settings-fallback chain (process env still wins); the base map is not consulted. Overrides `GWI_PROFILE`. An unknown name is a hard error listing the known profiles.
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+===== gwi gmail label remove =====
+Removes a label from one or more messages (`gmail.modify` scope required)
+
+Usage: gwi gmail label remove [OPTIONS] --label <LABEL> <MESSAGE_IDS>...
+
+Arguments:
+  <MESSAGE_IDS>...
+          Gmail message ids to remove the label from
+
+Options:
+      --account <NAME>
+          Selects a named Gmail account configured in `~/.gwi/settings.json` (AWS-CLI style, mirrors the top-level `--profile`) for this invocation.
+          
+          Orthogonal to `--profile`: switching the Gmail account never changes which profile is active, and vice versa (see [ADR-0066](../../../docs/adrs/adr-0066.md)). Overrides `GWI_GMAIL_ACCOUNT`. Scoped to the `gmail` subtree — unlike `--profile` it is not usable before the `gmail` subcommand name, only after it (`gmail --account NAME <cmd>` or `gmail <cmd> --account NAME`), so it can't collide with another product's own `--account` flag (Drive has the same one) as more command trees are added.
+
+      --label <LABEL>
+          Label id to remove (see `gmail label list` for ids)
+
+      --profile <NAME>
+          Selects a named credential/config profile from `~/.gwi/settings.json` (AWS-CLI style).
+          
+          When set, the profile's `env` bundle replaces the base `env` map in the settings-fallback chain (process env still wins); the base map is not consulted. Overrides `GWI_PROFILE`. An unknown name is a hard error listing the known profiles.
+
+      --force
+          Skip the interactive confirmation prompt
+
+      --dry-run
+          Print what would be removed without calling the API
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+===== gwi gmail draft =====
+Manages Gmail drafts; never sends or deletes one (mirrors the `gmail_draft_list`/`gmail_draft_show` MCP tools for `list`/`show`; `create`/`update` are CLI-only; #1920)
+
+Usage: gwi gmail draft [OPTIONS] <COMMAND>
+
+Commands:
+  list    Lists drafts with their draft ids (`gmail.readonly` is enough; mirrors the `gmail_draft_list` MCP tool)
+  show    Shows one draft by its draft id (`gmail.readonly` is enough; mirrors the `gmail_draft_show` MCP tool)
+  create  Creates a draft to review and send from Gmail (needs `gmail.modify`; CLI-only)
+  update  Updates a draft in place, keeping its id and thread (needs `gmail.modify`; CLI-only)
+  help    Print this message or the help of the given subcommand(s)
+
+Options:
+      --account <NAME>
+          Selects a named Gmail account configured in `~/.gwi/settings.json` (AWS-CLI style, mirrors the top-level `--profile`) for this invocation.
+          
+          Orthogonal to `--profile`: switching the Gmail account never changes which profile is active, and vice versa (see [ADR-0066](../../../docs/adrs/adr-0066.md)). Overrides `GWI_GMAIL_ACCOUNT`. Scoped to the `gmail` subtree — unlike `--profile` it is not usable before the `gmail` subcommand name, only after it (`gmail --account NAME <cmd>` or `gmail <cmd> --account NAME`), so it can't collide with another product's own `--account` flag (Drive has the same one) as more command trees are added.
+
+      --profile <NAME>
+          Selects a named credential/config profile from `~/.gwi/settings.json` (AWS-CLI style).
+          
+          When set, the profile's `env` bundle replaces the base `env` map in the settings-fallback chain (process env still wins); the base map is not consulted. Overrides `GWI_PROFILE`. An unknown name is a hard error listing the known profiles.
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+===== gwi gmail draft list =====
+Lists drafts with their draft ids (`gmail.readonly` is enough; mirrors the `gmail_draft_list` MCP tool)
+
+Usage: gwi gmail draft list [OPTIONS]
+
+Options:
+      --account <NAME>
+          Selects a named Gmail account configured in `~/.gwi/settings.json` (AWS-CLI style, mirrors the top-level `--profile`) for this invocation.
+          
+          Orthogonal to `--profile`: switching the Gmail account never changes which profile is active, and vice versa (see [ADR-0066](../../../docs/adrs/adr-0066.md)). Overrides `GWI_GMAIL_ACCOUNT`. Scoped to the `gmail` subtree — unlike `--profile` it is not usable before the `gmail` subcommand name, only after it (`gmail --account NAME <cmd>` or `gmail <cmd> --account NAME`), so it can't collide with another product's own `--account` flag (Drive has the same one) as more command trees are added.
+
+      --profile <NAME>
+          Selects a named credential/config profile from `~/.gwi/settings.json` (AWS-CLI style).
+          
+          When set, the profile's `env` bundle replaces the base `env` map in the settings-fallback chain (process env still wins); the base map is not consulted. Overrides `GWI_PROFILE`. An unknown name is a hard error listing the known profiles.
+
+      --query <QUERY>
+          Only list drafts matching this Gmail search query (same syntax as the Gmail search box, e.g. `to:alice subject:report`)
+
+      --limit <LIMIT>
+          Maximum drafts to return. `0` means "every draft" (capped at the same hard ceiling as `gmail search`)
+          
+          [default: 50]
+
+  -o, --output <OUTPUT>
+          Output format
+
+          Possible values:
+          - table: Human-readable table
+          - json:  JSON
+          - yaml:  YAML (single document)
+          - yamls: YAML stream (`---`-separated multi-document)
+          - jsonl: JSON Lines: one compact JSON object per line, streaming-friendly
+          
+          [default: table]
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+===== gwi gmail draft show =====
+Shows one draft by its draft id (`gmail.readonly` is enough; mirrors the `gmail_draft_show` MCP tool)
+
+Usage: gwi gmail draft show [OPTIONS] <DRAFT_ID>
+
+Arguments:
+  <DRAFT_ID>
+          Gmail draft id (the `DRAFT_ID` column of `gmail draft list`)
+
+Options:
+      --account <NAME>
+          Selects a named Gmail account configured in `~/.gwi/settings.json` (AWS-CLI style, mirrors the top-level `--profile`) for this invocation.
+          
+          Orthogonal to `--profile`: switching the Gmail account never changes which profile is active, and vice versa (see [ADR-0066](../../../docs/adrs/adr-0066.md)). Overrides `GWI_GMAIL_ACCOUNT`. Scoped to the `gmail` subtree — unlike `--profile` it is not usable before the `gmail` subcommand name, only after it (`gmail --account NAME <cmd>` or `gmail <cmd> --account NAME`), so it can't collide with another product's own `--account` flag (Drive has the same one) as more command trees are added.
+
+      --out-file <PATH>
+          Output file (writes to stdout if omitted). With `--detail raw`, the message's exact RFC 2822 bytes, i.e. an `.eml` file
+
+      --profile <NAME>
+          Selects a named credential/config profile from `~/.gwi/settings.json` (AWS-CLI style).
+          
+          When set, the profile's `env` bundle replaces the base `env` map in the settings-fallback chain (process env still wins); the base map is not consulted. Overrides `GWI_PROFILE`. An unknown name is a hard error listing the known profiles.
+
+      --detail <DETAIL>
+          How much of the message to fetch
+
+          Possible values:
+          - minimal:  Only `id`/`threadId`/`labelIds`/`sizeEstimate` — no headers or body
+          - metadata: Headers and snippet only, no body
+          - full:     The full parsed MIME structure. Default
+          - raw:      The full RFC 2822 message, base64url-encoded
+          
+          [default: full]
+
+  -o, --output <OUTPUT>
+          Output format
+
+          Possible values:
+          - table:    Human-readable table (id/thread-id/labels/snippet). Default
+          - json:     JSON
+          - yaml:     YAML (single document)
+          - yamls:    YAML stream (`---`-separated multi-document)
+          - jsonl:    JSON Lines
+          - markdown: Human-readable Markdown rendering of the full message (headers + body). Always fetches the complete raw MIME message regardless of `--detail`, since rendering needs the full message structure
+          
+          [default: table]
+
+      --fold-quotes
+          Collapses `>`-quoted reply history nested more than one level deep into a one-line `*(N quoted lines omitted)*` marker (#1514). Only affects `-o markdown`, mirroring `--detail`'s reverse asymmetry (it is silently ignored elsewhere). Off by default: verbatim rendering is fully information-preserving, and the full text is one re-render away without this flag
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+===== gwi gmail draft create =====
+Creates a draft to review and send from Gmail (needs `gmail.modify`; CLI-only)
+
+Usage: gwi gmail draft create [OPTIONS]
+
+Options:
+      --account <NAME>
+          Selects a named Gmail account configured in `~/.gwi/settings.json` (AWS-CLI style, mirrors the top-level `--profile`) for this invocation.
+          
+          Orthogonal to `--profile`: switching the Gmail account never changes which profile is active, and vice versa (see [ADR-0066](../../../docs/adrs/adr-0066.md)). Overrides `GWI_GMAIL_ACCOUNT`. Scoped to the `gmail` subtree — unlike `--profile` it is not usable before the `gmail` subcommand name, only after it (`gmail --account NAME <cmd>` or `gmail <cmd> --account NAME`), so it can't collide with another product's own `--account` flag (Drive has the same one) as more command trees are added.
+
+      --from <ADDR>
+          Send as this address: one of the account's verified send-as aliases, or its primary address, as `addr@example.com` or `"Name <addr@example.com>"`. Without a name, Gmail's name for the address is used
+
+      --profile <NAME>
+          Selects a named credential/config profile from `~/.gwi/settings.json` (AWS-CLI style).
+          
+          When set, the profile's `env` bundle replaces the base `env` map in the settings-fallback chain (process env still wins); the base map is not consulted. Overrides `GWI_PROFILE`. An unknown name is a hard error listing the known profiles.
+
+      --to <ADDR>...
+          A `To` recipient: `addr@example.com` or `"Name <addr@example.com>"`. Repeat the flag (or list several after it) for more recipients. Required unless `--reply-to` is given, which defaults it from the original
+
+      --cc <ADDR>...
+          A `Cc` recipient, in the same form as `--to`
+
+      --bcc <ADDR>...
+          A `Bcc` recipient, in the same form as `--to`
+
+      --subject <SUBJECT>
+          The subject. Required unless `--reply-to` is given, which defaults it to `Re: <original subject>`
+
+      --body <BODY>
+          The plain-text body
+
+      --body-file <PATH>
+          Read the plain-text body from this UTF-8 file
+
+      --html-body <HTML>
+          An HTML body, sent alongside the plain-text one. Without `--body` or `--body-file`, the plain text is derived from the HTML
+
+      --html-body-file <PATH>
+          Read the HTML body from this UTF-8 file
+
+      --attach <PATH>...
+          Attach a file. Repeat the flag (or list several after it) for more
+
+      --reply-to <MESSAGE_ID>
+          Reply to this Gmail message id, filing the draft in its thread. Without `--to`, replies to the original's `Reply-To`, else its `From` (or, for a message you sent, its `To`)
+
+      --reply-all
+          With `--reply-to`, also address the original's other `To` and `Cc` recipients, leaving out your own addresses. `--to`/`--cc` still replace the defaults for their header
+
+      --raw <FILE>
+          Upload this complete RFC 5322 message (`.eml`) byte for byte instead of composing one
+
+  -o, --output <OUTPUT>
+          Output format
+
+          Possible values:
+          - table: Human-readable table
+          - json:  JSON
+          - yaml:  YAML (single document)
+          - yamls: YAML stream (`---`-separated multi-document)
+          - jsonl: JSON Lines: one compact JSON object per line, streaming-friendly
+          
+          [default: table]
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+===== gwi gmail draft update =====
+Updates a draft in place, keeping its id and thread (needs `gmail.modify`; CLI-only)
+
+Usage: gwi gmail draft update [OPTIONS] <--from <ADDR>|--to <ADDR>|--cc <ADDR>|--bcc <ADDR>|--subject <SUBJECT>|--body <BODY>|--body-file <PATH>|--html-body <HTML>|--html-body-file <PATH>|--attach <PATH>|--remove-attachment <NAME>|--raw <FILE>> <DRAFT_ID>
+
+Arguments:
+  <DRAFT_ID>
+          Gmail draft id (the `DRAFT_ID` column of `gmail draft list`)
+
+Options:
+      --account <NAME>
+          Selects a named Gmail account configured in `~/.gwi/settings.json` (AWS-CLI style, mirrors the top-level `--profile`) for this invocation.
+          
+          Orthogonal to `--profile`: switching the Gmail account never changes which profile is active, and vice versa (see [ADR-0066](../../../docs/adrs/adr-0066.md)). Overrides `GWI_GMAIL_ACCOUNT`. Scoped to the `gmail` subtree — unlike `--profile` it is not usable before the `gmail` subcommand name, only after it (`gmail --account NAME <cmd>` or `gmail <cmd> --account NAME`), so it can't collide with another product's own `--account` flag (Drive has the same one) as more command trees are added.
+
+      --from <ADDR>
+          Send as this address: one of the account's verified send-as aliases, or its primary address, as `addr@example.com` or `"Name <addr@example.com>"`. Without a name, Gmail's name for the address is used
+
+      --profile <NAME>
+          Selects a named credential/config profile from `~/.gwi/settings.json` (AWS-CLI style).
+          
+          When set, the profile's `env` bundle replaces the base `env` map in the settings-fallback chain (process env still wins); the base map is not consulted. Overrides `GWI_PROFILE`. An unknown name is a hard error listing the known profiles.
+
+      --to <ADDR>
+          Replace the `To` recipients: `addr@example.com` or `"Name <addr@example.com>"`. Repeat the flag for more recipients
+
+      --cc <ADDR>
+          Replace the `Cc` recipients, in the same form as `--to`
+
+      --bcc <ADDR>
+          Replace the `Bcc` recipients, in the same form as `--to`
+
+      --subject <SUBJECT>
+          Replace the subject
+
+      --body <BODY>
+          Replace the body with this plain text (with `--html-body`, its plain-text version)
+
+      --body-file <PATH>
+          Replace the body with the plain text in this UTF-8 file
+
+      --html-body <HTML>
+          Replace the body with this HTML and a plain-text version of it: the `--body` text when given, else one derived from the HTML
+
+      --html-body-file <PATH>
+          Replace the body with the HTML in this UTF-8 file, as `--html-body`
+
+      --attach <PATH>
+          Attach a file after the existing attachments. Repeat the flag for more
+
+      --remove-attachment <NAME>
+          Remove the attachment `gmail draft show` lists under this name (or the one stored under it, when only one is). Repeat the flag for more
+
+      --raw <FILE>
+          Replace the whole message with this RFC 5322 file (`.eml`), uploaded byte for byte
+
+      --if-message-id <ID>
+          Refuse the update unless the draft's current message id is this one, e.g. the `MESSAGE_ID` from when you last read the draft
+
+  -o, --output <OUTPUT>
+          Output format
+
+          Possible values:
+          - table: Human-readable table
+          - json:  JSON
+          - yaml:  YAML (single document)
+          - yamls: YAML stream (`---`-separated multi-document)
+          - jsonl: JSON Lines: one compact JSON object per line, streaming-friendly
+          
+          [default: table]
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+===== gwi gmail sync =====
+Maintains a durable local archive of a mailbox (CLI-only; no MCP equivalent)
+
+Usage: gwi gmail sync [OPTIONS] --output-dir <PATH>
+
+Options:
+      --account <NAME>
+          Selects a named Gmail account configured in `~/.gwi/settings.json` (AWS-CLI style, mirrors the top-level `--profile`) for this invocation.
+          
+          Orthogonal to `--profile`: switching the Gmail account never changes which profile is active, and vice versa (see [ADR-0066](../../../docs/adrs/adr-0066.md)). Overrides `GWI_GMAIL_ACCOUNT`. Scoped to the `gmail` subtree — unlike `--profile` it is not usable before the `gmail` subcommand name, only after it (`gmail --account NAME <cmd>` or `gmail <cmd> --account NAME`), so it can't collide with another product's own `--account` flag (Drive has the same one) as more command trees are added.
+
+      --output-dir <PATH>
+          Directory to maintain the archive in. Created if missing
+
+      --profile <NAME>
+          Selects a named credential/config profile from `~/.gwi/settings.json` (AWS-CLI style).
+          
+          When set, the profile's `env` bundle replaces the base `env` map in the settings-fallback chain (process env still wins); the base map is not consulted. Overrides `GWI_PROFILE`. An unknown name is a hard error listing the known profiles.
+
+      --query <QUERY>
+          Restrict the archive to messages matching this Gmail search query (same syntax as `gmail search --query`). Only applied on backfill/`--full`/reconciliation passes — an incremental sync's `history.list` has no query filter, so newly-arrived mail matching the query is only picked up by a later `--full` re-run (see docs/gmail.md's Sync section)
+
+      --exclude-label <LABEL_ID>
+          Excludes messages carrying this label id from the archive (#1780). Repeatable — e.g. `--exclude-label SPAM --exclude-label TRASH`. Applied fully and generally on incremental passes (no extra API calls; a `messagesAdded` history event matching this filter is never fetched, and a `labelsAdded`/`labelsRemoved` event that crosses the excluded boundary soft-deletes/undeletes the archived record). On backfill/`--full`/reconciliation passes, only entries with a known query translation take effect (currently `SPAM`/`TRASH` — folded into the listing query as `-in:spam`/`-in:trash`); anything else still filters future incremental runs, but won't be excluded retroactively on this pass unless you also pass `--query`
+
+      --full
+          Forces a full backfill/reconciliation pass even if a valid watermark exists
+
+      --retry-pending
+          Retries every message still pending from an earlier failed fetch now, ignoring the retry backoff that would otherwise defer it (#1790). Use after fixing whatever made the fetches fail. A retry that fails again still counts toward — and restarts — that message's backoff
+
+      --concurrency <CONCURRENCY>
+          Bounds concurrent message fetches. Clamped to `1..=gmail::messages_api::MAX_CONCURRENCY`
+          
+          [default: 20]
+
+      --dry-run
+          Reports the planned actions without writing any files
+
+      --extract-attachments
+          Also writes each message's attachment MIME parts to disk as separate files under `<eml-shard-dir>/<id>/attachments/<filename>`, alongside the existing `.eml`. Off by default: extraction is additional I/O/disk usage per message, and the `.eml` stays the lossless source of truth regardless. Only applies to messages actually fetched this run — presence-on-disk still skips an already-archived message, so turning this on does not retroactively backfill an existing archive (delete the affected `.eml` files, or the whole archive, and re-run `--full` to force re-extraction)
+
+      --quiet
+          Only shows errors/warnings, suppresses info-level output — including the live progress bars a backfill/`--full`/reconciliation pass shows on an interactive terminal (#1502)
+
+  -o, --output <OUTPUT>
+          Report format
+
+          Possible values:
+          - table: Human-readable table
+          - json:  JSON
+          - yaml:  YAML (single document)
+          - yamls: YAML stream (`---`-separated multi-document)
+          - jsonl: JSON Lines: one compact JSON object per line, streaming-friendly
+          
+          [default: table]
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+===== gwi gmail sync-all =====
+Maintains durable local archives for every account in `.gwi/gmail-sync.yaml`, concurrently (CLI-only; no MCP equivalent; ADR-0068)
+
+Usage: gwi gmail sync-all [OPTIONS]
+
+Options:
+      --account <NAME>
+          Selects a named Gmail account configured in `~/.gwi/settings.json` (AWS-CLI style, mirrors the top-level `--profile`) for this invocation.
+          
+          Orthogonal to `--profile`: switching the Gmail account never changes which profile is active, and vice versa (see [ADR-0066](../../../docs/adrs/adr-0066.md)). Overrides `GWI_GMAIL_ACCOUNT`. Scoped to the `gmail` subtree — unlike `--profile` it is not usable before the `gmail` subcommand name, only after it (`gmail --account NAME <cmd>` or `gmail <cmd> --account NAME`), so it can't collide with another product's own `--account` flag (Drive has the same one) as more command trees are added.
+
+      --context-dir <PATH>
+          Overrides the standard `.gwi/` discovery (walk-up from CWD, `GWI_CONFIG_DIR`, `local/` shadow) used to locate `gmail-sync.yaml`
+
+      --profile <NAME>
+          Selects a named credential/config profile from `~/.gwi/settings.json` (AWS-CLI style).
+          
+          When set, the profile's `env` bundle replaces the base `env` map in the settings-fallback chain (process env still wins); the base map is not consulted. Overrides `GWI_PROFILE`. An unknown name is a hard error listing the known profiles.
+
+      --concurrency <N>
+          Overrides `gmail-sync.yaml`'s `concurrency` — a fetch-request cap shared across every configured account this run. Left unset, the YAML value applies; if that's unset too, falls back to the same default as `gmail sync --concurrency`
+
+      --full
+          Forces a full backfill/reconciliation pass for every account, same as `gmail sync --full`
+
+      --retry-pending
+          Retries every account's pending failed fetches now, ignoring their retry backoff, same as `gmail sync --retry-pending` (#1790)
+
+      --dry-run
+          Reports the planned actions for every account without writing any files
+
+      --quiet
+          Suppresses the per-account summary line printed as each account finishes, and the live per-account progress bars a run shows on an interactive terminal; per-message errors and the trailing combined total still print regardless
+
+  -o, --output <OUTPUT>
+          Report format
+
+          Possible values:
+          - table: Human-readable table
+          - json:  JSON
+          - yaml:  YAML (single document)
+          - yamls: YAML stream (`---`-separated multi-document)
+          - jsonl: JSON Lines: one compact JSON object per line, streaming-friendly
+          
+          [default: table]
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+===== gwi gmail extract-attachments =====
+Retroactively extracts attachments for already-archived messages, without re-fetching from Gmail (CLI-only; no MCP equivalent; purely local, no client/credentials needed; #1510)
+
+Usage: gwi gmail extract-attachments [OPTIONS] --archive-dir <PATH>
+
+Options:
+      --account <NAME>
+          Selects a named Gmail account configured in `~/.gwi/settings.json` (AWS-CLI style, mirrors the top-level `--profile`) for this invocation.
+          
+          Orthogonal to `--profile`: switching the Gmail account never changes which profile is active, and vice versa (see [ADR-0066](../../../docs/adrs/adr-0066.md)). Overrides `GWI_GMAIL_ACCOUNT`. Scoped to the `gmail` subtree — unlike `--profile` it is not usable before the `gmail` subcommand name, only after it (`gmail --account NAME <cmd>` or `gmail <cmd> --account NAME`), so it can't collide with another product's own `--account` flag (Drive has the same one) as more command trees are added.
+
+      --archive-dir <PATH>
+          Archive directory previously populated by `gmail sync`/`sync-all`
+
+      --profile <NAME>
+          Selects a named credential/config profile from `~/.gwi/settings.json` (AWS-CLI style).
+          
+          When set, the profile's `env` bundle replaces the base `env` map in the settings-fallback chain (process env still wins); the base map is not consulted. Overrides `GWI_PROFILE`. An unknown name is a hard error listing the known profiles.
+
+      --dry-run
+          Reports which messages would gain extracted attachments without writing any file
+
+      --quiet
+          Only shows errors, suppresses the per-message action lines
+
+  -o, --output <OUTPUT>
+          Report format
+
+          Possible values:
+          - table: Human-readable table
+          - json:  JSON
+          - yaml:  YAML (single document)
+          - yamls: YAML stream (`---`-separated multi-document)
+          - jsonl: JSON Lines: one compact JSON object per line, streaming-friendly
+          
+          [default: table]
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+===== gwi gmail render =====
+Renders one or more archived `.eml` files as human-readable Markdown (CLI-only; no MCP equivalent; purely local, no client/credentials needed; #1513)
+
+Usage: gwi gmail render [OPTIONS] <PATH|--archive-dir <PATH>>
+
+Arguments:
+  [PATH]...
+          One or more `.eml` file paths to render. Mutually exclusive with `--archive-dir`
+
+Options:
+      --account <NAME>
+          Selects a named Gmail account configured in `~/.gwi/settings.json` (AWS-CLI style, mirrors the top-level `--profile`) for this invocation.
+          
+          Orthogonal to `--profile`: switching the Gmail account never changes which profile is active, and vice versa (see [ADR-0066](../../../docs/adrs/adr-0066.md)). Overrides `GWI_GMAIL_ACCOUNT`. Scoped to the `gmail` subtree — unlike `--profile` it is not usable before the `gmail` subcommand name, only after it (`gmail --account NAME <cmd>` or `gmail <cmd> --account NAME`), so it can't collide with another product's own `--account` flag (Drive has the same one) as more command trees are added.
+
+      --archive-dir <PATH>
+          Archive directory previously populated by `gmail sync`/`sync-all`. Renders every non-deleted message from its `manifest.jsonl` selected by `--all`/`--since`/`--until`/`--id`/`--ids-from`/`--source-label` (see `selection`). Mutually exclusive with positional `PATH` arguments
+
+      --profile <NAME>
+          Selects a named credential/config profile from `~/.gwi/settings.json` (AWS-CLI style).
+          
+          When set, the profile's `env` bundle replaces the base `env` map in the settings-fallback chain (process env still wins); the base map is not consulted. Overrides `GWI_PROFILE`. An unknown name is a hard error listing the known profiles.
+
+      --all
+          Selects every non-deleted archived message
+
+      --since <DATE>
+          Selects messages with an internal date on or after this UTC date (`YYYY-MM-DD`)
+
+      --until <DATE>
+          Selects messages with an internal date on or before this UTC date (`YYYY-MM-DD`), inclusive of the whole day
+
+      --id <ID>
+          Selects one specific archived message id. Repeatable
+
+      --ids-from <FILE>
+          Selects message ids listed one per line in FILE (`-` for stdin); blank lines and `#`-prefixed comments are skipped — the same shape a `--dry-run` report's ids can be piped back through
+
+      --source-label <LABEL_ID>
+          Selects messages carrying this Gmail label id in the archived manifest (a raw label id, e.g. `Label_1` — not the destination `--label` tag `gmail insert` itself applies)
+
+      --out-dir <DIR>
+          Writes one `.md` file per input (named after the input's stem) into this directory instead of printing Markdown to stdout. With `--archive-dir`, also makes a message already rendered by a prior run into this directory skipped on this run
+
+  -o, --output <OUTPUT>
+          Report format. `Table` (default) prints each input's rendered Markdown directly to stdout — or, with `--out-dir`, a `Saved to:` line per file — so redirecting stdout to a file yields clean Markdown; json/yaml/yamls/jsonl instead emit one structured record per input
+
+          Possible values:
+          - table: Human-readable table
+          - json:  JSON
+          - yaml:  YAML (single document)
+          - yamls: YAML stream (`---`-separated multi-document)
+          - jsonl: JSON Lines: one compact JSON object per line, streaming-friendly
+          
+          [default: table]
+
+      --fold-quotes
+          Collapses `>`-quoted reply history nested more than one level deep into a one-line `*(N quoted lines omitted)*` marker (#1514). Off by default: verbatim rendering is fully information-preserving, and the full text is one re-render away without this flag
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+===== gwi gmail insert =====
+Restores archived `.eml` messages into a mailbox (needs `gmail.modify`; CLI-only; no MCP equivalent; #1655)
+
+Usage: gwi gmail insert [OPTIONS] --archive-dir <PATH>
+
+Options:
+      --account <NAME>
+          Selects a named Gmail account configured in `~/.gwi/settings.json` (AWS-CLI style, mirrors the top-level `--profile`) for this invocation.
+          
+          Orthogonal to `--profile`: switching the Gmail account never changes which profile is active, and vice versa (see [ADR-0066](../../../docs/adrs/adr-0066.md)). Overrides `GWI_GMAIL_ACCOUNT`. Scoped to the `gmail` subtree — unlike `--profile` it is not usable before the `gmail` subcommand name, only after it (`gmail --account NAME <cmd>` or `gmail <cmd> --account NAME`), so it can't collide with another product's own `--account` flag (Drive has the same one) as more command trees are added.
+
+      --archive-dir <PATH>
+          Archive directory previously populated by `gmail sync`/`sync-all`
+
+      --profile <NAME>
+          Selects a named credential/config profile from `~/.gwi/settings.json` (AWS-CLI style).
+          
+          When set, the profile's `env` bundle replaces the base `env` map in the settings-fallback chain (process env still wins); the base map is not consulted. Overrides `GWI_PROFILE`. An unknown name is a hard error listing the known profiles.
+
+      --all
+          Selects every non-deleted archived message
+
+      --since <DATE>
+          Selects messages with an internal date on or after this UTC date (`YYYY-MM-DD`)
+
+      --until <DATE>
+          Selects messages with an internal date on or before this UTC date (`YYYY-MM-DD`), inclusive of the whole day
+
+      --id <ID>
+          Selects one specific archived message id. Repeatable
+
+      --ids-from <FILE>
+          Selects message ids listed one per line in FILE (`-` for stdin); blank lines and `#`-prefixed comments are skipped — the same shape a `--dry-run` report's ids can be piped back through
+
+      --source-label <LABEL_ID>
+          Selects messages carrying this Gmail label id in the archived manifest (a raw label id, e.g. `Label_1` — not the destination `--label` tag `gmail insert` itself applies)
+
+      --limit <LIMIT>
+          Caps how many selected messages are inserted, applied after selection to the oldest-first plan. `0` means no limit
+          
+          [default: 0]
+
+      --label <NAME>
+          Tags every inserted message with this label, resolved by name against the destination mailbox's existing labels. Never auto-created — since inserted mail's raw headers still name the *original* recipient, `to:` searches won't match it, making this tag the only reliable handle for "what came from the archive"
+
+      --drop-label <LABEL_ID>
+          Drops this label id from a message's replayed system-label set (applied after the system-label filter). Repeatable — e.g. `--drop-label INBOX --drop-label UNREAD` restores mail as already-read and archived rather than dumping it into a live Inbox
+
+      --concurrency <CONCURRENCY>
+          Bounds concurrent inserts. Clamped to `1..=gmail::messages_api::MAX_CONCURRENCY`
+          
+          [default: 4]
+
+      --verify-remote
+          Before inserting, probes the destination for a message already carrying the same `Message-ID` (`rfc822msgid:` search) and skips it on a hit. A supplement to the local ledger, not a substitute — the probe costs quota and a round-trip per message and can lag a recent insert by seconds to minutes; useful mainly for a first run into a mailbox that may already hold some of this mail, or as a recovery probe after losing the ledger
+
+      --dry-run
+          Reports what would be inserted without making any `messages.insert` call or writing the ledger
+
+      --quiet
+          Only shows errors, suppresses per-message action lines and the live progress bar
+
+  -o, --output <OUTPUT>
+          Report format
+
+          Possible values:
+          - table: Human-readable table
+          - json:  JSON
+          - yaml:  YAML (single document)
+          - yamls: YAML stream (`---`-separated multi-document)
+          - jsonl: JSON Lines: one compact JSON object per line, streaming-friendly
+          
+          [default: table]
+
+  -h, --help
+          Print help (see a summary with '-h')

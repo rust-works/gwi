@@ -167,7 +167,7 @@ pub(crate) fn discover_client_secret_file(
         "No client_secret.json found. Tried $GMAIL_CLIENT_SECRET_FILE, \
          ~/.config/gws/client_secret.json, and \
          ~/Downloads/client_secret_*.apps.googleusercontent.com.json.\n\
-         Pass an explicit path instead: `omni-dev gmail auth import <PATH>` \
+         Pass an explicit path instead: `gwi gmail auth import <PATH>` \
          (see docs/gmail.md)."
     ))
 }

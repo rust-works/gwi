@@ -1,4 +1,4 @@
-//! CLI command for `omni-dev gmail draft create` (#1923).
+//! CLI command for `gwi gmail draft create` (#1923).
 
 use std::io::{IsTerminal, Read, Write};
 use std::path::{Path, PathBuf};

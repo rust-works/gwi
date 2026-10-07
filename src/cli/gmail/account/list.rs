@@ -1,4 +1,4 @@
-//! CLI command for `omni-dev gmail account list`.
+//! CLI command for `gwi gmail account list`.
 
 use std::io::Write;
 
@@ -46,7 +46,7 @@ fn render_account_table(accounts: &[AccountSummary], out: &mut dyn Write) -> Res
     if accounts.is_empty() {
         writeln!(
             out,
-            "No named Gmail accounts configured. Run `omni-dev gmail auth login --account <name>` \
+            "No named Gmail accounts configured. Run `gwi gmail auth login --account <name>` \
              to create one."
         )
         .context("Failed to write empty-table message")?;

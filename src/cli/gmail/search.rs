@@ -1,4 +1,4 @@
-//! CLI command for `omni-dev gmail search`.
+//! CLI command for `gwi gmail search`.
 
 use std::io::Write;
 
@@ -31,8 +31,8 @@ pub struct SearchCommand {
     #[arg(long)]
     pub query: String,
 
-    /// Maximum results to return. `0` means "fetch every match" (capped, like
-    /// Datadog's log/event search, at a hard ceiling to bound run time and quota).
+    /// Maximum results to return. `0` means "fetch every match" (capped at a
+    /// hard ceiling to bound run time and quota).
     #[arg(long, default_value_t = DEFAULT_SEARCH_LIMIT)]
     pub limit: usize,
 
@@ -44,8 +44,7 @@ pub struct SearchCommand {
     pub enrich: bool,
 
     /// Bounds concurrent `messages.get` calls when `--enrich` is set (has
-    /// no effect otherwise). Modelled on `confluence download`'s
-    /// `--concurrency`. Clamped to 1..=5, based on a 100-units/second pacing
+    /// no effect otherwise). Clamped to 1..=5, based on a 100-units/second pacing
     /// budget and 20 units per get. Bounds fan-out, not request rate.
     #[arg(long, default_value_t = DEFAULT_ENRICH_CONCURRENCY)]
     pub concurrency: usize,
