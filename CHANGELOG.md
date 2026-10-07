@@ -16,6 +16,9 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   (rust-works/omni-dev#2203) with its history; the unreleased code is only available from
   source until the first Gmail release.
 - A global `--profile` flag selecting a credential profile from `~/.gwi/settings.json`.
+- Gmail documentation: the reference ([docs/gmail.md](docs/gmail.md)) and quickstart carried
+  over from omni-dev and rewritten for `gwi` commands, `~/.gwi` and `GWI_*`, plus the Gmail
+  design records (ADR-0063 to ADR-0068 and ADR-0079) with their numbers kept.
 - `gwi-mcp`, an MCP server (built with the `mcp` feature) exposing the eight read-only
   Gmail tools (`gmail_auth_status`, `gmail_account_list`, `gmail_search`,
   `gmail_message_read`, `gmail_thread_read`, `gmail_label_list`, `gmail_draft_list`,

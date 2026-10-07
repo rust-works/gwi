@@ -41,7 +41,7 @@ directly — the client id/secret are saved to `settings.json` without ever
 passing through your shell:
 
 ```bash
-omni-dev gmail auth import
+gwi gmail auth import
 ```
 
 (Discovery finds the file automatically if it's still in `~/Downloads`;
@@ -59,7 +59,7 @@ verification review is required below 100 test users.
 ## 3. Log in — and tick the Gmail permission
 
 ```bash
-omni-dev gmail auth login
+gwi gmail auth login
 ```
 
 This opens a browser to Google's consent screen. **The Gmail permission is
@@ -77,13 +77,13 @@ Pass `--modify` instead if you also want to change the mailbox —
 needed for sync:
 
 ```bash
-omni-dev gmail auth login --modify
+gwi gmail auth login --modify
 ```
 
 ## 4. Verify — before you attempt a sync
 
 ```bash
-omni-dev gmail auth status
+gwi gmail auth status
 ```
 
 Expect something like:
@@ -113,7 +113,7 @@ than your whole account, so a first pass finishes in seconds and you can
 sanity-check the output before committing to a full run:
 
 ```bash
-omni-dev gmail sync --output-dir ~/mail-archive --query 'label:finance' --dry-run
+gwi gmail sync --output-dir ~/mail-archive --query 'label:finance' --dry-run
 ```
 
 `--dry-run` reports every action `sync` *would* take without writing a
@@ -123,7 +123,7 @@ query you chose.
 ## 6. Run it for real, with attachments extracted
 
 ```bash
-omni-dev gmail sync --output-dir ~/mail-archive --query 'label:finance' --extract-attachments
+gwi gmail sync --output-dir ~/mail-archive --query 'label:finance' --extract-attachments
 ```
 
 Drop `--query` to archive the whole mailbox instead. A first sync of a
@@ -161,10 +161,8 @@ are documented in [gmail.md#sync](gmail.md#sync).
 
 - **Full Gmail reference** — [gmail.md](gmail.md): every subcommand
   (search, read, threads, labels), rate limits, and troubleshooting.
-- **User Guide overview** —
-  [user-guide.md#gmail-integration](user-guide.md#gmail-integration).
 - **MCP tools** — every read-only Gmail subcommand has a matching
-  `gmail_*` MCP tool: [mcp.md#gmail-8-tools](mcp.md#gmail-8-tools).
+  `gmail_*` MCP tool: see [the MCP server](../README.md#mcp-server).
 
 ## Troubleshooting quick links
 
