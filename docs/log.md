@@ -1,9 +1,5 @@
 # Request and audit logs
 
-> Issue numbers such as `#1664` in this document are
-> [omni-dev](https://github.com/rust-works/omni-dev/issues) issues, where the logging and
-> Drive code was written; gwi's own issues are linked with `rust-works/gwi`.
-
 gwi keeps two local, append-only JSON Lines files and ships a `gwi log` command to search and
 pretty-print them:
 
@@ -11,7 +7,7 @@ pretty-print them:
 |---|---|---|
 | File | `log.jsonl` | `audit.jsonl` |
 | Records | One `invocation` record per run, one `http` record per outbound request, and the Drive mutation attempts | The leased-write lifecycle and refusal trail |
-| On a write failure | Swallowed; the command's exit code is unaffected | Propagated: an operation whose audit record cannot be written does not happen |
+| On a write failure | Swallowed; the command's exit code is unaffected | The write-ahead record of a leased write is fail-closed: if it cannot be written the write does not happen. The other audit records are best effort (see [Audit log](#audit-log)) |
 | `GWI_LOG_DISABLE=1` | Suppresses all writes | No effect |
 | Rotation (`GWI_LOG_MAX_SIZE`) and `gwi log prune` | Applies | Never applies; `gwi log prune --audit` is refused |
 | Path override | `GWI_LOG_FILE` | `GWI_AUDIT_LOG_FILE` |
@@ -191,8 +187,11 @@ ordinary `drivemutation` record in `log.jsonl`, correlated to its `audit` record
 shared `invocation_id`.
 
 Where `log.jsonl` is best effort, prunable and can be disabled outright, `audit.jsonl` is
-**fail-closed** ([ADR-0080](adrs/adr-0080.md) §11): an operation whose write-ahead audit
-record cannot be written does not happen. Each line is `fsync`ed (and the directory too, when
+**fail-closed** where it matters ([ADR-0080](adrs/adr-0080.md) §11): a leased write whose
+write-ahead `pending` record cannot be written does not happen. The other audit records (the
+refusals, the outcome that follows a write, and the `lease acquire`, `restore`, `release` and
+`prune` events) are best effort, because the mutation they describe has already happened or
+never will. Each line is `fsync`ed (and the directory too, when
 the file is new) before the mutating call it precedes, which `GWI_LOG_DISABLE` cannot skip.
 The file is exempt from `GWI_LOG_MAX_SIZE` rotation however `GWI_LOG_FILE` is spelled, and
 `gwi log prune` refuses it, whether through `--audit` or through a `GWI_LOG_FILE` that
@@ -208,7 +207,7 @@ native-document backup), `backup_sha256`, `backup_size`, `auth_policy` (`device-
 record's `error`.
 
 `command` is `["drive", "<verb>"]` with the same operation name as the matching
-`drivemutation` record, so `--query 'command:sheets-delete-sheet'` matches both files.
+`drivemutation` record, so `--query 'command:"drive sheets-delete-sheet"'` matches both files.
 
 **`drive lease acquire`** writes one record per attempt, `command: ["drive",
 "lease-acquire"]`, whatever the outcome. `verdict` is `acquired`, `acquired-headless-waiver`
@@ -274,7 +273,7 @@ filter given. A search flag placed before `prune` is refused rather than silentl
 | `--method <METHOD>` | HTTP method, case-insensitive. |
 | `--status <STATUS>` | An exact code (`200`), a class (`5xx`), a comma list (`4xx,5xx`), a comparison (`>=400`), or a `drivemutation` status such as `blocked` (exact, case-insensitive; a comma list is accepted). The same values as `status:` in `--query`. |
 | `--service <NAME>` | The service tag: `gmail` or `drive`. |
-| `--command <PATH>` | Resolved command-path prefix on whole segments, for example `"gmail read"`. |
+| `--command <PATH>` | Resolved command-path prefix on whole segments, from the first, for example `"gmail read"` or `"drive sheets-write"` (a Drive record's path starts with `drive`). |
 | `--url <SUBSTR>` | Substring of the request URL. |
 | `--grep <REGEX>` | Regular expression against the raw JSON line. |
 | `--fuzzy <TOKEN>` | Substring of the raw line; repeatable, AND-ed. |
@@ -314,8 +313,10 @@ from the top of the new file.
   comparator: `>`, `>=`, `<`, `<=`, or a bare `=` or number for equality. A record without
   the field never matches.
 - **Text fields** (`url`, `hostname`, `system_user`, `cwd`, `auth_principal`, `error`) match a
-  case-insensitive substring. `service`, `method`, `kind` and `source` match exactly,
-  ignoring case.
+  case-insensitive substring. `service`, `method`, `kind`, `source` and `mcp_tool` match
+  exactly, ignoring case. `command` is a prefix of the whole path, on whole segments, so
+  a Drive record is `command:"drive sheets-write"` and not `command:sheets-write`.
+  `via_daemon` is true only for `1`, `true` or `yes`.
 - **Context fields.** Any other field name falls back to the record's `context` map
   (case-insensitive substring), so `file_id:<id>`, `decided_by_folder_id:<id>`,
   `verdict:acquired` and `lease_id:<token>` all work. A fallback cannot tell a typo from a
@@ -330,7 +331,7 @@ from the top of the new file.
 
 ```bash
 gwi log --query 'kind:http AND (status:5xx OR method:POST)'
-gwi log --query 'service:drive -status:2xx'              # drive requests that did not 2xx
+gwi log --query 'kind:http service:drive -status:2xx'    # drive requests that did not 2xx
 gwi log --query 'elapsed:>1000'                          # requests slower than a second
 gwi log --query 'kind:invocation exit_code:>0'           # failed runs
 gwi log --query 'kind:drivemutation status:blocked'      # writes the gate refused
