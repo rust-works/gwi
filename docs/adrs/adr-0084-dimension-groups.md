@@ -138,7 +138,7 @@ since a dimension group carries none.
   `delete-dimension-group` over the group's exact original span followed
   by a fresh `add-dimension-group` over the new, narrower span.
 - **Sync obligation.** `docs/drive.md` documents the four new verbs and
-  the `sheets-structure` row's expanded scope; [omni-dev docs/log.md](https://github.com/rust-works/omni-dev/blob/main/docs/log.md) documents the
+  the `sheets-structure` row's expanded scope; [docs/log.md](../log.md) documents the
   new `sheets-add-dimension-group`/`sheets-update-dimension-group`/
   `sheets-delete-dimension-group` operations and the reused
   `dimension_range`/`fields_changed` context fields. Keep both in sync

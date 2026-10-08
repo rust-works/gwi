@@ -4588,9 +4588,10 @@ lease-gated writes and refusals that follow. A restore records both the fresh le
 it restored from. See [ADR-0080](adrs/adr-0080.md) §11 for the verdicts and why this file is
 exempt from every growth bound. Read it with `gwi log --audit`.
 
-The field-by-field record schema is in omni-dev's
-[log reference](https://github.com/rust-works/omni-dev/blob/main/docs/log.md#what-gets-recorded);
-gwi's records use the same schema, and gwi has no log reference of its own yet.
+The field-by-field record schema, every environment variable, the `--query` language, the
+audit verdicts and the redaction rules are in the [log reference](log.md); the
+`drivemutation` context keys are under
+[The `drivemutation` record](log.md#the-drivemutation-record).
 
 ### Reading and pruning
 
