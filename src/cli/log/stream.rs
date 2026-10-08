@@ -490,7 +490,7 @@ mod tests {
 
         // The backlog scan, as `run` does it with `--follow`.
         let file = File::open(&path).unwrap();
-        let id = file_id(&file.metadata().unwrap());
+        let id = file_id(&file);
         let mut reader = BufReader::new(file);
         let mut backlog = Vec::new();
         let Backlog::Complete(pos) = emit_backlog(
