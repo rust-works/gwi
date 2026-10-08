@@ -204,7 +204,8 @@ fn drain_appended<W: Write>(
     };
     // Identity and length come from the handle that is read, not from the path.
     let meta = file.metadata().ok();
-    let id = meta.as_ref().and_then(file_id);
+    // A failed `fstat` says nothing about replacement, so keep the saved identity.
+    let id = meta.as_ref().map_or(tail.id, file_id);
     let len = meta.map_or(tail.pos, |m| m.len());
     if id != tail.id || len < tail.pos {
         tail.pos = 0; // replaced, truncated or rotated — restart
