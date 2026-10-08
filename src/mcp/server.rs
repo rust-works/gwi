@@ -183,28 +183,23 @@ mod tests {
     }
 
     /// ADR-0001 / omni-dev#1920: Gmail send and delete are not MCP tools, and no
-    /// tool of either service trashes or deletes. The only tools that change
-    /// anything are the Drive write tools, each behind the write gate.
+    /// tool of either service trashes or deletes. The tools that change anything
+    /// are exactly the six Drive write tools, each behind the write gate:
+    /// `tool_router_lists_exactly_the_gmail_and_drive_tools` pins the full set, so
+    /// a new tool needs an edit to `DRIVE_WRITE_TOOLS` or the read lists to pass.
     #[test]
-    fn only_the_gated_drive_write_tools_can_change_anything() {
-        const MUTATING_WORDS: [&str; 12] = [
-            "send", "delete", "trash", "untrash", "upload", "create", "rename", "move", "copy",
-            "write", "append", "replace",
-        ];
+    fn no_tool_can_send_delete_or_trash_and_the_write_tools_are_pinned() {
         for tool in GwiServer::new().tool_router.list_all() {
             let name = tool.name.to_string();
             assert!(
                 !name.contains("send") && !name.contains("delete") && !name.contains("trash"),
                 "unexpected mutating tool: {name}"
             );
-            let mutates = MUTATING_WORDS.iter().any(|w| name.contains(w))
-                || name.contains("clear")
-                || name.contains("lease");
-            assert_eq!(
-                mutates,
-                DRIVE_WRITE_TOOLS.contains(&name.as_str()),
-                "{name}: mutating tools must be exactly the gated Drive write tools"
-            );
+        }
+        assert_eq!(DRIVE_WRITE_TOOLS.len(), 6);
+        let server = GwiServer::new();
+        for name in DRIVE_WRITE_TOOLS {
+            assert!(server.tool_router.has_route(name), "missing route: {name}");
         }
     }
 }

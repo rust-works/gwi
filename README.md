@@ -71,7 +71,9 @@ The 15 Drive tools are:
   write gate: the folder permission rules in `settings.json` must allow the target, and a
   write lease (from `drive_lease_acquire` or `gwi drive lease acquire`) is required unless
   the call is a dry run or the rule says `require_lease: false`. Acquiring a lease prompts
-  for device-owner authentication (Touch ID or the account password). The consent policy
+  for device-owner authentication (Touch ID or the account password), which exists on macOS
+  only: elsewhere `drive_lease_acquire` fails unless the operator has set `allow_headless`
+  in `settings.json`. The consent policy
   (`allow_headless`, `biometrics_only`), the ledger path and the permission rules cannot be
   set from a tool call. No MCP tool can create, move, rename, trash or delete a file, and
   the interactive `gwi drive auth login` is CLI-only too.

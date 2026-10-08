@@ -1371,7 +1371,7 @@ Adding or modifying MCP tools, resources, or supporting types under `src/mcp/`.
 
 2. **One tool router per module.** Group related tools in their own submodule
    and expose the router via `#[tool_router(router = name_tool_router, vis = "pub")]`
-   (see [src/mcp/git_tools.rs](../src/mcp/git_tools.rs)). `OmniDevServer::new`
+   (see [src/mcp/drive_tools.rs](../src/mcp/drive_tools.rs)). `GwiServer::new`
    combines all routers — add a new module there rather than cramming tools
    into an existing router.
 
