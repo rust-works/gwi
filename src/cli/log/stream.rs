@@ -133,7 +133,7 @@ pub fn run(
                 }
                 Backlog::ReaderGone => return Ok(()),
             }
-            warn_unknown_fields(filter, follow);
+            warn_unmatched_terms(filter, follow);
         }
         Err(e) if e.kind() == io::ErrorKind::NotFound => {
             if !follow {
@@ -173,15 +173,19 @@ fn warn_skipped(path: &Path, skipped: usize) {
     }
 }
 
-/// Prints the filter's unknown-field warnings to stderr, once the backlog has
+/// Prints the filter's unmatched-term warnings to stderr, once the backlog has
 /// been scanned: a query field that is no built-in name and appears in no
-/// record's `context` would otherwise just match nothing. Stderr only, so the
-/// output stays machine-readable and the exit code is unchanged. While
-/// following, the warning is not revised if the field turns up later, so it
-/// says "so far".
-fn warn_unknown_fields(filter: &Filter, following: bool) {
+/// record's `context`, or a status word that no `drivemutation` record has,
+/// would otherwise just match nothing. Stderr only, so the output stays
+/// machine-readable and the exit code is unchanged. While following, a warning
+/// is not revised if the field or status turns up later, so it says "so far".
+fn warn_unmatched_terms(filter: &Filter, following: bool) {
     let mut err = io::stderr().lock();
-    for warning in filter.unknown_field_warnings(following) {
+    let warnings = filter
+        .unknown_field_warnings(following)
+        .into_iter()
+        .chain(filter.unseen_status_warnings(following));
+    for warning in warnings {
         // Best effort: a closed stderr must not fail the search.
         let _ = writeln!(err, "{warning}");
     }

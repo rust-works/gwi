@@ -13,6 +13,10 @@
 //! record's free-form `context` map. That fallback cannot tell a typo from a
 //! real context key, so the [`Filter`] watches which context keys it sees and
 //! [`Filter::unknown_field_warnings`] reports the ones that matched nothing.
+//! Likewise a domain status word (`--status blokced`, `status:blokced`) is
+//! free-form text that cannot be checked up front, so the [`Filter`] watches the
+//! statuses of the `drivemutation` records it sees and
+//! [`Filter::unseen_status_warnings`] reports the words that no record has.
 
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
@@ -53,6 +57,7 @@ pub struct Filter {
     id: Option<String>,
     queries: Vec<Expr>,
     watch: RefCell<FieldWatch>,
+    status_watch: RefCell<StatusWatch>,
 }
 
 impl Filter {
@@ -80,6 +85,7 @@ impl Filter {
             queries.push(parse_query(q).with_context(|| format!("invalid --query: {q}"))?);
         }
         let watch = FieldWatch::new(&queries);
+        let status_watch = StatusWatch::new(status.as_ref(), &queries);
         Ok(Self {
             since,
             until,
@@ -93,6 +99,7 @@ impl Filter {
             id: input.id.map(str::to_string),
             queries,
             watch: RefCell::new(watch),
+            status_watch: RefCell::new(status_watch),
         })
     }
 
@@ -106,9 +113,20 @@ impl Filter {
         self.watch.borrow().warnings(following)
     }
 
+    /// One warning per domain status word (`blocked`, from `--status` or a
+    /// `status:` term) that is the `context.status` of none of the
+    /// `drivemutation` records scanned, with a suggestion when it is a near miss
+    /// of a status that was seen. Empty when no `drivemutation` record was
+    /// scanned (there is nothing to judge against) or every word was seen. With
+    /// `following`, the warning says the word matched nothing *so far*.
+    pub fn unseen_status_warnings(&self, following: bool) -> Vec<String> {
+        self.status_watch.borrow().warnings(following)
+    }
+
     /// Whether `rec` (whose verbatim JSON line is `raw`) passes every clause.
     pub fn matches(&self, rec: &LogRecord, raw: &str) -> bool {
         self.watch.borrow_mut().observe(rec);
+        self.status_watch.borrow_mut().observe(rec);
 
         // Only the fuzzy and query clauses read the lowercased line, so skip the
         // copy for the common structured-flag-only search.
@@ -286,6 +304,14 @@ impl StatusFilter {
         }
     }
 
+    /// The domain status words this filter looks for, if it is one.
+    fn domain_words(&self) -> Vec<&str> {
+        match self {
+            Self::Domain(spec) => status_words(spec).collect(),
+            Self::Codes(_) | Self::Compare(_) => Vec::new(),
+        }
+    }
+
     /// Whether `rec` passes: the same answer `status:<spec>` gives.
     fn matches(&self, rec: &LogRecord) -> bool {
         match self {
@@ -294,6 +320,11 @@ impl StatusFilter {
             Self::Domain(spec) => domain_status_matches(rec, spec),
         }
     }
+}
+
+/// The trimmed, non-empty words of a comma-separated domain status spec.
+fn status_words(spec: &str) -> impl Iterator<Item = &str> {
+    spec.split(',').map(str::trim).filter(|w| !w.is_empty())
 }
 
 /// Whether a `drivemutation` record's domain status (`context["status"]`) is
@@ -512,6 +543,27 @@ impl Expr {
             Self::Field(..) | Self::Term(_) => {}
         }
     }
+
+    /// Appends every domain status word of a `status:` term as `(word, term)`.
+    /// A value that does not start with a letter is a code, class or comparison
+    /// (`5xx`, `>=400`), not a domain status, as for `--status`.
+    fn collect_status_terms<'a>(&'a self, out: &mut Vec<(&'a str, String)>) {
+        match self {
+            Self::And(a, b) | Self::Or(a, b) => {
+                a.collect_status_terms(out);
+                b.collect_status_terms(out);
+            }
+            Self::Not(a) => a.collect_status_terms(out),
+            Self::Field(f, v)
+                if f.eq_ignore_ascii_case("status")
+                    && v.trim_start()
+                        .starts_with(|c: char| c.is_ascii_alphabetic()) =>
+            {
+                out.extend(status_words(v).map(|w| (w, format!("status:{w}"))));
+            }
+            Self::Field(..) | Self::Term(_) => {}
+        }
+    }
 }
 
 /// Tracks, while records are scanned, whether each `context`-fallback query
@@ -587,15 +639,101 @@ impl FieldWatch {
     }
 }
 
+/// Tracks, while records are scanned, which domain statuses the `drivemutation`
+/// records carry, so a typo'd `--status` / `status:` word (which otherwise
+/// matches nothing without a word) can be reported afterwards. The statuses are
+/// free-form text, so a word is only judged against what was actually seen.
+struct StatusWatch {
+    /// Words not yet seen as any record's status, keyed by lowercased word,
+    /// with the flag or term that used each first, for the message.
+    unseen: BTreeMap<String, String>,
+    /// Every status seen so far (lowercased); the pool for "did you mean".
+    seen: BTreeSet<String>,
+    /// `drivemutation` records scanned.
+    mutations: u64,
+}
+
+impl StatusWatch {
+    fn new(status: Option<&StatusFilter>, queries: &[Expr]) -> Self {
+        let mut unseen = BTreeMap::new();
+        let flag = status.map(StatusFilter::domain_words).unwrap_or_default();
+        for word in flag {
+            unseen
+                .entry(word.to_ascii_lowercase())
+                .or_insert_with(|| format!("--status {word}"));
+        }
+        let mut terms = Vec::new();
+        for q in queries {
+            q.collect_status_terms(&mut terms);
+        }
+        for (word, term) in terms {
+            unseen.entry(word.to_ascii_lowercase()).or_insert(term);
+        }
+        Self {
+            unseen,
+            seen: BTreeSet::new(),
+            mutations: 0,
+        }
+    }
+
+    fn observe(&mut self, rec: &LogRecord) {
+        if self.unseen.is_empty() || rec.kind != RecordKind::DriveMutation {
+            return;
+        }
+        self.mutations += 1;
+        if let Some(status) = rec.context.get("status") {
+            let status = status.to_ascii_lowercase();
+            self.unseen.remove(&status);
+            self.seen.insert(status);
+        }
+    }
+
+    fn warnings(&self, following: bool) -> Vec<String> {
+        if self.mutations == 0 {
+            return Vec::new();
+        }
+        let scanned = if self.mutations == 1 {
+            "the 1 drivemutation record scanned".to_string()
+        } else {
+            format!(
+                "any of the {} drivemutation records scanned",
+                self.mutations
+            )
+        };
+        let so_far = if following { " so far" } else { "" };
+        self.unseen
+            .iter()
+            .map(|(word, term)| {
+                let hint = match nearest(word, self.seen.iter().map(String::as_str)) {
+                    Some(status) => format!(" Did you mean `{status}`?"),
+                    None => String::new(),
+                };
+                format!(
+                    "warning: no status `{word}` in {scanned}, so `{term}` matches nothing{so_far}.{hint}"
+                )
+            })
+            .collect()
+    }
+}
+
 /// The closest built-in field or seen `context` key to `field`, if one is within
 /// a small edit distance (so `servce` suggests `service`).
 fn suggest<'a>(field: &str, keys: &'a BTreeSet<String>) -> Option<&'a str> {
-    let max = if field.len() <= 4 { 1 } else { 2 };
-    BUILTIN_FIELDS
-        .iter()
-        .copied()
-        .chain(keys.iter().map(String::as_str))
-        .map(|candidate| (edit_distance(field, candidate), candidate))
+    nearest(
+        field,
+        BUILTIN_FIELDS
+            .iter()
+            .copied()
+            .chain(keys.iter().map(String::as_str)),
+    )
+}
+
+/// The candidate closest to `word`, if one is within a small edit distance and
+/// not identical to it.
+fn nearest<'a>(word: &str, candidates: impl Iterator<Item = &'a str>) -> Option<&'a str> {
+    let max = if word.len() <= 4 { 1 } else { 2 };
+    candidates
+        .map(|candidate| (edit_distance(word, candidate), candidate))
         .filter(|&(d, _)| (1..=max).contains(&d))
         .min_by_key(|&(d, _)| d)
         .map(|(_, candidate)| candidate)
@@ -1493,6 +1631,100 @@ mod tests {
         f.matches(&drive_rec("blocked"), "{}");
         assert!(f.unknown_field_warnings(true)[0].contains("matches nothing so far."));
         assert!(f.unknown_field_warnings(false)[0].contains("matches nothing."));
+    }
+
+    fn status_warnings(status: Option<&str>, query: &[&str], recs: &[LogRecord]) -> Vec<String> {
+        let f = filter_for(status, query).unwrap();
+        for rec in recs {
+            f.matches(rec, "{}");
+        }
+        f.unseen_status_warnings(false)
+    }
+
+    #[test]
+    fn typo_status_warns_with_a_suggestion_for_flag_and_query() {
+        let recs = [drive_rec("blocked"), drive_rec("written")];
+        let flag = status_warnings(Some("blokced"), &[], &recs);
+        assert_eq!(flag.len(), 1, "{flag:?}");
+        assert!(flag[0].contains("`blokced`"), "{flag:?}");
+        assert!(flag[0].contains("--status blokced"), "{flag:?}");
+        assert!(
+            flag[0].contains("any of the 2 drivemutation records"),
+            "{flag:?}"
+        );
+        assert!(flag[0].contains("Did you mean `blocked`?"), "{flag:?}");
+
+        let query = status_warnings(None, &["status:Blokced"], &recs);
+        assert_eq!(query.len(), 1, "{query:?}");
+        assert!(query[0].contains("`status:Blokced`"), "{query:?}");
+        assert!(query[0].contains("Did you mean `blocked`?"), "{query:?}");
+    }
+
+    #[test]
+    fn the_same_unseen_status_word_warns_once() {
+        let recs = [drive_rec("blocked")];
+        let w = status_warnings(Some("blokced"), &["status:BLOKCED"], &recs);
+        assert_eq!(w.len(), 1, "{w:?}");
+        assert!(w[0].contains("--status blokced"), "{w:?}");
+    }
+
+    #[test]
+    fn an_absent_but_valid_status_warns_without_a_suggestion() {
+        let w = status_warnings(Some("blocked"), &[], &[drive_rec("written")]);
+        assert_eq!(w.len(), 1, "{w:?}");
+        assert!(w[0].contains("the 1 drivemutation record scanned"), "{w:?}");
+        assert!(!w[0].contains("Did you mean"), "{w:?}");
+    }
+
+    #[test]
+    fn no_drivemutation_record_scanned_stays_quiet() {
+        assert!(status_warnings(Some("blokced"), &[], &[]).is_empty());
+        assert!(status_warnings(Some("blokced"), &[], &[rec_http()]).is_empty());
+        assert!(status_warnings(None, &["status:blokced"], &[rec_http()]).is_empty());
+    }
+
+    #[test]
+    fn a_status_seen_in_any_record_stops_the_warning() {
+        let recs = [rec_http(), drive_rec("written"), drive_rec("BLOCKED")];
+        assert!(status_warnings(Some("blocked"), &[], &recs).is_empty());
+        assert!(status_warnings(None, &["status:Blocked"], &recs).is_empty());
+    }
+
+    #[test]
+    fn a_status_list_warns_only_for_the_missing_words() {
+        let recs = [drive_rec("written")];
+        let w = status_warnings(Some("written, blokced"), &[], &recs);
+        assert_eq!(w.len(), 1, "{w:?}");
+        assert!(w[0].contains("`blokced`"), "{w:?}");
+    }
+
+    #[test]
+    fn numeric_statuses_and_other_fields_are_not_watched() {
+        let recs = [drive_rec("written")];
+        for status in ["200", "5xx", "4xx,5xx", ">=400"] {
+            assert!(
+                status_warnings(Some(status), &[], &recs).is_empty(),
+                "{status}"
+            );
+            let q = format!("status:{status}");
+            assert!(status_warnings(None, &[&q], &recs).is_empty(), "{q}");
+        }
+        assert!(status_warnings(None, &["verdict:blokced \"status:blokced\""], &recs).is_empty());
+    }
+
+    #[test]
+    fn a_negated_or_nested_status_term_is_watched() {
+        let recs = [drive_rec("written")];
+        let w = status_warnings(None, &["service:drive OR NOT (status:blokced)"], &recs);
+        assert_eq!(w.len(), 1, "{w:?}");
+    }
+
+    #[test]
+    fn following_status_warnings_say_so_far() {
+        let f = filter_for(Some("blokced"), &[]).unwrap();
+        f.matches(&drive_rec("blocked"), "{}");
+        assert!(f.unseen_status_warnings(true)[0].contains("matches nothing so far."));
+        assert!(f.unseen_status_warnings(false)[0].contains("matches nothing."));
     }
 
     #[test]
