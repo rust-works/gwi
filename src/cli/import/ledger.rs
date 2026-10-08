@@ -894,13 +894,14 @@ mod tests {
     #[test]
     fn an_unopenable_source_lock_falls_back_to_reading_without_it() {
         use std::os::unix::fs::PermissionsExt;
+
+        // Root can still open the 0o400 lock for writing, so the permission cannot bite.
+        crate::test_support::skip_as_root!();
+
         let (_dir, source, target) = setup();
         let lock = lock_path_for(&source);
         std::fs::write(&lock, "").unwrap();
         std::fs::set_permissions(&lock, std::fs::Permissions::from_mode(0o400)).unwrap();
-        if std::fs::OpenOptions::new().write(true).open(&lock).is_ok() {
-            return; // running as root: the permission cannot be made to bite
-        }
 
         let (result, report) = import(&source, &target, false, false);
 

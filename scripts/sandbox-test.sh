@@ -12,10 +12,19 @@
 # GWI_SANDBOXED=1 enables tests/sandbox_test.rs, which checks the isolation itself.
 #
 #   macOS  sandbox-exec with scripts/sandbox.sb, which makes /usr/bin/open unexecutable
-#   Linux  a new network namespace (sudo unshare --net) with only loopback up. The
-#          opener commands (xdg-open, open, gio, ...) resolve to stubs on PATH that
-#          record the call, and the run fails if any was made: the application ignores
-#          the opener's exit status, so a failing stub alone would not fail a test.
+#   Linux  a new user and network namespace (unshare -rn) with only loopback up. It needs
+#          neither sudo nor root, and works as root too. The opener commands (xdg-open,
+#          open, gio, ...) resolve to stubs on PATH that record the call, and the run
+#          fails if any was made: the application ignores the opener's exit status, so a
+#          failing stub alone would not fail a test.
+#
+# On Linux the run is uid 0 inside the namespace (-r maps the caller to root there), so the
+# tests that need file-permission enforcement skip themselves (skip_as_root! in
+# src/test_support.rs). The ordinary `cargo test` run covers them. Distributions that
+# restrict unprivileged user namespaces (Ubuntu 23.10+) need
+# `sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0`, or run this as root, which
+# needs only a network namespace (unshare -n) and so no user namespace.
+# Inside a container, `unshare` is blocked by the default seccomp profile: use `--privileged`.
 #
 # The sandbox is the backstop, not the guarantee. Every browser launch in the library goes
 # through src/utils/browser_launch.rs, which panics in a unit test that has not installed a
@@ -39,11 +48,9 @@ case "$(uname -s)" in
     opener=/usr/bin/open
     ;;
   Linux)
-    [ "$(id -u)" -ne 0 ] || { echo "run as an unprivileged user: the tests assume non-root file permissions" >&2; exit 2; }
-    for tool in sudo unshare setpriv ip; do
+    for tool in unshare ip; do
       command -v "$tool" >/dev/null || { echo "$tool not found" >&2; exit 2; }
     done
-    sudo -n true 2>/dev/null || { echo "passwordless sudo is needed to create a network namespace" >&2; exit 2; }
     shim=$(mktemp -d)
     trap 'rm -rf "$shim"' EXIT
     calls="$shim/opener-calls"
@@ -51,12 +58,15 @@ case "$(uname -s)" in
       printf '#!/bin/sh\necho "%s $*" >>"%s"\nexit %s\n' "$name" "$calls" "$blocked" >"$shim/$name"
       chmod +x "$shim/$name"
     done
-    # A network namespace needs root. Create it with sudo, bring loopback up, then drop
-    # back to this user so file-permission tests behave as they do unsandboxed.
+    # A new network namespace is empty, loopback included. -r gives an unprivileged caller
+    # root inside a fresh user namespace, which is what lets it create the network one and
+    # bring lo up. Root has that already, and skipping the user namespace sidesteps the
+    # AppArmor restriction on creating one.
+    unshare_flags=-rn
+    [ "$(id -u)" -ne 0 ] || unshare_flags=-n
     sandboxed() {
-      sudo -n -E unshare --net env "PATH=$shim:$PATH" "HOME=$HOME" GWI_SANDBOXED=1 sh -c \
-        'uid=$1 gid=$2; shift 2; ip link set lo up && exec setpriv --reuid="$uid" --regid="$gid" --init-groups "$@"' \
-        sh "$(id -u)" "$(id -g)" "$@"
+      unshare "$unshare_flags" env "PATH=$shim:$PATH" GWI_SANDBOXED=1 sh -c \
+        'ip link set lo up && exec "$@"' sh "$@"
     }
     opener=xdg-open
     ;;
@@ -67,7 +77,11 @@ case "$(uname -s)" in
 esac
 
 # The sandbox itself must work, or the opener probe below would misreport it.
-sandboxed true || { echo "could not start the sandbox" >&2; exit 2; }
+sandboxed true || {
+  echo "could not start the sandbox" >&2
+  [ "$(uname -s)" != Linux ] || echo "unprivileged user namespaces may be restricted: see the header of $0" >&2
+  exit 2
+}
 
 # Refuse to report a pass from a sandbox that is not blocking the opener.
 status=0

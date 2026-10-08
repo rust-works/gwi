@@ -658,6 +658,10 @@ mod tests {
     async fn a_failed_lease_refresh_after_a_successful_write_does_not_fail_the_edit() {
         use std::os::unix::fs::PermissionsExt;
 
+        // Root bypasses the missing write permission this relies on, so the refresh would
+        // succeed and the test would pass without exercising the failed-refresh path.
+        crate::test_support::skip_as_root!();
+
         let server = wiremock::MockServer::start().await;
         let client = client_with_bootstrapped_token(&server).await;
         mount_file("file-1", "text/plain", &["parent-1"])

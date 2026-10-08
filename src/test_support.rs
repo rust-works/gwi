@@ -21,6 +21,31 @@
 /// own independent mutex) in issue #1465.
 pub(crate) static HOME_ENV_MUTEX: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
+/// Returns from the calling test when the process runs as root, which
+/// bypasses the file-permission checks (DAC) a test relies on: a `0o500`
+/// directory is still writable and a file root creates is root-owned. Put it
+/// first in any test that makes a path unwritable to force an I/O failure, with
+/// a comment saying what the test would otherwise pin. The ordinary `Test` job
+/// still runs those tests; `scripts/sandbox-test.sh` runs as root on Linux (a
+/// user namespace maps the caller to uid 0), so it skips them. A no-op off
+/// Unix, where nothing here is root-specific.
+#[cfg(unix)]
+macro_rules! skip_as_root {
+    () => {
+        if nix::unistd::geteuid().is_root() {
+            eprintln!("skipping: needs file-permission checks that root bypasses");
+            return;
+        }
+    };
+}
+
+#[cfg(not(unix))]
+macro_rules! skip_as_root {
+    () => {};
+}
+
+pub(crate) use skip_as_root;
+
 /// Redirects the audit log into an isolated tempdir for the life of one
 /// test — for this thread only, through `request_log::TEST_AUDIT_ROUTE`,
 /// not the process-global `GWI_AUDIT_LOG_FILE` — so it needs no lock

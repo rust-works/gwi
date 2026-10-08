@@ -723,6 +723,10 @@ fn check_unix_security(
 mod tests {
     use super::*;
     use crate::test_support::env::MapEnv;
+    // Root creates root-owned files, which `check_unix_security` accepts up to `0644`, so
+    // `SecretEnvError::LoosePermissions` is unreachable as root; the pure
+    // `check_unix_security` tests keep the owner/mode rule covered under any uid.
+    use crate::test_support::skip_as_root;
 
     const NAME: &str = "GMAIL_REFRESH_TOKEN";
     const FILE_VAR: &str = "GMAIL_REFRESH_TOKEN_FILE";
@@ -745,29 +749,6 @@ mod tests {
 
     #[cfg(not(unix))]
     fn set_mode(_path: &Path, _mode: u32) {}
-
-    /// Returns from the calling test when the process runs as root, whose
-    /// file-permission checks these tests cannot exercise: a file root creates
-    /// is root-owned, which [`check_unix_security`] accepts up to `0644`, so
-    /// [`SecretEnvError::LoosePermissions`] is unreachable; and root bypasses
-    /// DAC, so a `0o500` directory is still writable. The pure
-    /// `check_unix_security` tests keep the owner/mode rule covered under any
-    /// uid; the `stat` plumbing and the write paths are only exercised as a
-    /// normal user. A no-op off Unix, where nothing here is root-specific.
-    #[cfg(unix)]
-    macro_rules! skip_as_root {
-        () => {
-            if nix::unistd::geteuid().is_root() {
-                eprintln!("skipping: needs file-permission checks that root bypasses");
-                return;
-            }
-        };
-    }
-
-    #[cfg(not(unix))]
-    macro_rules! skip_as_root {
-        () => {};
-    }
 
     fn env_with_file(path: &Path) -> MapEnv {
         MapEnv::new().with(FILE_VAR, path.to_str().unwrap())
