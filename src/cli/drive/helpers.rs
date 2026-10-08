@@ -18,8 +18,7 @@ pub struct LeaseTokenArg {
     /// The lease token from `drive lease acquire`, required unless the
     /// deciding write-permission rule sets `require_lease: false` — a
     /// token presented anyway is still validated and consumed
-    /// ([ADR-0080](../../../docs/adrs/adr-0080.md) §1/§9/§13). Never
-    /// needed with `--dry-run`.
+    /// (ADR-0080 §1/§9/§13). Never needed with `--dry-run`.
     #[arg(long, value_name = "TOKEN")]
     pub lease: Option<String>,
 }
