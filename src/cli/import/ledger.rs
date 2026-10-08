@@ -1,0 +1,585 @@
+//! The Drive half of `gwi import`: copy omni-dev's lease ledger.
+//!
+//! gwi reads `<state_dir>/gwi/lease-ledger.jsonl` (ADR-0001 §2) and never omni-dev's
+//! `<state_dir>/omni-dev/lease-ledger.jsonl`, so without this a user switching tools
+//! loses the only record of which lease tokens are valid and which backups they point
+//! at. The rules mirror the settings import (see [`super`]):
+//!
+//! - It **copies**. The source ledger is only read: it is never rewritten, and nothing
+//!   is created beside it (no directory, no lock file).
+//! - It merges one lease (one token) at a time. A token gwi lacks is added; an identical
+//!   row is unchanged, so a second run changes nothing; a *different* row for the same
+//!   token (gwi has since written under it) is a conflict and is left alone unless
+//!   `--force` is given.
+//! - **Every row is copied, expired and released ones included.** The ledger keeps them
+//!   on purpose: `drive lease restore` finds a backup by token, and a restore is almost
+//!   always wanted after the expiry window (ADR-0080 §4).
+//! - **A live lease is carried over unchanged.** It stays valid in gwi until its absolute
+//!   expiry, and the file's `version` is still checked on every write, so a write made
+//!   through the other tool is refused rather than overwritten. The two ledgers are
+//!   copies, not shared: releasing a lease in omni-dev does not release gwi's copy, which
+//!   is why the report warns about the live ones it carried.
+//! - Both ledgers' advisory locks are held while copying (omni-dev's only if its lock
+//!   file already exists, because taking a lock creates the file and the source must not
+//!   be touched). A dry run takes no lock and writes nothing.
+//! - No audit history is copied (ADR-0001 §3).
+//! - The report names tokens (identifiers, not credentials: ADR-0080 §2) and never a
+//!   backup path, hash or file id.
+
+use std::io::Write;
+use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant};
+
+use anyhow::{anyhow, Context, Result};
+use chrono::{DateTime, Utc};
+
+use super::Status;
+use crate::drive::lease::ledger::{
+    default_lock_wait_timeout, lock_path_for, LeaseLedger, LedgerLock,
+};
+use crate::utils::fs::{try_lock_or_busy, FileLock};
+
+/// How often a busy source lock is retried.
+const SOURCE_LOCK_POLL: Duration = Duration::from_millis(50);
+
+/// omni-dev's ledger: `<state_dir>/omni-dev/lease-ledger.jsonl`, beside gwi's own
+/// `<state_dir>/gwi/` and resolved the same way (`state_dir`, falling back to `data_dir`).
+pub(super) fn default_source_ledger() -> Result<PathBuf> {
+    let base = dirs::state_dir()
+        .or_else(dirs::data_dir)
+        .context("could not resolve the state/data directory for omni-dev's lease ledger")?;
+    Ok(base.join("omni-dev").join("lease-ledger.jsonl"))
+}
+
+/// What the merge did to one lease, and whether the lease was live when it arrived.
+#[derive(Debug, PartialEq, Eq)]
+struct Outcome {
+    token: String,
+    status: Status,
+    /// The row was copied in (added or overwritten) and can still authorise a write.
+    carried_live: bool,
+}
+
+/// Merges `source`'s rows into `target`, never replacing a differing row unless `force`.
+fn merge(
+    target: &mut LeaseLedger,
+    source: &LeaseLedger,
+    force: bool,
+    now: DateTime<Utc>,
+) -> Vec<Outcome> {
+    let mut outcomes = Vec::new();
+    for record in source.iter() {
+        let status = match target.get(&record.token) {
+            None => Status::Added,
+            Some(current) if current == record => Status::Unchanged,
+            Some(_) if force => Status::Overwritten,
+            Some(_) => Status::Conflict,
+        };
+        let copied = matches!(status, Status::Added | Status::Overwritten);
+        if copied {
+            target.insert(record.clone());
+        }
+        outcomes.push(Outcome {
+            token: record.token.clone(),
+            status,
+            carried_live: copied && record.is_live(now),
+        });
+    }
+    outcomes
+}
+
+/// Takes omni-dev's ledger lock if it has one, waiting up to `max_wait` for a holder.
+///
+/// `None` when the lock file does not exist: omni-dev creates it before it ever writes
+/// the ledger, so its absence means nothing is writing, and creating it here would
+/// modify the source. The ledger itself is replaced by rename, so a read without the
+/// lock still sees a whole file.
+fn lock_source(source: &Path, max_wait: Duration) -> Result<Option<FileLock>> {
+    let lock_path = lock_path_for(source);
+    if !lock_path.exists() {
+        return Ok(None);
+    }
+    let start = Instant::now();
+    loop {
+        if let Some(lock) = try_lock_or_busy(&lock_path, "omni-dev's lease lock file")? {
+            return Ok(Some(lock));
+        }
+        if start.elapsed() >= max_wait {
+            return Err(anyhow!(
+                "timed out after {max_wait:?} waiting for omni-dev to release its lease ledger \
+                 lock ({} is locked); retry once any running `omni-dev drive lease` command \
+                 has finished",
+                lock_path.display()
+            ));
+        }
+        std::thread::sleep(SOURCE_LOCK_POLL);
+    }
+}
+
+/// Imports the lease ledger at `source` into `target`, writing the report to `out`.
+///
+/// A missing source is not an error: most omni-dev users never leased a Drive write.
+/// Returns an error when the source is unusable, or when conflicts were left unresolved
+/// (after importing everything that could be imported safely).
+pub(super) fn run_ledger_import(
+    source: &Path,
+    target: &Path,
+    dry_run: bool,
+    force: bool,
+    out: &mut impl Write,
+) -> Result<()> {
+    run_ledger_import_waiting(
+        source,
+        target,
+        dry_run,
+        force,
+        default_lock_wait_timeout(),
+        out,
+    )
+}
+
+/// [`run_ledger_import`] with an explicit lock wait budget, the seam tests use to
+/// exercise a busy lock in milliseconds.
+fn run_ledger_import_waiting(
+    source: &Path,
+    target: &Path,
+    dry_run: bool,
+    force: bool,
+    lock_wait: Duration,
+    out: &mut impl Write,
+) -> Result<()> {
+    if !source.exists() {
+        writeln!(
+            out,
+            "No omni-dev lease ledger at {}; no leases to import (pass --source-ledger to \
+             point at one).",
+            source.display()
+        )?;
+        return Ok(());
+    }
+    writeln!(
+        out,
+        "Importing leases from {} into {}",
+        source.display(),
+        target.display()
+    )?;
+
+    // Source lock first, then gwi's: every import takes them in this order, and omni-dev
+    // never takes gwi's, so two imports cannot deadlock.
+    let _source_lock = if dry_run {
+        None
+    } else {
+        lock_source(source, lock_wait)?
+    };
+    let source_ledger = LeaseLedger::load(source)?;
+    if source_ledger.iter().next().is_none() {
+        writeln!(out, "Nothing to import: the source ledger holds no leases.")?;
+        return Ok(());
+    }
+    let _target_lock = if dry_run {
+        None
+    } else {
+        Some(LedgerLock::acquire_waiting_blocking_with_timeout(
+            target, lock_wait,
+        )?)
+    };
+    let mut target_ledger = LeaseLedger::load(target)?;
+    let outcomes = merge(&mut target_ledger, &source_ledger, force, Utc::now());
+
+    let count = |status: Status| outcomes.iter().filter(|o| o.status == status).count();
+    for outcome in &outcomes {
+        let note = if outcome.status == Status::Conflict {
+            "  (gwi has a different row; use --force)"
+        } else {
+            ""
+        };
+        writeln!(
+            out,
+            "  {:<11} lease {}{note}",
+            outcome.status.label(),
+            outcome.token
+        )?;
+    }
+    let live = outcomes.iter().filter(|o| o.carried_live).count();
+    if live > 0 {
+        writeln!(
+            out,
+            "warning: {live} live lease(s) were carried over and stay valid in gwi until they \
+             expire; the two ledgers are copies, so releasing a lease in omni-dev does not \
+             release gwi's (use `gwi drive lease release`)"
+        )?;
+    }
+    let conflicts = count(Status::Conflict);
+    writeln!(
+        out,
+        "{}{} added, {} overwritten, {} unchanged, {} conflict(s).",
+        if dry_run {
+            "Dry run, nothing written: "
+        } else {
+            ""
+        },
+        count(Status::Added),
+        count(Status::Overwritten),
+        count(Status::Unchanged),
+        conflicts,
+    )?;
+
+    if !dry_run && count(Status::Added) + count(Status::Overwritten) > 0 {
+        target_ledger.save(target)?;
+    }
+    if conflicts > 0 {
+        return Err(anyhow!(
+            "{conflicts} lease(s) were not imported because gwi already has a different row for \
+             the token; re-run with --force to overwrite them"
+        ));
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tests {
+    use super::*;
+    use crate::drive::lease::ledger::LeaseRecord;
+    use chrono::Duration as ChronoDuration;
+
+    /// A backup path that must never appear in a report.
+    const BACKUP_PATH: &str = "/Users/someone/backups/secret-looking-name.bin";
+
+    fn record(token: &str, expires_in_minutes: i64) -> LeaseRecord {
+        let json = serde_json::json!({
+            "token": token,
+            "file_id": "file-id-1",
+            "version": "3",
+            "modified_time": "2026-09-11T00:00:00Z",
+            "backup": {"kind": "bytes", "path": BACKUP_PATH, "sha256": "abc123", "size": 42},
+            "acquired_at": Utc::now() - ChronoDuration::minutes(1),
+            "expires_at": Utc::now() + ChronoDuration::minutes(expires_in_minutes),
+        });
+        serde_json::from_value(json).unwrap()
+    }
+
+    fn ledger_of(records: Vec<LeaseRecord>) -> LeaseLedger {
+        let mut ledger = LeaseLedger::default();
+        for record in records {
+            ledger.insert(record);
+        }
+        ledger
+    }
+
+    /// A source ledger holding a live, an expired and a released lease, and a target path.
+    fn setup() -> (tempfile::TempDir, PathBuf, PathBuf) {
+        let dir = tempfile::tempdir().unwrap();
+        let source = dir.path().join("omni-dev").join("lease-ledger.jsonl");
+        let target = dir.path().join("gwi").join("lease-ledger.jsonl");
+        let mut released = record("released", 10);
+        released.released_at = Some(Utc::now());
+        ledger_of(vec![record("live", 10), record("expired", -10), released])
+            .save(&source)
+            .unwrap();
+        (dir, source, target)
+    }
+
+    fn import(source: &Path, target: &Path, dry_run: bool, force: bool) -> (Result<()>, String) {
+        let mut out = Vec::new();
+        let result = run_ledger_import(source, target, dry_run, force, &mut out);
+        (result, String::from_utf8(out).unwrap())
+    }
+
+    fn tokens(path: &Path) -> Vec<String> {
+        LeaseLedger::load(path)
+            .unwrap()
+            .iter()
+            .map(|r| r.token.clone())
+            .collect()
+    }
+
+    #[test]
+    fn every_row_is_copied_including_expired_and_released_ones() {
+        let (_dir, source, target) = setup();
+
+        let (result, report) = import(&source, &target, false, false);
+
+        result.unwrap();
+        assert_eq!(tokens(&target), ["expired", "live", "released"]);
+        assert_eq!(
+            LeaseLedger::load(&target).unwrap().get("live"),
+            LeaseLedger::load(&source).unwrap().get("live"),
+            "a row must arrive unchanged"
+        );
+        for token in ["expired", "live", "released"] {
+            assert!(
+                report.contains(&format!("added       lease {token}")),
+                "{report}"
+            );
+        }
+        assert!(report.contains("3 added, 0 overwritten, 0 unchanged, 0 conflict(s)"));
+    }
+
+    #[test]
+    fn a_live_lease_is_carried_over_with_a_warning() {
+        let (_dir, source, target) = setup();
+
+        let (_, report) = import(&source, &target, false, false);
+
+        assert!(report.contains("warning: 1 live lease(s)"), "{report}");
+        let live = LeaseLedger::load(&target).unwrap();
+        assert!(live.get("live").unwrap().is_live(Utc::now()));
+    }
+
+    #[test]
+    fn expired_and_released_rows_alone_raise_no_warning() {
+        let (_dir, source, target) = setup();
+        let mut ledger = LeaseLedger::load(&source).unwrap();
+        ledger.remove("live");
+        ledger.save(&source).unwrap();
+
+        let (_, report) = import(&source, &target, false, false);
+
+        assert!(!report.contains("warning"), "{report}");
+    }
+
+    #[test]
+    fn a_second_run_changes_nothing() {
+        let (_dir, source, target) = setup();
+        import(&source, &target, false, false).0.unwrap();
+        let after_first = std::fs::read(&target).unwrap();
+
+        let (result, report) = import(&source, &target, false, false);
+
+        result.unwrap();
+        assert_eq!(std::fs::read(&target).unwrap(), after_first);
+        assert!(report.contains("0 added, 0 overwritten, 3 unchanged, 0 conflict(s)"));
+        assert!(!report.contains("warning"), "{report}");
+    }
+
+    #[test]
+    fn a_differing_row_is_a_conflict_but_the_rest_still_import() {
+        let (_dir, source, target) = setup();
+        let mut changed = record("live", 10);
+        changed.version = "9".to_string();
+        ledger_of(vec![changed.clone()]).save(&target).unwrap();
+
+        let (result, report) = import(&source, &target, false, false);
+
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("--force"), "{err}");
+        assert!(report.contains("conflict    lease live"), "{report}");
+        let merged = LeaseLedger::load(&target).unwrap();
+        assert_eq!(merged.get("live"), Some(&changed), "gwi's row must survive");
+        assert!(merged.get("expired").is_some() && merged.get("released").is_some());
+    }
+
+    #[test]
+    fn force_overwrites_a_conflicting_row() {
+        let (_dir, source, target) = setup();
+        let mut changed = record("live", 10);
+        changed.version = "9".to_string();
+        ledger_of(vec![changed]).save(&target).unwrap();
+
+        let (result, report) = import(&source, &target, false, true);
+
+        result.unwrap();
+        assert!(report.contains("overwritten lease live"), "{report}");
+        assert_eq!(
+            LeaseLedger::load(&target)
+                .unwrap()
+                .get("live")
+                .unwrap()
+                .version,
+            "3"
+        );
+    }
+
+    #[test]
+    fn unrelated_gwi_leases_survive() {
+        let (_dir, source, target) = setup();
+        ledger_of(vec![record("gwi-own", 10)])
+            .save(&target)
+            .unwrap();
+
+        import(&source, &target, false, false).0.unwrap();
+
+        assert_eq!(tokens(&target), ["expired", "gwi-own", "live", "released"]);
+    }
+
+    #[test]
+    fn a_dry_run_reports_but_writes_nothing() {
+        let (dir, source, target) = setup();
+
+        let (result, report) = import(&source, &target, true, false);
+
+        result.unwrap();
+        assert!(
+            report.contains("Dry run, nothing written: 3 added"),
+            "{report}"
+        );
+        assert!(
+            !dir.path().join("gwi").exists(),
+            "no directory, file or lock"
+        );
+    }
+
+    #[test]
+    fn the_source_is_never_modified_and_gets_no_lock_file() {
+        let (dir, source, target) = setup();
+        let before = std::fs::read(&source).unwrap();
+        let mtime = std::fs::metadata(&source).unwrap().modified().unwrap();
+
+        import(&source, &target, false, false).0.unwrap();
+        import(&source, &target, true, false).0.unwrap();
+
+        assert_eq!(std::fs::read(&source).unwrap(), before);
+        assert_eq!(
+            std::fs::metadata(&source).unwrap().modified().unwrap(),
+            mtime
+        );
+        let entries: Vec<_> = std::fs::read_dir(dir.path().join("omni-dev"))
+            .unwrap()
+            .map(|e| e.unwrap().file_name())
+            .collect();
+        assert_eq!(
+            entries,
+            ["lease-ledger.jsonl"],
+            "nothing may appear beside the source"
+        );
+    }
+
+    #[test]
+    fn an_existing_source_lock_is_taken_and_a_held_one_is_waited_for() {
+        let (_dir, source, target) = setup();
+        let held = try_lock_or_busy(&lock_path_for(&source), "test lock").unwrap();
+        assert!(held.is_some(), "the test must hold omni-dev's lock");
+
+        let mut out = Vec::new();
+        let err = run_ledger_import_waiting(
+            &source,
+            &target,
+            false,
+            false,
+            Duration::from_millis(120),
+            &mut out,
+        )
+        .unwrap_err()
+        .to_string();
+
+        assert!(
+            err.contains("timed out") && err.contains("omni-dev"),
+            "{err}"
+        );
+        assert!(
+            !target.exists(),
+            "nothing is written while the source is locked"
+        );
+        drop(held);
+        import(&source, &target, false, false).0.unwrap();
+        assert_eq!(tokens(&target).len(), 3);
+    }
+
+    #[test]
+    fn a_held_gwi_lock_blocks_the_write_until_the_budget_runs_out() {
+        let (_dir, source, target) = setup();
+        let _held = LedgerLock::acquire(&target).unwrap();
+
+        let mut out = Vec::new();
+        let err = run_ledger_import_waiting(
+            &source,
+            &target,
+            false,
+            false,
+            Duration::from_millis(120),
+            &mut out,
+        )
+        .unwrap_err()
+        .to_string();
+
+        assert!(err.contains("timed out"), "{err}");
+        assert!(!target.exists());
+    }
+
+    #[test]
+    fn a_missing_source_is_a_clean_no_op() {
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("gwi").join("lease-ledger.jsonl");
+
+        let (result, report) = import(&dir.path().join("none.jsonl"), &target, false, false);
+
+        result.unwrap();
+        assert!(report.contains("no leases to import"), "{report}");
+        assert!(!dir.path().join("gwi").exists());
+    }
+
+    #[test]
+    fn an_empty_source_imports_nothing_and_creates_no_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let source = dir.path().join("lease-ledger.jsonl");
+        std::fs::write(&source, "\n").unwrap();
+        let target = dir.path().join("gwi").join("lease-ledger.jsonl");
+
+        let (result, report) = import(&source, &target, false, false);
+
+        result.unwrap();
+        assert!(report.contains("holds no leases"), "{report}");
+        assert!(!dir.path().join("gwi").exists());
+    }
+
+    #[test]
+    fn a_corrupt_source_is_an_error_that_leaves_the_target_alone() {
+        let (_dir, source, target) = setup();
+        std::fs::write(&source, "{\"token\": \"half a row\n").unwrap();
+        ledger_of(vec![record("gwi-own", 10)])
+            .save(&target)
+            .unwrap();
+        let before = std::fs::read(&target).unwrap();
+
+        let (result, _) = import(&source, &target, false, false);
+
+        let err = format!("{:#}", result.unwrap_err());
+        assert!(
+            err.contains("line 1") && err.contains("lease ledger"),
+            "{err}"
+        );
+        assert_eq!(std::fs::read(&target).unwrap(), before);
+    }
+
+    #[test]
+    fn the_report_never_names_a_backup_location() {
+        let (_dir, source, target) = setup();
+
+        let (_, report) = import(&source, &target, false, false);
+        let (_, again) = import(&source, &target, true, false);
+
+        for text in [&report, &again] {
+            assert!(
+                !text.contains(BACKUP_PATH) && !text.contains("file-id-1"),
+                "{text}"
+            );
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn the_written_ledger_is_owner_only() {
+        use std::os::unix::fs::PermissionsExt;
+        let (_dir, source, target) = setup();
+
+        import(&source, &target, false, false).0.unwrap();
+
+        let mode = |p: &Path| std::fs::metadata(p).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode(&target), 0o600);
+        assert_eq!(mode(target.parent().unwrap()), 0o700);
+    }
+
+    #[test]
+    fn the_default_source_sits_beside_gwis_state_directory() {
+        let source = default_source_ledger().unwrap();
+        let target = crate::drive::lease::ledger::ledger_path().unwrap();
+
+        assert_eq!(source.file_name(), target.file_name());
+        assert_eq!(source.parent().unwrap().file_name().unwrap(), "omni-dev");
+        assert_eq!(
+            source.parent().unwrap().parent(),
+            target.parent().unwrap().parent()
+        );
+    }
+}

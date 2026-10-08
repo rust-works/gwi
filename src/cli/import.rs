@@ -1,9 +1,10 @@
-//! `gwi import`: copy Google Workspace settings out of omni-dev.
+//! `gwi import`: copy Google Workspace settings and the Drive lease ledger out of omni-dev.
 //!
-//! gwi owns `~/.gwi/settings.json` (ADR-0001) and does not read omni-dev's
-//! `~/.omni-dev/settings.json`. This command is the bridge for someone who already
-//! configured Gmail or Drive there: it copies the relevant items across so they can
-//! switch without logging in again.
+//! gwi owns `~/.gwi/settings.json` and `<state_dir>/gwi/lease-ledger.jsonl` (ADR-0001) and
+//! does not read omni-dev's `~/.omni-dev/settings.json` or its lease ledger. This command
+//! is the bridge for someone who already configured Gmail or Drive there: it copies the
+//! relevant items across so they can switch without logging in again. The settings are
+//! handled here; the lease ledger is handled in [`ledger`].
 //!
 //! The rules that make it safe to run, and to run twice:
 //!
@@ -31,6 +32,8 @@ use serde_json::{Map, Value};
 
 use crate::utils::settings::{read_settings_value, write_settings_value, Settings};
 
+mod ledger;
+
 /// Settings `env` keys with these prefixes belong to Google Workspace and are
 /// imported; every other omni-dev credential (Atlassian, Datadog, ...) stays behind.
 const GOOGLE_ENV_PREFIXES: &[&str] = &["GMAIL_", "DRIVE_"];
@@ -45,7 +48,7 @@ const RENAMED_ENV_PREFIXES: &[(&str, &str)] = &[
     ("OMNI_DEV_DRIVE_", "GWI_DRIVE_"),
 ];
 
-/// Import Google Workspace settings from omni-dev.
+/// Import Google Workspace settings and the Drive lease ledger from omni-dev.
 #[derive(Parser)]
 pub struct ImportCommand {
     /// The omni-dev settings file to read.
@@ -54,11 +57,18 @@ pub struct ImportCommand {
     #[arg(long, value_name = "PATH")]
     pub source: Option<PathBuf>,
 
+    /// The omni-dev lease ledger to read.
+    ///
+    /// Defaults to `omni-dev/lease-ledger.jsonl` in the state directory. It is only read,
+    /// never changed; a missing ledger is not an error.
+    #[arg(long, value_name = "PATH")]
+    pub source_ledger: Option<PathBuf>,
+
     /// Show what would be imported and write nothing.
     #[arg(long)]
     pub dry_run: bool,
 
-    /// Overwrite items that gwi already has with a different value.
+    /// Overwrite items and leases that gwi already has with a different value.
     ///
     /// Without it such items are reported as conflicts and left as they are.
     #[arg(long)]
@@ -66,20 +76,37 @@ pub struct ImportCommand {
 }
 
 impl ImportCommand {
-    /// Runs the import against the real settings files.
+    /// Runs the import against the real settings and ledger files.
+    ///
+    /// The settings and the ledger are independent: both always run, and the command
+    /// fails if either one reports a conflict or an error.
     pub fn execute(self) -> Result<()> {
         let source = match self.source {
             Some(path) => path,
             None => default_source()?,
         };
         let target = Settings::get_settings_path()?;
-        run_import(
-            &source,
-            &target,
+        let source_ledger = match self.source_ledger {
+            Some(path) => path,
+            None => ledger::default_source_ledger()?,
+        };
+        let target_ledger = crate::drive::lease::ledger::ledger_path()?;
+        let mut out = std::io::stdout();
+
+        let settings = run_import(&source, &target, self.dry_run, self.force, &mut out);
+        writeln!(out)?;
+        let leases = ledger::run_ledger_import(
+            &source_ledger,
+            &target_ledger,
             self.dry_run,
             self.force,
-            &mut std::io::stdout(),
-        )
+            &mut out,
+        );
+        match (settings, leases) {
+            (Err(settings), Err(leases)) => Err(anyhow!("{settings:#}\n{leases:#}")),
+            (Err(err), Ok(())) | (Ok(()), Err(err)) => Err(err),
+            (Ok(()), Ok(())) => Ok(()),
+        }
     }
 }
 
@@ -803,9 +830,15 @@ mod tests {
         ])
         .unwrap();
         assert_eq!(cmd.source, Some(PathBuf::from("/tmp/s.json")));
+        assert!(cmd.source_ledger.is_none());
         assert!(cmd.dry_run && cmd.force);
+
+        let ledger =
+            ImportCommand::try_parse_from(["import", "--source-ledger", "/tmp/l.jsonl"]).unwrap();
+        assert_eq!(ledger.source_ledger, Some(PathBuf::from("/tmp/l.jsonl")));
 
         let defaults = ImportCommand::try_parse_from(["import"]).unwrap();
         assert!(defaults.source.is_none() && !defaults.dry_run && !defaults.force);
+        assert!(defaults.source_ledger.is_none());
     }
 }

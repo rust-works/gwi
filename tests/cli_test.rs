@@ -219,6 +219,114 @@ fn import_fails_on_a_conflict_until_forced() {
         .contains("fixture-id"));
 }
 
+/// Where `dirs` puts the state directory when `HOME` is `home`.
+fn state_dir(home: &Path) -> std::path::PathBuf {
+    if cfg!(target_os = "macos") {
+        home.join("Library").join("Application Support")
+    } else {
+        home.join(".local").join("state")
+    }
+}
+
+/// A fixture omni-dev lease ledger holding one live and one expired lease.
+fn write_omni_dev_ledger(home: &Path) -> std::path::PathBuf {
+    let path = state_dir(home).join("omni-dev").join("lease-ledger.jsonl");
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    let row = |token: &str, expires_at: &str| {
+        format!(
+            r#"{{"token":"{token}","file_id":"file-1","version":"4","backup":{{"kind":"drive_copy","file_id":"copy-1"}},"acquired_at":"2020-01-01T00:00:00Z","expires_at":"{expires_at}"}}"#
+        )
+    };
+    std::fs::write(
+        &path,
+        format!(
+            "{}\n{}\n",
+            row("lease-expired", "2020-01-01T00:15:00Z"),
+            row("lease-live", "2999-01-01T00:00:00Z")
+        ),
+    )
+    .unwrap();
+    path
+}
+
+#[test]
+fn import_carries_the_lease_ledger_across_and_a_second_run_changes_nothing() {
+    let home = tempfile::tempdir().unwrap();
+    write_omni_dev_settings(home.path());
+    let source = write_omni_dev_ledger(home.path());
+    let source_before = std::fs::read(&source).unwrap();
+    let target = state_dir(home.path())
+        .join("gwi")
+        .join("lease-ledger.jsonl");
+
+    // A dry run reports the leases and writes nothing.
+    let dry = gwi(home.path(), &["import", "--dry-run"]);
+    assert!(dry.status.success());
+    assert!(String::from_utf8_lossy(&dry.stdout).contains("lease lease-live"));
+    assert!(!target.exists());
+
+    let imported = gwi(home.path(), &["import"]);
+    assert!(imported.status.success());
+    let report = String::from_utf8_lossy(&imported.stdout);
+    assert!(report.contains("added       lease lease-live"), "{report}");
+    assert!(
+        report.contains("added       lease lease-expired"),
+        "{report}"
+    );
+    assert!(report.contains("warning: 1 live lease(s)"), "{report}");
+    let copied = std::fs::read_to_string(&target).unwrap();
+    assert!(copied.contains("lease-live") && copied.contains("lease-expired"));
+
+    let ledger_after_first = std::fs::read(&target).unwrap();
+    let again = gwi(home.path(), &["import"]);
+    assert!(again.status.success());
+    assert!(String::from_utf8_lossy(&again.stdout)
+        .contains("0 added, 0 overwritten, 2 unchanged, 0 conflict(s)"));
+    assert_eq!(std::fs::read(&target).unwrap(), ledger_after_first);
+    assert_eq!(std::fs::read(&source).unwrap(), source_before);
+}
+
+#[test]
+fn import_reads_the_ledger_from_source_ledger_and_fails_on_a_ledger_conflict() {
+    let home = tempfile::tempdir().unwrap();
+    write_omni_dev_settings(home.path());
+    let elsewhere = home.path().join("elsewhere.jsonl");
+    std::fs::write(
+        &elsewhere,
+        r#"{"token":"t1","file_id":"f","version":"1","backup":{"kind":"drive_copy","file_id":"c"},"acquired_at":"2020-01-01T00:00:00Z","expires_at":"2020-01-01T00:15:00Z"}"#,
+    )
+    .unwrap();
+    let source_ledger = elsewhere.to_str().unwrap();
+    let target = state_dir(home.path())
+        .join("gwi")
+        .join("lease-ledger.jsonl");
+
+    assert!(
+        gwi(home.path(), &["import", "--source-ledger", source_ledger])
+            .status
+            .success()
+    );
+    std::fs::write(
+        &elsewhere,
+        std::fs::read_to_string(&elsewhere)
+            .unwrap()
+            .replace("\"1\"", "\"2\""),
+    )
+    .unwrap();
+
+    let refused = gwi(home.path(), &["import", "--source-ledger", source_ledger]);
+    assert_eq!(refused.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&refused.stderr).contains("--force"));
+    assert!(std::fs::read_to_string(&target).unwrap().contains("\"1\""));
+
+    let forced = gwi(
+        home.path(),
+        &["import", "--source-ledger", source_ledger, "--force"],
+    );
+    assert!(forced.status.success());
+    assert!(std::fs::read_to_string(&target).unwrap().contains("\"2\""));
+}
+
 #[test]
 fn import_without_a_source_file_says_how_to_find_one() {
     let home = tempfile::tempdir().unwrap();
