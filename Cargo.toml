@@ -34,6 +34,10 @@ name = "drive_lease_exit_code_test"
 path = "tests/drive_lease_exit_code_test.rs"
 
 [[test]]
+name = "sandbox_test"
+path = "tests/sandbox_test.rs"
+
+[[test]]
 name = "mcp_test"
 path = "tests/mcp_test.rs"
 required-features = ["mcp"]

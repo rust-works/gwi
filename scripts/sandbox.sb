@@ -8,8 +8,11 @@
 (version 1)
 (allow default)
 
+;; Do not allow `(local ip "localhost:*")` for all of network*: it matches outbound
+;; connects too, and an external IP such as 1.1.1.1 stayed reachable (only DNS failed).
 (deny network*)
-(allow network* (local ip "localhost:*"))
 (allow network* (remote ip "localhost:*"))
+(allow network-bind (local ip "localhost:*"))
+(allow network-inbound (local ip "localhost:*"))
 
 (deny process-exec (literal "/usr/bin/open"))
