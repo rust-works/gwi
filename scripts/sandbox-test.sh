@@ -22,7 +22,8 @@
 # tests that need file-permission enforcement skip themselves (skip_as_root! in
 # src/test_support.rs). The ordinary `cargo test` run covers them. Distributions that
 # restrict unprivileged user namespaces (Ubuntu 23.10+) need
-# `sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0`, or run this as root.
+# `sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0`, or run this as root, which
+# needs only a network namespace (unshare -n) and so no user namespace.
 # Inside a container, `unshare` is blocked by the default seccomp profile: use `--privileged`.
 #
 # The sandbox is the backstop, not the guarantee. Every browser launch in the library goes
@@ -57,10 +58,14 @@ case "$(uname -s)" in
       printf '#!/bin/sh\necho "%s $*" >>"%s"\nexit %s\n' "$name" "$calls" "$blocked" >"$shim/$name"
       chmod +x "$shim/$name"
     done
-    # A new network namespace is empty, loopback included. -r gives the caller root inside
-    # a fresh user namespace, which is what lets it create the network one and bring lo up.
+    # A new network namespace is empty, loopback included. -r gives an unprivileged caller
+    # root inside a fresh user namespace, which is what lets it create the network one and
+    # bring lo up. Root has that already, and skipping the user namespace sidesteps the
+    # AppArmor restriction on creating one.
+    unshare_flags=-rn
+    [ "$(id -u)" -ne 0 ] || unshare_flags=-n
     sandboxed() {
-      unshare -rn env "PATH=$shim:$PATH" GWI_SANDBOXED=1 sh -c \
+      unshare "$unshare_flags" env "PATH=$shim:$PATH" GWI_SANDBOXED=1 sh -c \
         'ip link set lo up && exec "$@"' sh "$@"
     }
     opener=xdg-open

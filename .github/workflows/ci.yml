@@ -50,8 +50,9 @@ jobs:
     - uses: dtolnay/rust-toolchain@stable
     - uses: Swatinem/rust-cache@v2
     # The script needs an unprivileged user namespace (`unshare -rn`), which the runner's
-    # AppArmor profile restricts by default since Ubuntu 23.10.
-    - run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+    # AppArmor profile restricts by default since Ubuntu 23.10. The key is absent on an image
+    # without that restriction, which then needs nothing.
+    - run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
     - run: scripts/sandbox-test.sh
 
   windows-build:
