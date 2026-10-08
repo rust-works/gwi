@@ -80,6 +80,18 @@ class MarkdownLinks(unittest.TestCase):
     def test_image_inside_link(self):
         self.assertEqual(subjects({"a.md": "[![alt](gone.png)](gone.md)"}), ["gone.png", "gone.md"])
 
+    def test_repository_root_and_parenthesised_names(self):
+        texts = {"docs/a.md": "[a](../) [b](/) [c](.) [d](f_(1).md) [e](<g (2).md>)", "docs/f_(1).md": "", "docs/g (2).md": ""}
+        self.assertEqual(subjects(texts), [])
+
+    def test_fence_inside_a_list_item(self):
+        text = "1. Run:\n\n    ```bash\n    [x](gone.md)\n    # not-a-heading\n    ```\n\n[y](#not-a-heading)"
+        self.assertEqual(subjects({"a.md": text}), ["#not-a-heading"])
+
+    def test_href_only_inside_a_and_img_tags(self):
+        text = '<div data-src="x.png"></div> set src="y.png"\n<img alt=\'q\' src="gone.png">'
+        self.assertEqual(subjects({"a.md": text}), ["gone.png"])
+
     def test_line_number_is_reported(self):
         problems, _ = run({"a.md": "one\n\n[x](gone.md)\n"})
         self.assertEqual((problems[0][0], problems[0][1]), ("a.md", 3))
@@ -118,6 +130,14 @@ class Anchors(unittest.TestCase):
         self.assertEqual(slug("`commit-guidelines.md`"), "commit-guidelinesmd")
         self.assertEqual(slug("Émigré 2"), "émigré-2")
         self.assertEqual(slug("Two  spaces"), "two--spaces")
+
+    def test_rule_after_a_heading_or_list_is_not_a_setext_heading(self):
+        text = "# Foo\n---\n\n- item\n---\n\n| a |\n---\n[x](#-foo) [y](#item) [z](#a)"
+        self.assertEqual(subjects({"a.md": text}), ["#-foo", "#item", "#a"])
+
+    def test_slug_of_reference_links_and_entities(self):
+        self.assertEqual(doc_links.heading_slug("See [the guide][g]"), "see-the-guide")
+        self.assertEqual(doc_links.heading_slug("A &amp; B"), "a--b")
 
     def test_repeated_headings_are_numbered(self):
         texts = {"a.md": "# FAQ\n# FAQ\n# FAQ\n[a](#faq) [b](#faq-1) [c](#faq-2) [d](#faq-3)"}

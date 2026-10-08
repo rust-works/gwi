@@ -21,6 +21,7 @@ no longer matches a dead link is itself an error, so the list cannot rot.
 Standard library only. Unit tests: scripts/test_check_doc_links.py.
 """
 
+import html
 import posixpath
 import re
 import subprocess
@@ -36,13 +37,20 @@ ADR_DIR = "docs/adrs"
 # A destination with a scheme (`https:`, `mailto:`) or a `//host` is external.
 EXTERNAL_RE = re.compile(r"^(?:[A-Za-z][A-Za-z0-9+.-]*:|//)")
 # `](dest)` closes any inline link or image, however its text is nested.
-INLINE_LINK_RE = re.compile(r"\]\(\s*(<[^>]*>|[^)\s]*)")
+# One level of balanced parentheses is allowed in a bare destination: `a_(b).md`.
+INLINE_LINK_RE = re.compile(r"\]\(\s*(<[^>]*>|(?:[^()\s]|\([^()\s]*\))*)")
 REF_DEF_RE = re.compile(r"^ {0,3}\[[^\]]+\]:\s*(<[^>]*>|\S+)")
-HTML_ATTR_RE = re.compile(r"""\b(?:href|src)\s*=\s*["']([^"']*)["']""")
+HTML_ATTR_RE = re.compile(
+    r"""<(?:a|img)\b[^>]*?\s(?:href|src)\s*=\s*["']([^"']*)["']""", re.IGNORECASE
+)
 HTML_ANCHOR_RE = re.compile(r"""<a\s[^>]*?\b(?:id|name)\s*=\s*["']([^"']+)["']""")
-FENCE_RE = re.compile(r"^ {0,3}(`{3,}|~{3,})")
+# Any indent: a fence inside a list item is indented past the three spaces CommonMark allows
+# a top-level one.
+FENCE_RE = re.compile(r"^\s*(`{3,}|~{3,})")
 ATX_RE = re.compile(r"^ {0,3}#{1,6}[ \t]+(.*?)(?:[ \t]+#+)?[ \t]*$")
 SETEXT_RE = re.compile(r"^ {0,3}(?:=+|-+)[ \t]*$")
+# A line that cannot be the text of a setext heading: a heading, quote, table row, list item or rule.
+NOT_PARAGRAPH_RE = re.compile(r"^\s*(?:#|>|\||[-*+]\s|\d+[.)]\s|(?:=+|-+)\s*$)")
 CODE_SPAN_RE = re.compile(r"(`+)(.+?)\1")
 ADR_NAME_RE = re.compile(r"adr-\d{4}[A-Za-z0-9_-]*\.md")
 
@@ -86,7 +94,8 @@ def link_destinations(text):
 def heading_slug(heading):
     """GitHub's anchor for a heading: its rendered text, lowercased, punctuation
     dropped, spaces turned into hyphens."""
-    text = re.sub(r"!?\[([^\]]*)\]\([^)]*\)", r"\1", heading)  # links and images
+    text = re.sub(r"!?\[([^\]]*)\](?:\([^)]*\)|\[[^\]]*\])", r"\1", heading)  # links, images
+    text = html.unescape(text)
     text = re.sub(r"<[^>]*>", "", text)  # inline HTML
     text = re.sub(r"[`*]", "", text)  # code spans and emphasis keep their text
     kept = [
@@ -107,7 +116,12 @@ def anchors(text):
         found.update(a.lower() for a in HTML_ANCHOR_RE.findall(line))
         m = ATX_RE.match(line)
         heading = m.group(1) if m else None
-        if heading is None and SETEXT_RE.match(line) and previous.strip():
+        if (
+            heading is None
+            and SETEXT_RE.match(line)
+            and previous.strip()
+            and not NOT_PARAGRAPH_RE.match(previous)
+        ):
             heading = previous.strip()
         previous = line
         if heading is None:
@@ -186,7 +200,7 @@ def check(texts, tracked, allowlist=()):
     Returns `(problems, stale)`: the `(path, line, subject, message)` of every
     dead link not on the allowlist, and the allowlist entries that matched nothing.
     """
-    directories = set()
+    directories = {""}  # the repository root
     for path in tracked:
         parent = posixpath.dirname(path)
         while parent and parent not in directories:
@@ -238,14 +252,14 @@ def tracked_files(root):
 
 
 def main():
-    tracked = tracked_files(ROOT)
-    texts = {}
-    for path in tracked:
-        if path.endswith((".md", ".rs", ".snap")):
-            try:
-                texts[path] = (ROOT / path).read_text(encoding="utf-8")
-            except FileNotFoundError:
-                continue  # tracked but deleted in the working tree
+    # Tracked and present: a file deleted in the working tree is a dead link target, and a
+    # submodule is listed by git but is not a file.
+    tracked = [p for p in tracked_files(ROOT) if (ROOT / p).is_file()]
+    texts = {
+        path: (ROOT / path).read_text(encoding="utf-8")
+        for path in tracked
+        if path.endswith((".md", ".rs", ".snap"))
+    }
     allowlist = read_allowlist(ALLOWLIST) if ALLOWLIST.exists() else []
     problems, stale = check(texts, set(tracked), allowlist)
     for path, lineno, subject, message in problems:
