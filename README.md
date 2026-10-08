@@ -33,9 +33,18 @@ never changes it, never overwrites a different value you already have in gwi (pa
 `--force` to), and never prints a secret. Anything gwi already has with the same value is
 reported as unchanged, so running it twice is safe. It warns about any `*_file` secret path
 that points inside `~/.omni-dev/`, since that file would be lost if you later remove
-omni-dev's directory. Drive's lease ledger is not copied yet, so a lease taken with
-`omni-dev drive lease acquire` cannot be used or restored through `gwi drive`: acquire a
-new one with gwi. The import arrives in a later change.
+omni-dev's directory.
+
+The same command copies Drive's lease ledger (`omni-dev/lease-ledger.jsonl` in the state
+directory; `--source-ledger PATH` for another file), so a lease taken with
+`omni-dev drive lease acquire` works and can be restored through `gwi drive`. Every lease is
+copied, expired ones too, because a restore needs them. A lease that is still live carries
+over unchanged and stays valid until it expires, in both tools: the two ledgers are
+copies, so releasing it in omni-dev does not release it in gwi. Audit history is not
+copied. See [Coming from omni-dev](docs/drive.md#coming-from-omni-dev) for the details.
+
+A folder you synced with `omni-dev drive sync` needs nothing: `gwi drive sync` reads its
+`.omni-dev-sync.json` and continues in `.gwi-sync.json`, leaving the old file alone.
 
 ## MCP server
 

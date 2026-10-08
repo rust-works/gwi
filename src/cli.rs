@@ -51,7 +51,7 @@ pub enum Commands {
     Gmail(Box<gmail::GmailCommand>),
     /// Drive: search, read, edit and sync Google Drive files, plus Docs, Sheets and Slides.
     Drive(Box<drive::DriveCommand>),
-    /// Import: copy Gmail and Drive settings from omni-dev.
+    /// Import: copy Gmail and Drive settings and the Drive lease ledger from omni-dev.
     Import(import::ImportCommand),
     /// Log: search the request and audit logs, and prune the request log.
     // Boxed: its flag set makes it the largest variant (`clippy::large_enum_variant`).

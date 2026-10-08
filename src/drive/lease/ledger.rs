@@ -470,7 +470,7 @@ pub(crate) fn ledger_path() -> Result<PathBuf> {
 /// mutating ledger access (see [`LedgerLock`]). Derived from the ledger
 /// path itself — never resolved independently — so a caller that redirects
 /// the ledger (as every test does) automatically redirects its lock too.
-fn lock_path_for(ledger_path: &Path) -> PathBuf {
+pub(crate) fn lock_path_for(ledger_path: &Path) -> PathBuf {
     let mut name = ledger_path.as_os_str().to_owned();
     name.push(".lock");
     PathBuf::from(name)
@@ -492,7 +492,7 @@ const LEASE_LOCK_WAIT_ENV_VAR: &str = "GWI_LEASE_LOCK_WAIT_SECS";
 /// start producing spurious timeouts the moment the HTTP timeout is
 /// tuned up. The ×4 headroom covers a restore's several sequential calls
 /// against one read-timeout budget.
-pub(super) fn default_lock_wait_timeout() -> Duration {
+pub(crate) fn default_lock_wait_timeout() -> Duration {
     let raw = crate::utils::settings::get_env_var(LEASE_LOCK_WAIT_ENV_VAR).ok();
     crate::utils::http::duration_from_secs(raw, crate::utils::http::read_timeout() * 4)
 }

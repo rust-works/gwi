@@ -142,6 +142,126 @@ async fn recursive_first_run_checkpoints_then_skips_without_downloads() {
 }
 
 #[tokio::test]
+async fn a_folder_synced_by_omni_dev_carries_on_from_its_manifest() {
+    let (server, client) = fixture().await;
+    list(&server, "root", json!([binary("a", "a.txt", "hash")])).await;
+    // One download in all: the omni-dev manifest must make the second run a skip.
+    download(&server, "a", "hello", 1).await;
+    let dir = tempfile::tempdir().unwrap();
+    let opts = options(dir.path());
+    run_sync(&client, &opts).await.unwrap();
+    let legacy = dir.path().join(LEGACY_MANIFEST);
+    fs::rename(dir.path().join(MANIFEST), &legacy).unwrap();
+    let legacy_bytes = fs::read(&legacy).unwrap();
+
+    let dry = run_sync(
+        &client,
+        &SyncOptions {
+            dry_run: true,
+            ..options(dir.path())
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(dry.skipped, 1);
+    assert!(
+        !dir.path().join(MANIFEST).exists(),
+        "a dry run writes nothing"
+    );
+
+    let report = run_sync(&client, &opts).await.unwrap();
+
+    assert_eq!((report.created, report.skipped, report.failed), (0, 1, 0));
+    assert!(
+        dir.path().join(MANIFEST).exists(),
+        "later runs write gwi's manifest"
+    );
+    assert_eq!(
+        fs::read(&legacy).unwrap(),
+        legacy_bytes,
+        "omni-dev's manifest is never changed"
+    );
+}
+
+#[test]
+fn the_gwi_manifest_wins_over_omni_devs() {
+    let dir = tempfile::tempdir().unwrap();
+    let opts = options(dir.path());
+    let mut manifest = load_manifest(&opts).unwrap();
+    save_manifest(dir.path(), &manifest).unwrap();
+    manifest.root_folder_id = "other".into();
+    fs::write(
+        dir.path().join(LEGACY_MANIFEST),
+        serde_json::to_vec(&manifest).unwrap(),
+    )
+    .unwrap();
+
+    let loaded = load_manifest(&opts).unwrap();
+
+    assert_eq!(loaded.root_folder_id, "root", "the legacy file is ignored");
+}
+
+#[test]
+fn an_omni_dev_manifest_is_validated_like_gwis() {
+    let dir = tempfile::tempdir().unwrap();
+    let opts = options(dir.path());
+    let mut manifest = load_manifest(&opts).unwrap();
+    manifest.root_folder_id = "other".into();
+    fs::write(
+        dir.path().join(LEGACY_MANIFEST),
+        serde_json::to_vec(&manifest).unwrap(),
+    )
+    .unwrap();
+    assert!(load_manifest(&opts)
+        .unwrap_err()
+        .to_string()
+        .contains("different"));
+
+    manifest.root_folder_id = "root".into();
+    manifest.version = 2;
+    fs::write(
+        dir.path().join(LEGACY_MANIFEST),
+        serde_json::to_vec(&manifest).unwrap(),
+    )
+    .unwrap();
+    assert!(load_manifest(&opts)
+        .unwrap_err()
+        .to_string()
+        .contains("unsupported"));
+}
+
+#[test]
+fn a_directory_holding_only_omni_devs_manifest_is_not_empty_without_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let opts = options(dir.path());
+    fs::write(dir.path().join("unrelated"), "keep").unwrap();
+
+    assert!(load_manifest(&opts)
+        .unwrap_err()
+        .to_string()
+        .contains("non-empty"));
+}
+
+#[test]
+fn a_gwi_mirror_already_holding_that_remote_file_still_validates() {
+    validate_relative(Path::new(LEGACY_MANIFEST)).unwrap();
+}
+
+#[test]
+fn a_remote_file_cannot_take_omni_devs_manifest_name() {
+    let mut reserved = BTreeSet::from([MANIFEST.to_string(), LEGACY_MANIFEST.to_string()]);
+    let file = DriveFile {
+        name: LEGACY_MANIFEST.into(),
+        ..Default::default()
+    };
+
+    assert_ne!(
+        allocate_path(&file, Path::new(""), None, None, &mut reserved),
+        Path::new(LEGACY_MANIFEST)
+    );
+}
+
+#[tokio::test]
 async fn updates_missing_and_changed_files_and_preserves_orphans() {
     let (server, client) = fixture().await;
     list(

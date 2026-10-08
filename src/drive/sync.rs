@@ -20,6 +20,11 @@ use crate::drive::files_api::{FilesApi, HARD_CAP, MAX_PAGE_LIMIT};
 use crate::drive::types::DriveFile;
 
 const MANIFEST: &str = ".gwi-sync.json";
+/// The manifest `omni-dev drive sync` wrote. It is read when [`MANIFEST`] is absent so a
+/// folder synced with omni-dev carries on; it is never written, changed or deleted. It is
+/// reserved against new allocations only: a gwi mirror that already holds a remote file of
+/// this name keeps it, so existing manifests still validate.
+const LEGACY_MANIFEST: &str = ".omni-dev-sync.json";
 const MAX_BYTES: u64 = 500 * 1024 * 1024;
 
 /// Inputs to the one-way mirror. Dry runs perform no local writes or downloads.
@@ -298,6 +303,17 @@ fn safe_path(dest: &Path, rel: &Path) -> Result<PathBuf> {
     Ok(path)
 }
 
+/// The manifest file to read: [`MANIFEST`] if present, else [`LEGACY_MANIFEST`], else none.
+fn existing_manifest_path(dest: &Path) -> Result<Option<PathBuf>> {
+    for name in [MANIFEST, LEGACY_MANIFEST] {
+        let path = safe_path(dest, Path::new(name))?;
+        if path.exists() {
+            return Ok(Some(path));
+        }
+    }
+    Ok(None)
+}
+
 fn load_manifest(opts: &SyncOptions) -> Result<Manifest> {
     let dest: PathBuf = opts.dest.components().collect();
     if let Ok(meta) = fs::symlink_metadata(&dest) {
@@ -306,8 +322,7 @@ fn load_manifest(opts: &SyncOptions) -> Result<Manifest> {
             "destination must be a directory, not a symlink"
         );
     }
-    let path = safe_path(&opts.dest, Path::new(MANIFEST))?;
-    if path.exists() {
+    if let Some(path) = existing_manifest_path(&opts.dest)? {
         let manifest: Manifest =
             serde_json::from_slice(&fs::read(&path)?).context("invalid sync manifest")?;
         ensure!(
@@ -535,6 +550,7 @@ pub(crate) async fn run_sync(client: &DriveClient, opts: &SyncOptions) -> Result
         .collect();
     reserved.extend(manifest.orphan_paths.keys().map(|p| path_key(p)));
     reserved.insert(MANIFEST.to_string());
+    reserved.insert(LEGACY_MANIFEST.to_string());
     let mut folders = BTreeMap::from([(opts.folder_id.clone(), PathBuf::new())]);
     let seen: BTreeSet<_> = entries.iter().map(|e| e.file.id.clone()).collect();
     let previous = manifest.files.clone();
