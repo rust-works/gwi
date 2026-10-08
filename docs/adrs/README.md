@@ -10,7 +10,8 @@ The Gmail ADRs (0063-0068 and 0079) and the Drive ADRs (0069-0071, 0073-0078, 00
 existing references keep resolving; four Drive ADRs (0077, 0082, 0084, 0086) keep the titled
 filenames they have there. They are historical records: the commands, paths and
 environment variables they quote are omni-dev's at the time (`omni-dev gmail`, `omni-dev drive`,
-`~/.omni-dev`, `OMNI_DEV_*`), which gwi spells `gwi gmail`, `gwi drive`, `~/.gwi` and `GWI_*`.
+`omni-dev log`, `~/.omni-dev`, `OMNI_DEV_*`), which gwi spells `gwi gmail`, `gwi drive`,
+`gwi log`, `~/.gwi` and `GWI_*`.
 Links to ADRs and docs that stay in omni-dev point there, among them the secret-handling ADRs
 0089 and 0090. The other missing numbers (0072, 0087, 0088 and the rest) belong to
 subsystems that are not part of gwi. Issue numbers quoted in the ADRs (`#1520`, `#1664`, ...) are
