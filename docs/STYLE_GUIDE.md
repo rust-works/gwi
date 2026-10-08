@@ -1508,17 +1508,21 @@ pointed at a mock server), or they exist to hold `HOME` still
 tests that call `std::env::set_var` / `remove_var`:
 
 - **One lock.** Both guards hold `crate::test_support::HOME_ENV_MUTEX`. A new
-  module aliases that static and **never declares its own `Mutex<()>`**: a
-  per-module lock excludes only that module's tests, so two modules still race
+  module aliases that static and **never declares its own env lock** (a
+  `Mutex`, a `serial_test` attribute, …): a per-module lock excludes only that
+  module's tests, so two modules still race
   on the same global (omni-dev #950, #1465). Anything that sets `HOME`, or a
   variable resolved through it, must hold the guard.
 - **Mutate only under the guard.** Take `EnvGuard::take()` before the first
   `set_var` / `remove_var`. Drop restores only the keys in its snapshot, so
-  add a new variable to that list before a test mutates it. A test that also
-  restores by hand (`ScopedEnvVar`, a local `Drop`) still takes the guard.
+  add a new variable to that list before a test mutates it. Today neither
+  snapshot covers `GWI_PROFILE` (which `clear_credentials` removes) or
+  `GWI_LOG_FILE` / `GWI_LOG_DISABLE`: a test that mutates those restores them
+  itself (`ScopedEnvVar`, a local `Drop`) *and* still takes the guard.
 - **Enforcement is partial.** `every_drive_env_mutation_holds_the_env_guard`
-  fails a function that mutates a Drive key without `EnvGuard::take()`. Gmail
-  keys and `HOME` have no such check.
+  fails a function that mutates one of the keys in its `GUARDED_KEYS` without
+  `EnvGuard::take()`. That list omits `SLIDES_API_URL`, and Gmail keys and
+  `HOME` have no such check.
 - **When a `HOME`-derived read needs the guard.** When the test reads one
   **more than once**, compares it, or relies on it staying put, because another
   test repointing `HOME` between the reads makes them disagree (#14, #15, #17).
@@ -1542,8 +1546,10 @@ provide **no** mutual exclusion across modules.
 
 `set_var` / `remove_var` are safe in the crate's edition (`edition = "2021"`)
 and `unsafe` in Rust 2024. The crate also sets `unsafe_code = "deny"`, so
-moving to 2024 will not compile until the mutations are either confined to the
-two `test_support` modules (with `unsafe_code` allowed there) or injected away.
+moving to 2024 will not compile until every call site is either wrapped in
+`unsafe` (with `unsafe_code` allowed there) or injected away. That is not only
+the two `test_support` modules: the tests that mutate under the guard, and the
+product code that does (`propagate_profile_flag`, `ScopedEnvVar`), all count.
 Each new direct `set_var` adds to that bill, which is why a seam is the first
 choice.
 
