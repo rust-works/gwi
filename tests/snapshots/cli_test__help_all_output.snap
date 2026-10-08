@@ -3234,7 +3234,7 @@ Usage: gwi drive slides info [OPTIONS] <PRESENTATION_ID>
 
 Arguments:
   <PRESENTATION_ID>
-          Presentation id (the /d/<ID>/ segment of a Slides URL)
+          Presentation id (the `/d/<ID>/` segment of a Slides URL)
 
 Options:
       --account <NAME>
@@ -3269,7 +3269,7 @@ Usage: gwi drive slides read [OPTIONS] <PRESENTATION_ID>
 
 Arguments:
   <PRESENTATION_ID>
-          Presentation id (the /d/<ID>/ segment of a Slides URL)
+          Presentation id (the `/d/<ID>/` segment of a Slides URL)
 
 Options:
       --account <NAME>
@@ -3307,7 +3307,7 @@ Usage: gwi drive slides replace [OPTIONS] --search <SEARCH> --replace <REPLACE> 
 
 Arguments:
   <PRESENTATION_ID>
-          Presentation id (the /d/<ID>/ segment of a Slides URL)
+          Presentation id (the `/d/<ID>/` segment of a Slides URL)
 
 Options:
       --account <NAME>

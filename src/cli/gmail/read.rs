@@ -50,7 +50,7 @@ impl ReadDetail {
 /// Output format for `gmail read`, extending the shared [`OutputFormat`]
 /// with `Markdown` — a human-readable rendering of the message headers
 /// (RFC 2047-decoded) and body via
-/// [`render_markdown`](crate::gmail::render::render_markdown), the same
+/// [`render_markdown`], the same
 /// function `gmail render` uses for archived `.eml` files (#1513). Kept
 /// local to `read` rather than added to the shared `OutputFormat` used
 /// crate-wide: every other CLI surface's `-o` renders arbitrary

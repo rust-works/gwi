@@ -1,7 +1,7 @@
 //! MCP tool handlers for Drive search/read operations.
 //!
 //! Each tool builds a fresh [`DriveClient`] via
-//! [`crate::cli::drive::helpers::create_client_for`] and then delegates to
+//! `crate::cli::drive::helpers::create_client_for` and then delegates to
 //! the same API façade (`FilesApi`) that the CLI uses under
 //! `src/cli/drive/`. Tool outputs are YAML serialisations of the typed
 //! response structs, matching the CLI's default rendering.

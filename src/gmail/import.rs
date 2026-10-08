@@ -17,7 +17,7 @@ use crate::utils::secret::Secret;
 use crate::utils::settings::{active_profile_from, Settings};
 
 /// Environment variable naming an explicit `client_secret.json` path,
-/// consulted by [`discover_client_secret_file`] when no `PATH` argument is
+/// consulted by `discover_client_secret_file` when no `PATH` argument is
 /// given.
 pub const GMAIL_CLIENT_SECRET_FILE: &str = "GMAIL_CLIENT_SECRET_FILE";
 

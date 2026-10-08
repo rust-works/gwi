@@ -37,13 +37,13 @@
 //!   cell in the named range) before the request is sent.
 //! - **Form B** (`--source`/`--dimension`/`--fill-length`): an explicit
 //!   source range extended by a caller-chosen length and direction. The
-//!   destination is computed locally ([`compute_destination`]) and so is
+//!   destination is computed locally (`compute_destination`) and so is
 //!   **exact**. `--fill-length` may be negative (fills backward — up or
 //!   left — instead of forward), which needs a two-sided bounds check
 //!   (ADR-0077 §6's shape): a negative length is refused if it would reach
 //!   before the start of the sheet.
 //!
-//! Both forms require a **fully bounded** source ([`grid_range::is_bounded`],
+//! Both forms require a **fully bounded** source (`grid_range::is_bounded`,
 //! `merge-cells`'s own requirement, ADR-0078 §4): form B's arithmetic has
 //! no fixed edge to extend from against an open-ended source, and form A's
 //! preview has no fixed extent to read. A documented cut, not a silent gap.

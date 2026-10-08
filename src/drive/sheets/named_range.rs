@@ -30,7 +30,7 @@
 //! handle a CLI user would actually type (the id is discoverable only via
 //! `list-named-ranges`). Case-insensitive to match the formula scan's own
 //! case-insensitive resolution of a name reference (see
-//! [`scan_referencing_formulas`]).
+//! `scan_referencing_formulas`).
 //!
 //! Sheets enforces unique names on `addNamedRange` but **not** on
 //! `updateNamedRange` (issue #1932, live-verified): renaming a named range
@@ -38,15 +38,15 @@
 //! with two ranges sharing a name despite `addNamedRange`'s own behavior
 //! suggesting otherwise. Like `protection.rs`'s range-based lookup, name
 //! resolution here does need an "ambiguous" branch after all —
-//! [`find_existing_named_range`] refuses rather than picks the first match
-//! when more than one range shares a name, and [`check_new_name_available`]
+//! `find_existing_named_range` refuses rather than picks the first match
+//! when more than one range shares a name, and `check_new_name_available`
 //! refuses a rename that would create that state in the first place.
 //!
 //! **`--id` is the escape hatch for that ambiguity** (issue #1975,
 //! follow-up to #1932/#1974): the `--name` refusal above lists the matching
 //! ids but, before this, gave no way to act on one — the Sheets UI was the
 //! only workaround. `--id`/`--name` are mutually exclusive and exactly one
-//! is required (a clap `ArgGroup` on both CLI commands); [`find_existing_named_range_by_id`]
+//! is required (a clap `ArgGroup` on both CLI commands); `find_existing_named_range_by_id`
 //! looks up by exact `named_range_id` match (not case-insensitive — it's a
 //! server-assigned opaque id, not a user-typed name) and refuses with
 //! [`NamedRangeResult::RefusedIdNotFound`] rather than

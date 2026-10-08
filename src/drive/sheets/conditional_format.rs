@@ -28,7 +28,7 @@
 //! different set of condition types: this one drops `ONE_OF_LIST`/
 //! `ONE_OF_RANGE`/`CHECKBOX` (dropdown-only, meaningless for a format
 //! trigger) and adds `BLANK`/`NOT_BLANK` (`--cell-empty`/`--cell-not-empty`,
-//! meaningful only as a format trigger). [`GradientRule`](crate::drive::sheets::types::GradientRule)'s
+//! meaningful only as a format trigger). [`GradientRule`]'s
 //! two endpoints are always anchored `MIN`/`MAX`; Sheets also allows an
 //! endpoint anchored at an explicit `NUMBER`/`PERCENT`/`PERCENTILE` value,
 //! which this crate doesn't build — `docs/drive.md` names both gaps.

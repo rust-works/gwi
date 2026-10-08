@@ -72,7 +72,7 @@ impl<'a> HistoryApi<'a> {
     /// Lists mailbox changes since `start_history_id`, auto-paginating via
     /// cursor as needed. `limit == 0` means "fetch every change up to
     /// [`HARD_CAP`]" — a deliberate safety limit for this general-purpose
-    /// entry point. See [`Self::list_all_unbounded`] for the one caller that
+    /// entry point. See `Self::list_all_unbounded` for the one caller that
     /// must not have it.
     pub async fn list_all(
         &self,

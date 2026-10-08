@@ -154,7 +154,7 @@ pub struct SpreadsheetProperties {
 pub enum RecalculationInterval {
     /// Sheets' way of saying the field was never set. Never something
     /// `update-workbook-properties --auto-recalc` writes — see
-    /// [`crate::cli::drive::sheets::structure::AutoRecalcArg`]'s doc comment
+    /// `crate::cli::drive::sheets::structure::AutoRecalcArg`'s doc comment
     /// for why the CLI-facing enum omits it.
     #[serde(rename = "RECALCULATION_INTERVAL_UNSPECIFIED")]
     Unspecified,

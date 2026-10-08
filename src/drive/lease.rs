@@ -2,16 +2,16 @@
 //! content-mutating Drive/Sheets/Docs writes ([ADR-0080](../../docs/adrs/adr-0080.md)).
 //!
 //! Landed in phases per the ADR's own sequencing (issue #1664):
-//! [`authenticate::Authenticator`] is the human-presence primitive;
-//! [`ledger`] is the lease ledger `drive lease acquire`
-//! ([`acquire`]) reads and writes; [`check`] is the shared "does this
+//! `authenticate::Authenticator` is the human-presence primitive;
+//! `ledger` is the lease ledger `drive lease acquire`
+//! (`acquire`) reads and writes; `check` is the shared "does this
 //! presented `--lease` token authorise this write" gate every
 //! content-mutating engine (`drive edit`, every Sheets/Docs write verb)
-//! calls; [`restore`] is `drive lease restore` (ADR-0080 §10); [`release`] ends
+//! calls; `restore` is `drive lease restore` (ADR-0080 §10); `release` ends
 //! a lease's window early (issue #1685), the counterpart to the expiry
-//! [`acquire`] fixes; [`settings`] resolves the global
+//! `acquire` fixes; `settings` resolves the global
 //! CLI-flag/env-var/`settings.json` policy layer (ADR-0080 §13, issue
-//! #1677); [`prune`] is `drive lease prune`, the ADR-0080 Consequences
+//! #1677); `prune` is `drive lease prune`, the ADR-0080 Consequences
 //! fast-follow (#1678) that bounds the ledger's and the backup
 //! directory/folder's unbounded growth.
 

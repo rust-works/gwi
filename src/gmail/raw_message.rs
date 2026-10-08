@@ -1,8 +1,8 @@
 //! Decoding and light header extraction for `format=raw` Gmail messages.
 //!
 //! `format=raw` returns the complete RFC 2822 message, base64url-encoded.
-//! [`decode_raw_message`] (promoted here from `src/cli/gmail/read.rs`, fixed
-//! in commit `d7b6c0a0`) turns that back into real bytes; [`extract_headers`]
+//! `decode_raw_message` (promoted here from `src/cli/gmail/read.rs`, fixed
+//! in commit `d7b6c0a0`) turns that back into real bytes; `extract_headers`
 //! pulls a handful of headers out of those bytes without a MIME parser or a
 //! second `format=metadata` network round-trip — `gmail sync`
 //! (`src/cli/gmail/sync/engine.rs`) needs both to write a byte-exact `.eml`

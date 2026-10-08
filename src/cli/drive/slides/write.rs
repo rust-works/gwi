@@ -15,7 +15,7 @@ use clap::Parser;
 /// Replaces literal text on ordinary slides. Notes/templates are excluded.
 #[derive(Parser)]
 pub struct ReplaceCommand {
-    /// Presentation id (the /d/<ID>/ segment of a Slides URL).
+    /// Presentation id (the `/d/<ID>/` segment of a Slides URL).
     pub presentation_id: String,
     /// Literal text to find (not a regex).
     #[arg(long)]

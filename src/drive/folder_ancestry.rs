@@ -42,7 +42,7 @@ impl AncestorChain {
 /// Walks `start_folder_id` → parent → grandparent → ... via `files.get`,
 /// stopping at Drive's root (a folder with no `parents`).
 ///
-/// **Any** failure — a `files.get` error, or exceeding [`MAX_CHAIN_DEPTH`]
+/// **Any** failure — a `files.get` error, or exceeding `MAX_CHAIN_DEPTH`
 /// — is an `Err`, never a silently truncated `Ok` chain: a truncated chain
 /// could hide a deny/allow rule configured above the truncation point.
 /// This is the same hard invariant [ADR-0070](../../docs/adrs/adr-0070.md)
@@ -184,7 +184,7 @@ pub struct FileTargetDecision {
     /// winning parent's own rule happened to opt out. This field is instead
     /// the OR of each contributing parent's own requirement, computed
     /// before its `decided_by` is folded away — see
-    /// [`resolve_decision_for_parents`].
+    /// `resolve_decision_for_parents`.
     ///
     /// Meaningless on its own for an operation that can never take a
     /// lease in the first place (`Read`/`Create`/`Upload`/`Trash` —

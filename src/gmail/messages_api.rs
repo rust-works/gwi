@@ -4,7 +4,7 @@
 //! Datadog's v2 logs search — [`MessagesApi::search`] issues a single page,
 //! [`MessagesApi::search_all`] auto-paginates up to a caller-supplied limit
 //! (or [`HARD_CAP`] when the limit is `0`), and
-//! [`MessagesApi::search_all_unbounded_streaming`] auto-paginates with no cap at all
+//! `MessagesApi::search_all_unbounded_streaming` auto-paginates with no cap at all
 //! for `gmail sync`'s full-listing pass (#1467). Gmail's list endpoint is
 //! GET-with-query-params (not POST-with-body like Datadog's logs search),
 //! so URL construction follows the free `build_*_url` pattern from
@@ -211,7 +211,7 @@ impl<'a> MessagesApi<'a> {
     ///
     /// `limit == 0` means "fetch every match up to [`HARD_CAP`]". This cap
     /// is a deliberate safety limit for this interactive surface — see
-    /// [`Self::search_all_unbounded_streaming`] for the one caller that must
+    /// `Self::search_all_unbounded_streaming` for the one caller that must
     /// not have it.
     pub async fn search_all(
         &self,
@@ -434,8 +434,8 @@ impl<'a> MessagesApi<'a> {
     ///
     /// `raw_eml` is spliced into the multipart body **verbatim** — no
     /// re-encoding, no line-ending normalisation — via
-    /// [`multipart::build_related_body`], with a boundary
-    /// ([`multipart::generate_boundary_absent_from`]) checked not to appear
+    /// `multipart::build_related_body`, with a boundary
+    /// (`multipart::generate_boundary_absent_from`) checked not to appear
     /// in the message itself. Never sends `threadId`: the source mailbox's
     /// thread ids are foreign to the destination mailbox, and Gmail
     /// reconstructs threading from the `In-Reply-To`/`References` headers

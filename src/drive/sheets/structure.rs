@@ -18,8 +18,8 @@
 //! every other verb acts on a tab within the workbook, this one acts on the
 //! workbook itself (locale, time zone, auto-recalc, iterative calculation —
 //! deliberately not `spreadsheetTheme`, a large nested type left for a
-//! future issue). [`StructureVerb::sheet_title`] returns `Option<&str>`
-//! rather than `&str` for exactly this reason, and [`resolve_sheet`] returns
+//! future issue). `StructureVerb::sheet_title` returns `Option<&str>`
+//! rather than `&str` for exactly this reason, and `resolve_sheet` returns
 //! `Ok(None)` for it without consulting the sheet list at all. Turning
 //! iterative calculation on is a value effect reached indirectly — it
 //! changes what a circular-reference formula elsewhere *evaluates to*
@@ -45,7 +45,7 @@
 //!   [`DriveOperation::SheetsStructure`]; the four destructive verbs check
 //!   [`DriveOperation::SheetsDelete`] instead — never folded together, and
 //!   never reusing `SheetsWrite` either. See each variant's doc comment for
-//!   why reuse would be silent privilege widening. [`StructureVerb::gate_operation`]
+//!   why reuse would be silent privilege widening. `StructureVerb::gate_operation`
 //!   is the single place this split is decided.
 //!
 //! ADR-0075 §3/§4 originally kept `deleteSheet`/`deleteDimension`/

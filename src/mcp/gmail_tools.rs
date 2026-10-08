@@ -1,7 +1,7 @@
 //! MCP tool handlers for Gmail read (label-list and draft-read) operations.
 //!
 //! Each tool builds a fresh [`GmailClient`] via
-//! [`crate::cli::gmail::helpers::create_client_for`] and then delegates to
+//! `crate::cli::gmail::helpers::create_client_for` and then delegates to
 //! the same API façade (`MessagesApi`, `ThreadsApi`, `LabelsApi`,
 //! `DraftsApi`) that the CLI uses under `src/cli/gmail/`. Tool outputs are YAML serialisations of
 //! the typed response structs, matching the CLI `-o yaml` output.

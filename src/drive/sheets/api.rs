@@ -312,7 +312,7 @@ impl<'a> SheetsApi<'a> {
 
     /// Fetches a spreadsheet's metadata — its title and the list of sheets.
     ///
-    /// Always `fields`-masked; see [`SPREADSHEET_FIELDS`].
+    /// Always `fields`-masked; see `SPREADSHEET_FIELDS`.
     pub async fn get_spreadsheet(&self, spreadsheet_id: &str) -> Result<Spreadsheet> {
         let url = build_spreadsheet_get_url(self.client.base_url(), spreadsheet_id)?;
         self.client
@@ -323,7 +323,7 @@ impl<'a> SheetsApi<'a> {
 
     /// Fetches a spreadsheet's metadata **including protected ranges** —
     /// the one read the protection verbs need that no other caller does.
-    /// See [`SPREADSHEET_FIELDS_WITH_PROTECTIONS`].
+    /// See `SPREADSHEET_FIELDS_WITH_PROTECTIONS`.
     pub async fn get_spreadsheet_with_protections(
         &self,
         spreadsheet_id: &str,
@@ -341,7 +341,7 @@ impl<'a> SheetsApi<'a> {
 
     /// Fetches a spreadsheet's metadata **including the basic filter and
     /// filter views** — the one read `filter.rs`'s verbs need that no other
-    /// caller does. See [`SPREADSHEET_FIELDS_WITH_FILTER_VIEWS`].
+    /// caller does. See `SPREADSHEET_FIELDS_WITH_FILTER_VIEWS`.
     pub async fn get_spreadsheet_with_filter_views(
         &self,
         spreadsheet_id: &str,
@@ -364,7 +364,7 @@ impl<'a> SheetsApi<'a> {
     /// strictly need the existing list, but reusing this one fetch instead
     /// of adding a second, narrower one keeps `Sheet.conditional_formats`
     /// consistently populated whenever any conditional-format verb runs.
-    /// See [`SPREADSHEET_FIELDS_WITH_CONDITIONAL_FORMATS`].
+    /// See `SPREADSHEET_FIELDS_WITH_CONDITIONAL_FORMATS`.
     pub async fn get_spreadsheet_with_conditional_formats(
         &self,
         spreadsheet_id: &str,
@@ -384,7 +384,7 @@ impl<'a> SheetsApi<'a> {
 
     /// Fetches a spreadsheet's metadata **including named ranges** — the
     /// one read the named-range verbs need that no other caller does. See
-    /// [`SPREADSHEET_FIELDS_WITH_NAMED_RANGES`].
+    /// `SPREADSHEET_FIELDS_WITH_NAMED_RANGES`.
     pub async fn get_spreadsheet_with_named_ranges(
         &self,
         spreadsheet_id: &str,
@@ -404,7 +404,7 @@ impl<'a> SheetsApi<'a> {
     /// shared by all eight `embedded_object.rs` verbs (issue #1797), the
     /// same way [`Self::get_spreadsheet_with_conditional_formats`] is
     /// shared by its four. See
-    /// [`SPREADSHEET_FIELDS_WITH_EMBEDDED_OBJECTS`].
+    /// `SPREADSHEET_FIELDS_WITH_EMBEDDED_OBJECTS`.
     pub async fn get_spreadsheet_with_embedded_objects(
         &self,
         spreadsheet_id: &str,
@@ -424,7 +424,7 @@ impl<'a> SheetsApi<'a> {
 
     /// Fetches a spreadsheet's metadata **including every populated cell's
     /// `pivotTable` property** — `list-pivot-tables`' one fetch (issue
-    /// #1798). See [`SPREADSHEET_FIELDS_WITH_PIVOT_TABLES`].
+    /// #1798). See `SPREADSHEET_FIELDS_WITH_PIVOT_TABLES`.
     pub async fn get_spreadsheet_with_pivot_tables(
         &self,
         spreadsheet_id: &str,
@@ -443,7 +443,7 @@ impl<'a> SheetsApi<'a> {
     /// Fetches a spreadsheet's metadata **including banded ranges** —
     /// shared by all four `banding.rs` verbs (issue #1832), mirroring
     /// [`Self::get_spreadsheet_with_filter_views`]'s reuse across its own
-    /// four verbs. See [`SPREADSHEET_FIELDS_WITH_BANDING`].
+    /// four verbs. See `SPREADSHEET_FIELDS_WITH_BANDING`.
     pub async fn get_spreadsheet_with_banding(&self, spreadsheet_id: &str) -> Result<Spreadsheet> {
         let url = build_spreadsheet_get_with_banding_url(self.client.base_url(), spreadsheet_id)?;
         self.client
@@ -458,7 +458,7 @@ impl<'a> SheetsApi<'a> {
     /// Fetches a spreadsheet's metadata **including dimension groups** —
     /// shared by all four `dimension_group.rs` verbs (issue #1833),
     /// mirroring [`Self::get_spreadsheet_with_banding`]'s reuse across its
-    /// own four verbs. See [`SPREADSHEET_FIELDS_WITH_DIMENSION_GROUPS`].
+    /// own four verbs. See `SPREADSHEET_FIELDS_WITH_DIMENSION_GROUPS`.
     pub async fn get_spreadsheet_with_dimension_groups(
         &self,
         spreadsheet_id: &str,
@@ -483,7 +483,7 @@ impl<'a> SheetsApi<'a> {
     /// response's `sheets` list still carries every sheet's properties (the
     /// mask's own `sheets.properties(...)` clause), but `sheets.data` is
     /// scoped to `composed_a1` by the `ranges` query parameter. See
-    /// [`CELL_PIVOT_FIELDS`].
+    /// `CELL_PIVOT_FIELDS`.
     pub async fn get_cell_pivot(
         &self,
         spreadsheet_id: &str,
@@ -499,7 +499,7 @@ impl<'a> SheetsApi<'a> {
     /// Fetches a range's cell-level formatting — `read-cell-format` (issue
     /// #1878). `composed_a1` may be any range `a1::compose` can build, not
     /// just a single cell; the response's `sheets.data` is scoped to it by
-    /// the `ranges` query parameter. See [`CELL_FORMAT_FIELDS`].
+    /// the `ranges` query parameter. See `CELL_FORMAT_FIELDS`.
     pub async fn get_cell_formats(
         &self,
         spreadsheet_id: &str,
@@ -721,9 +721,9 @@ impl<'a> SheetsApi<'a> {
     /// Searches for developer-metadata entries matching `filters`
     /// (issue #1795, [ADR-0081](../../../docs/adrs/adr-0081.md) §4).
     ///
-    /// Read-only, so — unlike [`Self::batch_update`]/[`Self::copy_to`] —
+    /// Read-only, so — unlike `Self::batch_update`/`Self::copy_to` —
     /// this is plain `pub`, not `pub(in crate::drive)`, and never goes
-    /// through [`append_write_scope_hint`]: nothing here mutates.
+    /// through `append_write_scope_hint`: nothing here mutates.
     /// `developer_metadata.rs` is the one caller, and it always includes
     /// `visibility: DOCUMENT_VISIBILITY` in every filter it builds, so the
     /// server itself never returns a `PROJECT`-visibility entry to begin

@@ -65,7 +65,7 @@
 //! reads back **byte-for-byte identical** to a clear: `{"colorStyle":
 //! {"rgbColor": {}}}` either way. There is no second field to break the
 //! tie, so "cleared" and "explicit black" are genuinely indistinguishable
-//! from a read alone — [`describe_border_color`] reports that ambiguity
+//! from a read alone — `describe_border_color` reports that ambiguity
 //! rather than guessing. Whether the Sheets UI actually paints a visible
 //! black border after `--clear` was not checked (this crate cannot inspect
 //! the rendered UI); what's confirmed is only the wire shape.

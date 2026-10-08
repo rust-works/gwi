@@ -2,7 +2,7 @@
 //!
 //! Thin `reqwest` wrapper that attaches a Bearer access token (refreshed by
 //! an owned [`GmailSession`]) to every request, retries HTTP 429 via the
-//! shared [`retry_if`](crate::utils::http::retry_if) driver, and retries
+//! shared `retry_if` driver, and retries
 //! exactly once on HTTP 401 by forcing a session refresh. Modelled on
 //! omni-dev's `DatadogClient`; the difference is Bearer-token
 //! auth with in-process refresh instead of two static API keys.
@@ -92,7 +92,7 @@ impl GmailClient {
     ///
     /// Respects `GMAIL_API_URL` as an optional override: when set (and
     /// non-empty) in the process environment it replaces
-    /// [`Self::DEFAULT_BASE_URL`] wholesale. Added per PR #1466 review —
+    /// `Self::DEFAULT_BASE_URL` wholesale. Added per PR #1466 review —
     /// without it, exercising the CLI's output shapes required a real
     /// Google Cloud project, and there was no way to route through a forced
     /// egress proxy.
@@ -154,7 +154,7 @@ impl GmailClient {
     /// Sends an authenticated GET request and returns the raw response.
     ///
     /// Retries exactly once on HTTP 401 by forcing a session refresh — see
-    /// [`Self::send_authorized`] for why both a proactive and a reactive
+    /// `Self::send_authorized` for why both a proactive and a reactive
     /// refresh path exist.
     pub async fn get_json(&self, url: &str) -> Result<Response> {
         self.send_authorized(url, "GET", |client, token| {
@@ -305,8 +305,8 @@ impl GmailClient {
     /// envelope into a human message when present (falls back to the raw
     /// body otherwise). Gmail signals quota exhaustion as **403**
     /// `rateLimitExceeded`/`userRateLimitExceeded`, not `429` — unlike plain
-    /// 429s, that shape now also drives a retry (see [`is_gmail_quota_exceeded`]
-    /// via [`retry_if`](crate::utils::http::retry_if)), so this only sees the
+    /// 429s, that shape now also drives a retry (see `is_gmail_quota_exceeded`
+    /// via `retry_if`), so this only sees the
     /// error once retries are exhausted (or the reason didn't match).
     pub async fn response_to_error(response: Response) -> GmailError {
         let status = response.status().as_u16();

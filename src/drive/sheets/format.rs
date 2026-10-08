@@ -70,7 +70,7 @@ use crate::request_log::{self, DriveMutationOutcome};
 /// exactly one variant.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TextRotationFlag {
-    /// Rotation angle in degrees, -90 to 90 ([`build_cell_format`] refuses
+    /// Rotation angle in degrees, -90 to 90 (`build_cell_format` refuses
     /// anything outside that range).
     Angle(i64),
     /// Stack text vertically instead of rotating it.
@@ -79,7 +79,7 @@ pub enum TextRotationFlag {
 
 /// The `CellFormat` flags `format-cells` exposes.
 ///
-/// Every field optional; [`build_cell_format`] refuses an all-`None` set
+/// Every field optional; `build_cell_format` refuses an all-`None` set
 /// and builds the `fields` mask from exactly the ones populated, following
 /// `SheetPropertiesUpdate`'s discipline.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
