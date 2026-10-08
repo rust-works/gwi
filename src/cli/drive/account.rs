@@ -7,7 +7,7 @@ pub(crate) mod set_default;
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 
-/// Manages named Drive accounts configured in `~/.omni-dev/settings.json`.
+/// Manages named Drive accounts configured in `~/.gwi/settings.json`.
 #[derive(Parser)]
 pub struct AccountCommand {
     /// The account subcommand to execute.
@@ -21,7 +21,7 @@ pub struct AccountCommand {
 pub enum AccountSubcommands {
     /// Lists configured Drive accounts (name/email/scope/default only — no secrets, no network).
     List(list::ListCommand),
-    /// Sets the account resolved when `--account`/`OMNI_DEV_DRIVE_ACCOUNT` is not given.
+    /// Sets the account resolved when `--account`/`GWI_DRIVE_ACCOUNT` is not given.
     SetDefault(set_default::SetDefaultCommand),
 }
 

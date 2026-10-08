@@ -8,15 +8,16 @@ use anyhow::Result;
 use clap::{Parser, Subcommand};
 
 pub mod confirm;
+pub mod drive;
 pub mod format;
 pub mod gmail;
 pub mod import;
 
-/// Google Workspace Interface: Gmail from the command line.
+/// Google Workspace Interface: Gmail, Drive, Docs, Sheets and Slides from the command line.
 #[derive(Parser)]
 #[command(name = "gwi")]
 #[command(
-    about = "Google Workspace Interface: Gmail from the command line.",
+    about = "Google Workspace Interface: Gmail, Drive, Docs, Sheets and Slides from the command line.",
     long_about = None
 )]
 #[command(version = crate::VERSION)]
@@ -47,6 +48,8 @@ pub enum Commands {
     // (`clippy::large_enum_variant`). A plain comment, since a doc comment here
     // would become part of the command's `--help`.
     Gmail(Box<gmail::GmailCommand>),
+    /// Drive: search, read, edit and sync Google Drive files, plus Docs, Sheets and Slides.
+    Drive(Box<drive::DriveCommand>),
     /// Import: copy Gmail and Drive settings from omni-dev.
     Import(import::ImportCommand),
 }
@@ -105,6 +108,7 @@ impl Cli {
 
         match self.command {
             Commands::Gmail(cmd) => (*cmd).execute().await,
+            Commands::Drive(cmd) => (*cmd).execute().await,
             Commands::Import(cmd) => cmd.execute(),
         }
     }

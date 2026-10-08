@@ -609,7 +609,7 @@ impl JsonlSerialize for WriteOutcome {
 /// span a `textRun` boundary, or sit in a segment (a header, a footer, a
 /// footnote) that `document_text` does not include in this count (issue
 /// #1799 made those segments fetchable; folding them into this estimate is
-/// separate follow-up work). Acting on the count would let `omni-dev` report
+/// separate follow-up work). Acting on the count would let `gwi` report
 /// "nothing to do" for a document that does have matches.
 #[must_use]
 pub fn count_occurrences(haystack: &str, needle: &str, match_case: bool) -> usize {

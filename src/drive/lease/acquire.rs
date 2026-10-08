@@ -842,11 +842,11 @@ impl PinFailure {
             (true, true) => "No lease was minted and the backups were discarded.",
             (false, false) => {
                 "No lease was minted, but the backup could not be discarded — its location is \
-                 in the audit log (`omni-dev log --audit`); remove it by hand, then retry."
+                 in the audit log; remove it by hand, then retry."
             }
             (false, true) => {
                 "No lease was minted. Retrying stopped early because the last backup could not \
-                 be discarded — its location is in the audit log (`omni-dev log --audit`); \
+                 be discarded — its location is in the audit log; \
                  remove it by hand. Every earlier backup was discarded."
             }
         };
@@ -1047,14 +1047,14 @@ fn backup_name(file_id: &str, name: &str) -> String {
 fn write_backup(path: &Path, bytes: &[u8]) -> anyhow::Result<()> {
     use std::io::Write as _;
 
-    crate::daemon::paths::ensure_parent_dir_0700(path)?;
-    let mut file = crate::daemon::paths::create_new_file_0600(path).map_err(|err| {
+    crate::utils::fs::ensure_parent_dir_0700(path)?;
+    let mut file = crate::utils::fs::create_new_file_0600(path).map_err(|err| {
         // Distinguish a genuine same-second collision (the path already
         // existed) from the file being created fine but the follow-up
         // `fchmod` safety net failing — the latter is an unrelated
         // permissions/filesystem problem that "may already exist, retry"
         // would misdiagnose (issue #1664 review finding).
-        if crate::daemon::paths::is_already_exists_error(&err) {
+        if crate::utils::fs::is_already_exists_error(&err) {
             err.context(format!(
                 "Failed to create backup file at {} — it may already exist from a \
                  near-simultaneous `drive lease acquire` on the same file within the same \

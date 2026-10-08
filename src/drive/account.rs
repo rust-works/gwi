@@ -26,9 +26,9 @@ use crate::utils::secret_env::secret_var_is_set;
 use crate::utils::settings::DriveSettings;
 
 /// Selects the active Drive account for every command, mirroring
-/// `OMNI_DEV_PROFILE`. Propagated by the global `--account` flag in
+/// `GWI_PROFILE`. Propagated by the global `--account` flag in
 /// `DriveCommand`.
-pub const DRIVE_ACCOUNT_ENV: &str = "OMNI_DEV_DRIVE_ACCOUNT";
+pub const DRIVE_ACCOUNT_ENV: &str = "GWI_DRIVE_ACCOUNT";
 
 /// Returns the account named by [`DRIVE_ACCOUNT_ENV`] in `raw`, or `None`
 /// when unset or empty.

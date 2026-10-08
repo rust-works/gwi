@@ -95,10 +95,10 @@ impl SlidesTarget {
                 // round-trip.
                 match mime_type.as_str() {
                     GOOGLE_SHEET_MIME_TYPE => {
-                        Some(format!("{base} — try `omni-dev drive sheets read` instead"))
+                        Some(format!("{base} — try `gwi drive sheets read` instead"))
                     }
                     GOOGLE_DOC_MIME_TYPE => {
-                        Some(format!("{base} — try `omni-dev drive docs read` instead"))
+                        Some(format!("{base} — try `gwi drive docs read` instead"))
                     }
                     _ => Some(base),
                 }
@@ -200,7 +200,7 @@ mod tests {
             .refusal_message("read")
             .unwrap();
         assert!(message.contains("text/plain"), "{message}");
-        assert!(!message.contains("try `omni-dev"), "{message}");
+        assert!(!message.contains("try `gwi"), "{message}");
     }
 
     /// The message names the command the user actually typed.

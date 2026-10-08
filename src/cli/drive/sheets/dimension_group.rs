@@ -1,4 +1,4 @@
-//! CLI commands for `omni-dev drive sheets add-dimension-group`/
+//! CLI commands for `gwi drive sheets add-dimension-group`/
 //! `update-dimension-group`/`delete-dimension-group`/`list-dimension-groups`
 //! (issue #1833).
 //!

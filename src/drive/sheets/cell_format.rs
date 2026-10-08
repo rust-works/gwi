@@ -6,7 +6,7 @@
 //! to move or write formatting resolves both `sheets-write` and
 //! `sheets-structure`" is an obligation the grid-mutation tranche has and,
 //! until this verb existed, no tooling to discharge — nothing under
-//! `omni-dev drive sheets` read a cell's format back.
+//! `gwi drive sheets` read a cell's format back.
 //!
 //! Read-only, so — like `read.rs` — it consults no write gate. See that
 //! module's doc comment for why: [ADR-0071](../../../docs/adrs/adr-0071.md)

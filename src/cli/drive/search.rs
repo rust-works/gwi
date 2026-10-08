@@ -1,4 +1,4 @@
-//! CLI command for `omni-dev drive search`.
+//! CLI command for `gwi drive search`.
 
 use std::io::Write;
 

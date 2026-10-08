@@ -5,14 +5,15 @@ command line and as MCP tools.
 
 > **Status: early development, not released.** gwi is being assembled from the Google
 > Workspace functionality of [omni-dev](https://github.com/rust-works/omni-dev). `gwi gmail`
-> works from source, and so does the Gmail MCP server; the Drive commands and tools are not
-> available yet, so keep using `omni-dev drive` for Drive. Progress is tracked in
+> and `gwi drive` work from source, and so does the Gmail MCP server; the Drive MCP tools are
+> not available yet, so keep using omni-dev's Drive MCP tools. Progress is tracked in
 > [rust-works/omni-dev#2203](https://github.com/rust-works/omni-dev/issues/2203).
 
 ## Try it from source
 
 ```bash
 cargo run -- gmail --help
+cargo run -- drive --help
 ```
 
 Configuration lives in `~/.gwi/settings.json` (not omni-dev's `~/.omni-dev`), and
@@ -32,8 +33,9 @@ never changes it, never overwrites a different value you already have in gwi (pa
 `--force` to), and never prints a secret. Anything gwi already has with the same value is
 reported as unchanged, so running it twice is safe. It warns about any `*_file` secret path
 that points inside `~/.omni-dev/`, since that file would be lost if you later remove
-omni-dev's directory. Drive's lease ledger is not copied yet; that arrives with the Drive
-commands.
+omni-dev's directory. Drive's lease ledger is not copied yet, so a lease taken with
+`omni-dev drive lease acquire` cannot be used or restored through `gwi drive`: acquire a
+new one with gwi. The import arrives in a later change.
 
 ## MCP server
 
@@ -68,7 +70,8 @@ truncated, default 100 KB, `0` for no limit). `gwi import` copies both from omni
 
 - `gwi gmail`: search, read, threads, drafts, labels, attachments, sync and insert *(available from source)*
 - `gwi-mcp`: the Gmail MCP tools *(available from source)*
-- `gwi drive`: files, Docs, Sheets, Slides, permissions and write leases, and their MCP tools
+- `gwi drive`: files, Docs, Sheets, Slides, permissions and write leases *(available from source)*
+- `gwi-mcp`: the Drive MCP tools
 
 ## License
 

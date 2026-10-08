@@ -1,4 +1,4 @@
-//! CLI commands for `omni-dev drive permissions` — read-only diagnostics
+//! CLI commands for `gwi drive permissions` — read-only diagnostics
 //! for the write-permission gate (issue #1574), including the
 //! `sheets-write` operation added for the Sheets API (issue #1589), the
 //! `docs-write` operation added for the Docs API (issue #1615), and the

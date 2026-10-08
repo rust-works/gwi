@@ -1,4 +1,4 @@
-//! CLI command for `omni-dev drive sheets auto-fill` (issue #1840,
+//! CLI command for `gwi drive sheets auto-fill` (issue #1840,
 //! [ADR-0083](../../../../../docs/adrs/adr-0083.md) §1).
 //!
 //! Gated by

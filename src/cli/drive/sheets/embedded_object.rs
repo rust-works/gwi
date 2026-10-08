@@ -1,4 +1,4 @@
-//! CLI commands for `omni-dev drive sheets add-chart`/`update-chart`/
+//! CLI commands for `gwi drive sheets add-chart`/`update-chart`/
 //! `delete-chart`/`list-charts`/`add-slicer`/`update-slicer`/
 //! `delete-slicer`/`list-slicers` (issue #1797), and
 //! `move-chart`/`move-slicer`/`update-chart-border` (issue #1837).

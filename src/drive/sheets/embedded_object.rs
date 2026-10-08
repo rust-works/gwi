@@ -864,7 +864,7 @@ fn validate_verb(verb: &EmbeddedObjectVerb) -> Result<(), String> {
                 );
             }
             // Checked here *and* via `conflicts_with` on the CLI leaf's two
-            // flags: the CLI rejection is what a normal `omni-dev` user
+            // flags: the CLI rejection is what a normal `gwi` user
             // sees, but `validate_verb` is the actual gate — every caller,
             // not just the CLI, funnels through `embedded_object()` — so
             // the check belongs here regardless, and duplicating it costs
@@ -2051,7 +2051,7 @@ fn build_update_slicer(
         // that has one but is missing the other is a real Google Sheets
         // slicer whose column just happens to be 0, not a bare/degenerate
         // spec. A spec with neither (predating this validation, or created
-        // outside omni-dev — see the `..._refuses_when_an_existing_spec_
+        // outside gwi — see the `..._refuses_when_an_existing_spec_
         // has_no_range_or_column` test) still falls through to the
         // refusal below rather than guessing.
         let effective_column = spec.column_index.or_else(|| {
@@ -2063,7 +2063,7 @@ fn build_update_slicer(
             }
             _ => {
                 // A stored slicer with no range and/or no column predates
-                // this validation (or was created outside omni-dev); refuse
+                // this validation (or was created outside gwi); refuse
                 // rather than silently skip the check this change exists to
                 // enforce.
                 return Err(EmbeddedObjectResult::RefusedInvalidRange {
@@ -5642,7 +5642,7 @@ mod tests {
     #[test]
     fn build_update_slicer_refuses_when_an_existing_spec_has_no_range_or_column() {
         // A bare spec (no data_range, no column_index) predates this
-        // validation, or was created outside omni-dev — see #1945's review.
+        // validation, or was created outside gwi — see #1945's review.
         let workbook = workbook_with_sheet(Sheet {
             properties: Some(crate::drive::sheets::types::SheetProperties {
                 sheet_id: Some(0),

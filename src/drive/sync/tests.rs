@@ -77,8 +77,8 @@ fn names_are_portable_bounded_and_cannot_traverse() {
     for bad in [
         "../evil",
         "/evil",
-        ".omni-dev-sync.json",
-        "foo/.omni-dev-sync.json",
+        ".gwi-sync.json",
+        "foo/.gwi-sync.json",
         "a\\b",
         "a/../b",
     ] {

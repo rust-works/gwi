@@ -1,4 +1,4 @@
-//! CLI commands for `omni-dev drive sheets add-conditional-format`/
+//! CLI commands for `gwi drive sheets add-conditional-format`/
 //! `update-conditional-format`/`delete-conditional-format`/
 //! `list-conditional-formats` (issue #1793).
 //!
@@ -959,7 +959,7 @@ mod tests {
     /// gate verdict matters here, not the lease machinery (covered
     /// separately by ADR-0080's own tests).
     fn allow_sheets_structure_on_folder_1(dir: &tempfile::TempDir) {
-        let settings_path = dir.path().join(".omni-dev").join("settings.json");
+        let settings_path = dir.path().join(".gwi").join("settings.json");
         Settings::upsert_drive_account(
             &settings_path,
             "work",

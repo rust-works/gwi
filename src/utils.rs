@@ -2,6 +2,7 @@
 
 pub mod browser_command;
 pub mod config_dir;
+pub mod duration;
 pub mod env;
 pub mod fs;
 pub mod http;

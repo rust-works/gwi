@@ -342,7 +342,7 @@ pub fn describe(outcome: &CreateOutcome) -> String {
         CreateResult::CreatedValuesFailed { file_id, detail } => format!(
             "Partially failed: created '{name}' ({file_id}) in {parent}, but writing its \
              values failed: {detail}. The spreadsheet exists and is empty — it cannot be \
-             rolled back automatically. Clean up explicitly with `omni-dev drive trash {file_id}` \
+             rolled back automatically. Clean up explicitly with `gwi drive trash {file_id}` \
              (requires trash permission on the file or its folder)."
         ),
         CreateResult::Failed { detail } => format!("Failed: '{name}' in {parent}: {detail}"),
@@ -668,7 +668,7 @@ mod tests {
         assert!(text.contains("Partially failed"), "{text}");
         assert!(text.contains("new-sheet"), "{text}");
         assert!(text.contains("cannot be rolled back"), "{text}");
-        assert!(text.contains("omni-dev drive trash new-sheet"), "{text}");
+        assert!(text.contains("gwi drive trash new-sheet"), "{text}");
         assert!(text.contains("requires trash permission"), "{text}");
     }
 

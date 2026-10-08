@@ -1,4 +1,4 @@
-//! CLI command for `omni-dev drive account set-default`.
+//! CLI command for `gwi drive account set-default`.
 
 use anyhow::Result;
 use clap::Parser;
@@ -6,7 +6,7 @@ use clap::Parser;
 use crate::drive::account;
 use crate::utils::settings::Settings;
 
-/// Sets the account resolved when `--account`/`OMNI_DEV_DRIVE_ACCOUNT` is
+/// Sets the account resolved when `--account`/`GWI_DRIVE_ACCOUNT` is
 /// not given and more than one account is configured.
 #[derive(Parser)]
 pub struct SetDefaultCommand {
@@ -35,7 +35,7 @@ mod tests {
     fn set_default_rejects_unknown_account() {
         let guard = crate::drive::test_support::EnvGuard::take();
         let dir = guard.clear_credentials();
-        let settings_path = dir.path().join(".omni-dev").join("settings.json");
+        let settings_path = dir.path().join(".gwi").join("settings.json");
         Settings::upsert_drive_account(
             &settings_path,
             "work",
@@ -55,7 +55,7 @@ mod tests {
     fn set_default_writes_known_account() {
         let guard = crate::drive::test_support::EnvGuard::take();
         let dir = guard.clear_credentials();
-        let settings_path = dir.path().join(".omni-dev").join("settings.json");
+        let settings_path = dir.path().join(".gwi").join("settings.json");
         Settings::upsert_drive_account(
             &settings_path,
             "work",

@@ -30,7 +30,7 @@ fn hermetic_home() -> tempfile::TempDir {
 }
 
 fn lease_release_cmd(home: &std::path::Path, token: &str) -> std::process::Command {
-    let mut cmd = std::process::Command::new(env!("CARGO_BIN_EXE_omni-dev"));
+    let mut cmd = std::process::Command::new(env!("CARGO_BIN_EXE_gwi"));
     cmd.args(["drive", "lease", "release", token])
         .env("HOME", home)
         .env_remove("XDG_DATA_HOME")

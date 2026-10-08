@@ -19,7 +19,7 @@ use crate::drive::client::DriveClient;
 use crate::drive::files_api::{FilesApi, HARD_CAP, MAX_PAGE_LIMIT};
 use crate::drive::types::DriveFile;
 
-const MANIFEST: &str = ".omni-dev-sync.json";
+const MANIFEST: &str = ".gwi-sync.json";
 const MAX_BYTES: u64 = 500 * 1024 * 1024;
 
 /// Inputs to the one-way mirror. Dry runs perform no local writes or downloads.

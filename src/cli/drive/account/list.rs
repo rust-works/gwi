@@ -1,4 +1,4 @@
-//! CLI command for `omni-dev drive account list`.
+//! CLI command for `gwi drive account list`.
 
 use std::io::Write;
 
@@ -18,7 +18,7 @@ pub struct ListCommand {
 }
 
 impl ListCommand {
-    /// Reads accounts from `~/.omni-dev/settings.json` only — no network
+    /// Reads accounts from `~/.gwi/settings.json` only — no network
     /// call, no secret ever rendered.
     pub fn execute(self) -> Result<()> {
         let settings = Settings::load_or_warn_default();
@@ -46,7 +46,7 @@ fn render_account_table(accounts: &[AccountSummary], out: &mut dyn Write) -> Res
     if accounts.is_empty() {
         writeln!(
             out,
-            "No named Drive accounts configured. Run `omni-dev drive auth login --account <name>` \
+            "No named Drive accounts configured. Run `gwi drive auth login --account <name>` \
              to create one."
         )
         .context("Failed to write empty-table message")?;

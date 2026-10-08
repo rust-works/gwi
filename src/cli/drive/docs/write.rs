@@ -1,4 +1,4 @@
-//! CLI commands for `omni-dev drive docs replace` and `drive docs append`.
+//! CLI commands for `gwi drive docs replace` and `drive docs append`.
 
 use std::io::Read;
 

@@ -1,6 +1,6 @@
 //! `drive lease prune` — the ADR-0080 Consequences fast-follow (#1678) that
 //! bounds the ledger's and the backup directory/folder's otherwise-unbounded
-//! growth. Modeled on `omni-dev log prune` (`request_log::prune`):
+//! growth. Modeled on `gwi log prune` (`request_log::prune`):
 //! `--older-than`/`--max-size`, applied sequentially (age first, then size
 //! trims what's left), `--dry-run` reports without mutating anything.
 //!
@@ -1506,7 +1506,7 @@ mod tests {
         assert_eq!(
             audit.verdicts(),
             vec!["pruned".to_string()],
-            "a pruned lease's removal must be independently discoverable via `omni-dev log \
+            "a pruned lease's removal must be independently discoverable via `gwi log \
              --audit`, not just the transient CLI summary"
         );
     }

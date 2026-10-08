@@ -56,7 +56,7 @@ pub struct LoginCommand {
     #[arg(long)]
     pub write: bool,
     /// Request the `drive.file` scope (needed for `create`/`upload`, and
-    /// `edit` of files `omni-dev` itself created) in addition to
+    /// `edit` of files `gwi` itself created) in addition to
     /// `drive.readonly`. Independent of and combinable with `--write` and
     /// `--write-full` — Google just grants the union (issue #1574).
     #[arg(long)]
@@ -102,9 +102,9 @@ async fn run_login(
 
     let status = auth::login_for(None, &client_id, &client_secret, scope, &browser).await?;
 
-    println!("\nCredentials saved to ~/.omni-dev/settings.json");
+    println!("\nCredentials saved to ~/.gwi/settings.json");
     println!("  Granted scope: {}", status.scope.unwrap_or_default());
-    println!("\nRun `omni-dev drive auth status` to verify.");
+    println!("\nRun `gwi drive auth status` to verify.");
     Ok(())
 }
 
@@ -241,7 +241,7 @@ impl LogoutCommand {
 fn run_logout() -> Result<()> {
     let removed = auth::remove_credentials_for(None)?;
     if removed {
-        println!("Drive credentials removed from ~/.omni-dev/settings.json");
+        println!("Drive credentials removed from ~/.gwi/settings.json");
     } else {
         println!("No Drive credentials were configured.");
     }
@@ -642,7 +642,7 @@ mod tests {
     async fn run_login_surfaces_a_malformed_browser_command_before_the_oauth_exchange() {
         let guard = crate::drive::test_support::EnvGuard::take();
         let dir = guard.clear_credentials();
-        let settings_path = dir.path().join(".omni-dev").join("settings.json");
+        let settings_path = dir.path().join(".gwi").join("settings.json");
         Settings::upsert_drive_account(
             &settings_path,
             "work",
@@ -702,7 +702,7 @@ mod tests {
     async fn run_auth_status_backfills_email_when_account_name_given() {
         let guard = crate::drive::test_support::EnvGuard::take();
         let dir = guard.clear_credentials();
-        let settings_path = dir.path().join(".omni-dev").join("settings.json");
+        let settings_path = dir.path().join(".gwi").join("settings.json");
         Settings::upsert_drive_account(
             &settings_path,
             "work",
@@ -772,7 +772,7 @@ mod tests {
     async fn run_auth_status_all_with_backfills_each_account_despite_uneven_latency() {
         let guard = crate::drive::test_support::EnvGuard::take();
         let dir = guard.clear_credentials();
-        let settings_path = dir.path().join(".omni-dev").join("settings.json");
+        let settings_path = dir.path().join(".gwi").join("settings.json");
         for name in ["work", "personal"] {
             Settings::upsert_drive_account(
                 &settings_path,
@@ -849,7 +849,7 @@ mod tests {
     async fn run_auth_status_all_with_reports_error_for_one_account() {
         let guard = crate::drive::test_support::EnvGuard::take();
         let dir = guard.clear_credentials();
-        let settings_path = dir.path().join(".omni-dev").join("settings.json");
+        let settings_path = dir.path().join(".gwi").join("settings.json");
         for name in ["work", "broken"] {
             Settings::upsert_drive_account(
                 &settings_path,

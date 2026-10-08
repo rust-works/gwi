@@ -11,7 +11,7 @@
 //! the server carries a row's formatting, notes and data-validation rules
 //! along with it when reordering, and what happens to an in-range formula.
 //!
-//! Live-verified 2026-09-22 against a probe sheet in `omni-dev-test`
+//! Live-verified 2026-09-22 against a probe sheet in `gwi-test`
 //! (issue #1845's plan comments): **formatting, notes and data-validation
 //! rules move with the row**, and **an in-range formula moves with its row
 //! with its relative references rewritten** to keep pointing at its own

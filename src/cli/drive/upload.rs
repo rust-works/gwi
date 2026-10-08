@@ -1,4 +1,4 @@
-//! CLI command for `omni-dev drive upload`.
+//! CLI command for `gwi drive upload`.
 
 use std::path::PathBuf;
 

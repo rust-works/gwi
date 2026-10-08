@@ -1,4 +1,4 @@
-//! CLI commands for `omni-dev drive sheets add-pivot-table`/
+//! CLI commands for `gwi drive sheets add-pivot-table`/
 //! `delete-pivot-table`/`list-pivot-tables` (issue #1798,
 //! [ADR-0081](../../../../docs/adrs/adr-0081.md) §5).
 //!

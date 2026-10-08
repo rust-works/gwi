@@ -1,4 +1,4 @@
-//! CLI command for `omni-dev drive sheets read`.
+//! CLI command for `gwi drive sheets read`.
 //!
 //! The `Table` output format renders **CSV**, which is what a grid of cells
 //! actually is. That follows the in-tree convention that `Table` means "one

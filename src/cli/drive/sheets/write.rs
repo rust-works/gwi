@@ -1,4 +1,4 @@
-//! CLI commands for `omni-dev drive sheets write`/`append`/`clear`.
+//! CLI commands for `gwi drive sheets write`/`append`/`clear`.
 //!
 //! Three clap structs over one engine call. They share `run_write`, so the
 //! gate wiring, `--dry-run` handling, output rendering and request logging
@@ -478,7 +478,7 @@ mod tests {
     async fn write_command_execute_calls_values_update() {
         let guard = crate::drive::test_support::EnvGuard::take();
         let dir = guard.clear_credentials();
-        let settings_path = dir.path().join(".omni-dev").join("settings.json");
+        let settings_path = dir.path().join(".gwi").join("settings.json");
         crate::utils::settings::Settings::upsert_drive_account(
             &settings_path,
             "work",
@@ -527,7 +527,7 @@ mod tests {
     async fn append_command_execute_calls_values_append() {
         let guard = crate::drive::test_support::EnvGuard::take();
         let dir = guard.clear_credentials();
-        let settings_path = dir.path().join(".omni-dev").join("settings.json");
+        let settings_path = dir.path().join(".gwi").join("settings.json");
         crate::utils::settings::Settings::upsert_drive_account(
             &settings_path,
             "work",
@@ -580,7 +580,7 @@ mod tests {
     async fn clear_command_execute_calls_values_clear() {
         let guard = crate::drive::test_support::EnvGuard::take();
         let dir = guard.clear_credentials();
-        let settings_path = dir.path().join(".omni-dev").join("settings.json");
+        let settings_path = dir.path().join(".gwi").join("settings.json");
         crate::utils::settings::Settings::upsert_drive_account(
             &settings_path,
             "work",

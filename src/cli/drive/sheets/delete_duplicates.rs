@@ -1,4 +1,4 @@
-//! CLI surface for `omni-dev drive sheets delete-duplicates` (issue #1844).
+//! CLI surface for `gwi drive sheets delete-duplicates` (issue #1844).
 
 use anyhow::Result;
 use clap::Parser;
@@ -230,7 +230,7 @@ mod tests {
     async fn command_execute_builds_options_and_reaches_the_dry_run_engine() {
         let guard = crate::drive::test_support::EnvGuard::take();
         let dir = guard.clear_credentials();
-        let settings_path = dir.path().join(".omni-dev").join("settings.json");
+        let settings_path = dir.path().join(".gwi").join("settings.json");
         crate::utils::settings::Settings::upsert_drive_account(
             &settings_path,
             "work",
@@ -250,7 +250,7 @@ mod tests {
     async fn json_output_short_circuits_the_table_renderer() {
         let guard = crate::drive::test_support::EnvGuard::take();
         let dir = guard.clear_credentials();
-        let settings_path = dir.path().join(".omni-dev").join("settings.json");
+        let settings_path = dir.path().join(".gwi").join("settings.json");
         crate::utils::settings::Settings::upsert_drive_account(
             &settings_path,
             "work",

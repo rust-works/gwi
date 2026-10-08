@@ -1,4 +1,4 @@
-//! CLI commands for `omni-dev drive sheets set-developer-metadata`/
+//! CLI commands for `gwi drive sheets set-developer-metadata`/
 //! `delete-developer-metadata`/`search-developer-metadata` (issue #1795).
 //!
 //! `--sheet`/`--dimension`/`--start`/`--end` are shared, optional flags on

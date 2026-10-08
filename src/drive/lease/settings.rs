@@ -34,25 +34,25 @@ use crate::utils::settings::LeaseSettings;
 pub(crate) const DEFAULT_EXPIRY_MINUTES: i64 = 30;
 
 /// Env var overriding the default `--expiry-minutes`.
-pub(crate) const LEASE_EXPIRY_MINUTES_ENV: &str = "OMNI_DEV_DRIVE_LEASE_EXPIRY_MINUTES";
+pub(crate) const LEASE_EXPIRY_MINUTES_ENV: &str = "GWI_DRIVE_LEASE_EXPIRY_MINUTES";
 /// Env var overriding the default `--backup-dir`.
-pub(crate) const LEASE_BACKUP_DIR_ENV: &str = "OMNI_DEV_DRIVE_LEASE_BACKUP_DIR";
+pub(crate) const LEASE_BACKUP_DIR_ENV: &str = "GWI_DRIVE_LEASE_BACKUP_DIR";
 /// Env var overriding the default authentication policy. Truthy values are
 /// `1`, `true`, and `yes` (trimmed, case-insensitive), matching
 /// `resolve_structured_output_disabled`'s convention.
-pub(crate) const LEASE_BIOMETRICS_ONLY_ENV: &str = "OMNI_DEV_DRIVE_LEASE_BIOMETRICS_ONLY";
+pub(crate) const LEASE_BIOMETRICS_ONLY_ENV: &str = "GWI_DRIVE_LEASE_BIOMETRICS_ONLY";
 /// Env var enabling the headless/off-macOS opt-out (ADR-0080 §8). Same
 /// truthy-value convention as [`LEASE_BIOMETRICS_ONLY_ENV`].
-pub(crate) const LEASE_ALLOW_HEADLESS_ENV: &str = "OMNI_DEV_DRIVE_LEASE_ALLOW_HEADLESS";
+pub(crate) const LEASE_ALLOW_HEADLESS_ENV: &str = "GWI_DRIVE_LEASE_ALLOW_HEADLESS";
 
-/// `<state dir>/omni-dev/drive-backups` — a sibling of the request log and
+/// `<state dir>/gwi/drive-backups` — a sibling of the request log and
 /// lease ledger, same posture. The hard-coded default at the bottom of
 /// [`resolve_backup_dir`]'s chain.
 fn default_backup_dir() -> Result<PathBuf> {
     let base = dirs::state_dir()
         .or_else(dirs::data_dir)
         .context("could not resolve the state/data directory for the default backup directory")?;
-    Ok(base.join("omni-dev").join("drive-backups"))
+    Ok(base.join("gwi").join("drive-backups"))
 }
 
 /// Resolves `--expiry-minutes`, range-checked against the same
@@ -304,7 +304,7 @@ mod tests {
     #[test]
     fn backup_dir_falls_back_to_hardcoded_default() {
         let resolved = resolve_backup_dir(None, &MapEnv::new(), &settings()).unwrap();
-        assert!(resolved.ends_with("omni-dev/drive-backups"));
+        assert!(resolved.ends_with("gwi/drive-backups"));
     }
 
     #[test]
@@ -312,7 +312,7 @@ mod tests {
         let mut s = settings();
         s.backup_dir = Some(PathBuf::from(""));
         let resolved = resolve_backup_dir(None, &MapEnv::new(), &s).unwrap();
-        assert!(resolved.ends_with("omni-dev/drive-backups"));
+        assert!(resolved.ends_with("gwi/drive-backups"));
     }
 
     #[test]

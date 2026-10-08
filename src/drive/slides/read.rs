@@ -73,7 +73,7 @@ pub(in crate::drive) fn selected_slide_ids(
     for id in requested {
         anyhow::ensure!(
             !id.is_empty() && p.slides.iter().any(|page| &page.object_id == id),
-            "Unknown slide id '{id}'; use `omni-dev drive slides info` to list ordinary slides"
+            "Unknown slide id '{id}'; use `gwi drive slides info` to list ordinary slides"
         );
     }
     p.slides

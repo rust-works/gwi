@@ -347,20 +347,20 @@ impl LeaseGateRefusal {
     pub(crate) fn describe_line(&self, id: &str, target: &str) -> Option<String> {
         match self {
             Self::NoLease => Some(format!(
-                "Refused: {target} requires a Drive write lease — run `omni-dev drive lease \
+                "Refused: {target} requires a Drive write lease — run `gwi drive lease \
                  acquire {id}` and pass the printed token via `--lease`."
             )),
             Self::Expired => Some(format!(
                 "Refused: the presented lease is expired, released, or unknown to this ledger \
-                 — run `omni-dev drive lease acquire {id}` again."
+                 — run `gwi drive lease acquire {id}` again."
             )),
             Self::WrongFile => Some(format!(
                 "Refused: the presented lease was acquired for a different file — run \
-                 `omni-dev drive lease acquire {id}` for this one."
+                 `gwi drive lease acquire {id}` for this one."
             )),
             Self::Stale => Some(format!(
                 "Refused: {target} changed since the lease was acquired (or last written \
-                 under) — re-run `omni-dev drive lease acquire {id}` to lease the current \
+                 under) — re-run `gwi drive lease acquire {id}` to lease the current \
                  version."
             )),
             Self::Failed(_) => None,
@@ -732,25 +732,25 @@ pub(crate) async fn conclude_native_leased_write<T, E>(
 pub(crate) fn recovery_note(backup: Option<&LeaseBackup>, is_delete_sheet: bool) -> String {
     match backup {
         Some(LeaseBackup::DriveCopy { file_id }) if is_delete_sheet => format!(
-            "this cannot be undone through omni-dev — the lease this write required backed the \
-             whole spreadsheet up when it was acquired (Drive copy {file_id}); run `omni-dev \
+            "this cannot be undone through gwi — the lease this write required backed the \
+             whole spreadsheet up when it was acquired (Drive copy {file_id}); run `gwi \
              drive lease restore <TOKEN>` — it restores a single deleted sheet automatically, or \
              otherwise locates the copy to restore from by hand in the Drive UI — or fall back \
              to Google Drive's own version history"
         ),
         Some(LeaseBackup::DriveCopy { file_id }) => format!(
-            "this cannot be undone through omni-dev — the lease this write required backed the \
-             whole spreadsheet up when it was acquired (Drive copy {file_id}); run `omni-dev \
+            "this cannot be undone through gwi — the lease this write required backed the \
+             whole spreadsheet up when it was acquired (Drive copy {file_id}); run `gwi \
              drive lease restore <TOKEN>` to locate it, restore from that copy in the Drive UI, \
              or fall back to Google Drive's own version history"
         ),
         Some(LeaseBackup::Bytes { path, .. }) => format!(
-            "this cannot be undone through omni-dev — the lease this write required backed the \
-             file up when it was acquired ({}); run `omni-dev drive lease restore <TOKEN>` to \
+            "this cannot be undone through gwi — the lease this write required backed the \
+             file up when it was acquired ({}); run `gwi drive lease restore <TOKEN>` to \
              restore it, or fall back to Google Drive's own version history",
             path.display()
         ),
-        None => "this cannot be undone through omni-dev — no lease backup was taken (the \
+        None => "this cannot be undone through gwi — no lease backup was taken (the \
                  deciding write-permission rule sets `require_lease: false`), so Google Drive's \
                  version history is the only recovery path"
             .to_string(),
@@ -1454,7 +1454,7 @@ mod tests {
         assert_eq!(
             LeaseGateRefusal::NoLease.describe_line("file-1", "'Budget'"),
             Some(
-                "Refused: 'Budget' requires a Drive write lease — run `omni-dev drive lease \
+                "Refused: 'Budget' requires a Drive write lease — run `gwi drive lease \
                  acquire file-1` and pass the printed token via `--lease`."
                     .to_string()
             )
@@ -1463,7 +1463,7 @@ mod tests {
             LeaseGateRefusal::Expired.describe_line("file-1", "'Budget'"),
             Some(
                 "Refused: the presented lease is expired, released, or unknown to this ledger \
-                 — run `omni-dev drive lease acquire file-1` again."
+                 — run `gwi drive lease acquire file-1` again."
                     .to_string()
             )
         );
@@ -1471,7 +1471,7 @@ mod tests {
             LeaseGateRefusal::WrongFile.describe_line("file-1", "'Budget'"),
             Some(
                 "Refused: the presented lease was acquired for a different file — run \
-                 `omni-dev drive lease acquire file-1` for this one."
+                 `gwi drive lease acquire file-1` for this one."
                     .to_string()
             )
         );
@@ -1479,7 +1479,7 @@ mod tests {
             LeaseGateRefusal::Stale.describe_line("file-1", "'Budget'"),
             Some(
                 "Refused: 'Budget' changed since the lease was acquired (or last written \
-                 under) — re-run `omni-dev drive lease acquire file-1` to lease the current \
+                 under) — re-run `gwi drive lease acquire file-1` to lease the current \
                  version."
                     .to_string()
             )

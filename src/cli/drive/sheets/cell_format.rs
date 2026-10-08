@@ -1,4 +1,4 @@
-//! CLI command for `omni-dev drive sheets read-cell-format` (issue #1878).
+//! CLI command for `gwi drive sheets read-cell-format` (issue #1878).
 //!
 //! Read-only and ungated, like `sheets read` and every `list-*` verb — see
 //! [ADR-0071](../../../../docs/adrs/adr-0071.md) §11.

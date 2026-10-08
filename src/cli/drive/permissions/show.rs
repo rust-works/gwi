@@ -1,4 +1,4 @@
-//! CLI command for `omni-dev drive permissions show`.
+//! CLI command for `gwi drive permissions show`.
 
 use std::io::Write;
 
@@ -19,7 +19,7 @@ pub struct ShowCommand {
 }
 
 impl ShowCommand {
-    /// Reads `write_permissions.rules` from `~/.omni-dev/settings.json`
+    /// Reads `write_permissions.rules` from `~/.gwi/settings.json`
     /// only — no network call, mirroring `drive account list`. Unlike that
     /// command, rules are per-account data (see
     /// `crate::drive::write_gate`'s module doc), so this resolves the
@@ -67,7 +67,7 @@ fn render_rules_table(rules: &[FolderPermissionRule], out: &mut dyn Write) -> Re
             "No write-permission rules configured for this account — every \
              {} is refused everywhere. Add rules under \
              drive.accounts.<name>.write_permissions.rules in \
-             ~/.omni-dev/settings.json, keyed on either a folder_id or a file_id.",
+             ~/.gwi/settings.json, keyed on either a folder_id or a file_id.",
             default_deny_operations_list()
         )
         .context("Failed to write empty-table message")?;

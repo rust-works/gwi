@@ -70,7 +70,7 @@ impl EnvGuard {
     /// Sets `HOME` to a fresh tempdir and clears all `DRIVE_*` env vars.
     ///
     /// Returns the tempdir so the caller can inspect the
-    /// `.omni-dev/settings.json` written inside it.
+    /// `.gwi/settings.json` written inside it.
     pub(crate) fn clear_credentials(&self) -> tempfile::TempDir {
         let dir = {
             std::fs::create_dir_all("tmp").ok();

@@ -1,4 +1,4 @@
-//! CLI commands for `omni-dev drive sheets format-cells`/`update-borders`/
+//! CLI commands for `gwi drive sheets format-cells`/`update-borders`/
 //! `merge-cells`/`unmerge-cells`/`auto-resize-dimension`/
 //! `update-dimension-properties` (issue #1643).
 //!

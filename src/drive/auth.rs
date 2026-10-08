@@ -84,7 +84,7 @@ pub const SCOPE_FILE: &str = "https://www.googleapis.com/auth/drive.file";
 /// The unrestricted "full" Drive scope.
 ///
 /// The only scope that can edit a file's content that already existed
-/// before `omni-dev` touched it. The largest privilege grant this
+/// before `gwi` touched it. The largest privilege grant this
 /// integration has ever requested. Opt-in via `--write-full` (issue
 /// #1574).
 pub const SCOPE_FULL: &str = "https://www.googleapis.com/auth/drive";
@@ -228,7 +228,7 @@ impl DriveGrantedScopes {
         self.file || self.full
     }
 
-    /// Whether this scope set allows editing a file `omni-dev` did *not*
+    /// Whether this scope set allows editing a file `gwi` did *not*
     /// itself create — only the unrestricted `drive` scope can; `drive.file`
     /// alone cannot.
     #[must_use]
@@ -508,6 +508,13 @@ pub(crate) fn status_with(env: &impl crate::utils::env::EnvSource) -> DriveAuthS
 /// is its sole consumer; the CLI's `drive auth status` goes through
 /// [`load_credentials_for`] instead.
 #[cfg(feature = "mcp")]
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "its caller, the Drive MCP tools, is wired in a later step of gwi#15"
+    )
+)]
 pub(crate) fn status_for(explicit: Option<&str>) -> Result<DriveAuthStatus> {
     let settings = Settings::load_or_warn_default();
     match resolve(&settings.drive, explicit)? {
@@ -527,6 +534,13 @@ pub(crate) fn status_for(explicit: Option<&str>) -> Result<DriveAuthStatus> {
 /// Only compiled with the `mcp` feature — see [`status_for`], its sole
 /// caller.
 #[cfg(feature = "mcp")]
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "its caller, the Drive MCP tools, is wired in a later step of gwi#15"
+    )
+)]
 fn status_from_named(drive: &DriveSettings, name: &str) -> DriveAuthStatus {
     let account = drive.accounts.get(name);
     DriveAuthStatus {
@@ -572,7 +586,7 @@ pub(crate) fn record_account_email(name: &str, email: &str) -> Result<()> {
     )
 }
 
-/// Saves Drive credentials to `~/.omni-dev/settings.json`.
+/// Saves Drive credentials to `~/.gwi/settings.json`.
 ///
 /// Merges the four credential keys into the active profile's `env` map (the
 /// base `env` when no profile is active), preserving all other settings.
@@ -634,7 +648,7 @@ fn named_account_vars(credentials: &DriveCredentials) -> [(&str, serde_json::Val
     ]
 }
 
-/// Removes Drive credential keys from `~/.omni-dev/settings.json` — this
+/// Removes Drive credential keys from `~/.gwi/settings.json` — this
 /// *is* `drive auth logout`.
 ///
 /// Returns `true` if any Drive key was present and removed, `false`
@@ -684,7 +698,7 @@ pub(crate) fn remove_credentials_for(explicit: Option<&str>) -> Result<bool> {
 ///
 /// Deliberately duplicated from (not shared with) `crate::gmail::auth`'s
 /// identical type (itself duplicated from
-/// [`crate::snowflake::client::config::BrowserLaunch`]) — a small, stable
+/// omni-dev's `crate::snowflake::client::config::BrowserLaunch`) — a small, stable
 /// shape with no existing "generic browser launch" module to promote into;
 /// extract only on a third consumer (see
 /// [ADR-0069](../../../docs/adrs/adr-0069.md) §4).
@@ -789,8 +803,8 @@ struct PendingLogin {
 
 fn generate_pending_login() -> PendingLogin {
     PendingLogin {
-        state: crate::browser::auth::generate_token(),
-        code_verifier: crate::browser::auth::generate_token(),
+        state: crate::utils::token::generate_token(),
+        code_verifier: crate::utils::token::generate_token(),
     }
 }
 
@@ -1118,7 +1132,7 @@ impl DriveSession {
 // ── Login orchestration ─────────────────────────────────────────────────
 
 /// Runs the OAuth2 authorization-code + PKCE login flow, persisting the
-/// resulting refresh token to `~/.omni-dev/settings.json`.
+/// resulting refresh token to `~/.gwi/settings.json`.
 pub async fn login(
     client_id: &str,
     client_secret: &Secret,
@@ -2433,7 +2447,7 @@ mod tests {
     async fn login_for_unconfigured_account_rejects_a_callback_with_mismatched_state() {
         let guard = crate::drive::test_support::EnvGuard::take();
         let dir = guard.clear_credentials();
-        let settings_path = dir.path().join(".omni-dev").join("settings.json");
+        let settings_path = dir.path().join(".gwi").join("settings.json");
 
         let result = run_with_port_retry(|port| async move {
             let browser = BrowserConfig {
@@ -2472,7 +2486,7 @@ mod tests {
     async fn login_for_named_account_rejects_a_callback_with_mismatched_state() {
         let guard = crate::drive::test_support::EnvGuard::take();
         let dir = guard.clear_credentials();
-        let settings_path = dir.path().join(".omni-dev").join("settings.json");
+        let settings_path = dir.path().join(".gwi").join("settings.json");
 
         let result = run_with_port_retry(|port| async move {
             let browser = BrowserConfig {
@@ -2929,7 +2943,7 @@ mod tests {
                 std::fs::create_dir_all("tmp").ok();
                 tempfile::TempDir::new_in("tmp").unwrap()
             };
-            let settings_path = temp_dir.path().join(".omni-dev").join("settings.json");
+            let settings_path = temp_dir.path().join(".gwi").join("settings.json");
 
             let creds = DriveCredentials {
                 client_id: "client-1".to_string(),
@@ -2961,7 +2975,7 @@ mod tests {
                 std::fs::create_dir_all("tmp").ok();
                 tempfile::TempDir::new_in("tmp").unwrap()
             };
-            let omni_dir = temp_dir.path().join(".omni-dev");
+            let omni_dir = temp_dir.path().join(".gwi");
             fs::create_dir_all(&omni_dir).unwrap();
             let settings_path = omni_dir.join("settings.json");
             fs::write(
@@ -2991,7 +3005,7 @@ mod tests {
                 std::fs::create_dir_all("tmp").ok();
                 tempfile::TempDir::new_in("tmp").unwrap()
             };
-            let omni_dir = temp_dir.path().join(".omni-dev");
+            let omni_dir = temp_dir.path().join(".gwi");
             fs::create_dir_all(&omni_dir).unwrap();
             let settings_path = omni_dir.join("settings.json");
             fs::write(
@@ -3024,7 +3038,7 @@ mod tests {
                 std::fs::create_dir_all("tmp").ok();
                 tempfile::TempDir::new_in("tmp").unwrap()
             };
-            let settings_path = temp_dir.path().join(".omni-dev").join("settings.json");
+            let settings_path = temp_dir.path().join(".gwi").join("settings.json");
             let removed = remove_credentials_at(&settings_path, None).unwrap();
             assert!(!removed);
         }
@@ -3037,7 +3051,7 @@ mod tests {
             std::fs::create_dir_all("tmp").ok();
             tempfile::TempDir::new_in("tmp").unwrap()
         };
-        let omni_dir = temp_dir.path().join(".omni-dev");
+        let omni_dir = temp_dir.path().join(".gwi");
         fs::create_dir_all(&omni_dir).unwrap();
         let settings_path = omni_dir.join("settings.json");
         fs::write(&settings_path, r#"{"env": {"OTHER_KEY": "keep_me"}}"#).unwrap();
@@ -3071,8 +3085,8 @@ mod tests {
         assert!(!removed);
     }
 
-    /// The production wrappers resolve `~/.omni-dev/settings.json` from
-    /// `HOME` and the active profile from `OMNI_DEV_PROFILE`, so this one
+    /// The production wrappers resolve `~/.gwi/settings.json` from
+    /// `HOME` and the active profile from `GWI_PROFILE`, so this one
     /// test must redirect both via [`crate::drive::test_support::EnvGuard`].
     #[test]
     fn save_and_remove_credentials_resolve_default_settings_path() {
@@ -3087,7 +3101,7 @@ mod tests {
         };
         save_credentials(&creds).unwrap();
 
-        let settings_path = dir.path().join(".omni-dev").join("settings.json");
+        let settings_path = dir.path().join(".gwi").join("settings.json");
         let val: serde_json::Value =
             serde_json::from_str(&fs::read_to_string(&settings_path).unwrap()).unwrap();
         assert_eq!(val["env"]["DRIVE_CLIENT_ID"], "wrapper-client");
@@ -3192,7 +3206,7 @@ mod tests {
     fn load_credentials_for_named_reads_from_drive_accounts() {
         let guard = crate::drive::test_support::EnvGuard::take();
         let dir = guard.clear_credentials();
-        let settings_path = dir.path().join(".omni-dev").join("settings.json");
+        let settings_path = dir.path().join(".gwi").join("settings.json");
         Settings::upsert_drive_account(
             &settings_path,
             "work",
@@ -3228,7 +3242,7 @@ mod tests {
     fn load_credentials_for_unknown_named_account_errors() {
         let guard = crate::drive::test_support::EnvGuard::take();
         let dir = guard.clear_credentials();
-        let settings_path = dir.path().join(".omni-dev").join("settings.json");
+        let settings_path = dir.path().join(".gwi").join("settings.json");
         Settings::upsert_drive_account(
             &settings_path,
             "work",
@@ -3259,7 +3273,7 @@ mod tests {
     fn load_credentials_for_none_honors_ambient_account_env_var() {
         let guard = crate::drive::test_support::EnvGuard::take();
         let dir = guard.clear_credentials();
-        let settings_path = dir.path().join(".omni-dev").join("settings.json");
+        let settings_path = dir.path().join(".gwi").join("settings.json");
         Settings::upsert_drive_account(
             &settings_path,
             "work",
@@ -3289,7 +3303,7 @@ mod tests {
     fn remove_credentials_for_named_removes_whole_account() {
         let guard = crate::drive::test_support::EnvGuard::take();
         let dir = guard.clear_credentials();
-        let settings_path = dir.path().join(".omni-dev").join("settings.json");
+        let settings_path = dir.path().join(".gwi").join("settings.json");
         Settings::upsert_drive_account(
             &settings_path,
             "work",
@@ -3308,7 +3322,7 @@ mod tests {
     fn status_for_named_reports_presence_from_account() {
         let guard = crate::drive::test_support::EnvGuard::take();
         let dir = guard.clear_credentials();
-        let settings_path = dir.path().join(".omni-dev").join("settings.json");
+        let settings_path = dir.path().join(".gwi").join("settings.json");
         Settings::upsert_drive_account(
             &settings_path,
             "work",
@@ -3345,7 +3359,7 @@ mod tests {
     fn record_account_email_writes_email_address_only() {
         let guard = crate::drive::test_support::EnvGuard::take();
         let dir = guard.clear_credentials();
-        let settings_path = dir.path().join(".omni-dev").join("settings.json");
+        let settings_path = dir.path().join(".gwi").join("settings.json");
         Settings::upsert_drive_account(
             &settings_path,
             "work",
@@ -3368,7 +3382,7 @@ mod tests {
     fn record_account_email_does_not_overwrite_an_existing_value() {
         let guard = crate::drive::test_support::EnvGuard::take();
         let dir = guard.clear_credentials();
-        let settings_path = dir.path().join(".omni-dev").join("settings.json");
+        let settings_path = dir.path().join(".gwi").join("settings.json");
         Settings::upsert_drive_account(
             &settings_path,
             "work",
@@ -3410,14 +3424,14 @@ mod tests {
         let dir_direct = guard.clear_credentials();
         save_credentials(&creds).unwrap();
         let direct_written =
-            fs::read_to_string(dir_direct.path().join(".omni-dev").join("settings.json")).unwrap();
+            fs::read_to_string(dir_direct.path().join(".gwi").join("settings.json")).unwrap();
         let direct_loaded = load_credentials().unwrap();
         let direct_removed = remove_credentials().unwrap();
 
         let dir_for = guard.clear_credentials();
         save_credentials(&creds).unwrap();
         let for_written =
-            fs::read_to_string(dir_for.path().join(".omni-dev").join("settings.json")).unwrap();
+            fs::read_to_string(dir_for.path().join(".gwi").join("settings.json")).unwrap();
         let for_loaded = load_credentials_for(None).unwrap();
         let for_removed = remove_credentials_for(None).unwrap();
 

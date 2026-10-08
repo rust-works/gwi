@@ -1,4 +1,4 @@
-//! CLI command for `omni-dev drive edit`.
+//! CLI command for `gwi drive edit`.
 
 use std::io::Read as _;
 use std::path::Path;
@@ -21,7 +21,7 @@ const DEFAULT_CONTENT_MIME_TYPE: &str = "application/octet-stream";
 
 /// Replaces an existing file's content, gated by the account's configured
 /// write-permission rules (issues #1574, #1612). Requires the `drive.file`
-/// scope if `omni-dev` created the file, or the unrestricted `drive` scope
+/// scope if `gwi` created the file, or the unrestricted `drive` scope
 /// for any pre-existing file (`drive auth login --write-file` or
 /// `--write-full`).
 ///
@@ -150,8 +150,8 @@ fn write_outcome(outcome: &EditOutcome, out: &mut dyn std::io::Write) -> std::io
             writeln!(
                 out,
                 "Refused: {file_id} is a Google-native document (Docs/Sheets/Slides/...) — no \
-                 raw content to replace. Edit a Doc with `omni-dev drive docs \
-                 replace`/`append`, or a Sheet with `omni-dev drive sheets \
+                 raw content to replace. Edit a Doc with `gwi drive docs \
+                 replace`/`append`, or a Sheet with `gwi drive sheets \
                  write`/`append`/`clear`."
             )?;
         }

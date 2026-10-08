@@ -1,4 +1,4 @@
-//! CLI command for `omni-dev drive dedupe`.
+//! CLI command for `gwi drive dedupe`.
 
 use std::collections::BTreeMap;
 use std::io::Write;

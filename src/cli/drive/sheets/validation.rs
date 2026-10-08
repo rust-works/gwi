@@ -1,4 +1,4 @@
-//! CLI commands for `omni-dev drive sheets set-data-validation`/
+//! CLI commands for `gwi drive sheets set-data-validation`/
 //! `clear-data-validation` (issue #1643).
 
 use anyhow::Result;

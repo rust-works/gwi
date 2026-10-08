@@ -1,6 +1,6 @@
 //! Folder-scoped write-permission gate (issue #1574).
 //!
-//! `omni-dev`'s own local policy layer bounding `drive create`/`upload`/
+//! `gwi`'s own local policy layer bounding `drive create`/`upload`/
 //! `edit`, independent of and enforced *in addition to* whatever the OAuth
 //! scope (`crate::drive::auth::DriveGrantedScopes`) would technically
 //! allow. Google's Drive scopes are all-or-nothing across a user's whole
@@ -1493,7 +1493,7 @@ mod tests {
 
     #[test]
     fn decided_by_log_fields_never_puts_a_file_id_in_the_folder_field() {
-        // `omni-dev log --query decided_by_folder_id:X` must never start
+        // `gwi log --query decided_by_folder_id:X` must never start
         // matching file ids — that would silently reinterpret an existing
         // audit key.
         let rule = DecidingRule::File {

@@ -1,4 +1,4 @@
-//! CLI commands for `omni-dev drive sheets` — reading and writing the
+//! CLI commands for `gwi drive sheets` — reading and writing the
 //! *cells* of a Google Sheet via the Sheets v4 API (issue #1589), editing
 //! its *structure* via `spreadsheets.batchUpdate` (issue #1613),
 //! *destructively* editing it the same way (issue #1623), and applying
@@ -114,19 +114,19 @@ pub enum SheetsSubcommands {
     MoveColumns(structure::MoveColumnsCommand),
     /// Deletes an entire sheet (tab) from a spreadsheet. Gated by the folder
     /// write-permission rules' `sheets-delete` operation (issue #1623).
-    /// Cannot be undone through omni-dev.
+    /// Cannot be undone through gwi.
     DeleteSheet(structure::DeleteSheetCommand),
     /// Deletes whole rows, shifting existing rows up. Gated by the folder
     /// write-permission rules' `sheets-delete` operation (issue #1623).
-    /// Cannot be undone through omni-dev.
+    /// Cannot be undone through gwi.
     DeleteRows(structure::DeleteRowsCommand),
     /// Deletes whole columns, shifting existing columns left. Gated by the
     /// folder write-permission rules' `sheets-delete` operation (issue
-    /// #1623). Cannot be undone through omni-dev.
+    /// #1623). Cannot be undone through gwi.
     DeleteColumns(structure::DeleteColumnsCommand),
     /// Deletes a rectangular cell range, shifting the remainder along one
     /// axis. Gated by the folder write-permission rules' `sheets-delete`
-    /// operation (issue #1623). Cannot be undone through omni-dev.
+    /// operation (issue #1623). Cannot be undone through gwi.
     DeleteRange(structure::DeleteRangeCommand),
     /// Copies an existing sheet within the same workbook. Gated by the
     /// folder write-permission rules' `sheets-structure` operation
@@ -276,7 +276,7 @@ pub enum SheetsSubcommands {
     /// Gated by the folder write-permission rules' `sheets-structure`
     /// operation (issue #1797, ADR-0081 §3) — not `sheets-delete`; see that
     /// ADR section for why an unrecoverable embedded-object removal still
-    /// sits here. Cannot be undone through omni-dev.
+    /// sits here. Cannot be undone through gwi.
     DeleteChart(embedded_object::DeleteChartCommand),
     /// Lists the charts in a spreadsheet. Read-only and ungated, like
     /// `list-protections` (issue #1797).
@@ -291,7 +291,7 @@ pub enum SheetsSubcommands {
     /// Removes a slicer, after reporting its spec. Gated by the folder
     /// write-permission rules' `sheets-structure` operation (issue #1797,
     /// ADR-0081 §3) — not `sheets-delete`. Cannot be undone through
-    /// omni-dev.
+    /// gwi.
     DeleteSlicer(embedded_object::DeleteSlicerCommand),
     /// Lists the slicers in a spreadsheet. Read-only and ungated, like
     /// `list-protections` (issue #1797).

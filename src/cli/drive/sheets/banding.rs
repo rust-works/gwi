@@ -1,4 +1,4 @@
-//! CLI commands for `omni-dev drive sheets add-banding`/`update-banding`/
+//! CLI commands for `gwi drive sheets add-banding`/`update-banding`/
 //! `delete-banding`/`list-bandings` (issue #1832).
 //!
 //! The first three are gated by
