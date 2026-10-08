@@ -32,7 +32,7 @@ pub(crate) struct EnvGuard {
 
 impl EnvGuard {
     /// Every variable this guard snapshots, restores and clears.
-    fn keys() -> Vec<String> {
+    pub(crate) fn keys() -> Vec<String> {
         let mut keys = vec![
             "HOME".to_string(),
             PROFILE_ENV_VAR.to_string(),

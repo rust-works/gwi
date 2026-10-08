@@ -35,7 +35,7 @@ pub(crate) struct EnvGuard {
 
 impl EnvGuard {
     /// Every variable this guard snapshots, restores and clears.
-    fn keys() -> Vec<String> {
+    pub(crate) fn keys() -> Vec<String> {
         let mut keys = vec![
             "HOME".to_string(),
             PROFILE_ENV_VAR.to_string(),
@@ -394,6 +394,23 @@ mod tests {
             .filter(|var| var.starts_with("DRIVE_"))
         {
             assert!(keys.contains(&companion), "{companion}");
+        }
+    }
+
+    /// `tests/common/mod.rs` cannot call the `#[cfg(test)]` registry helper, so
+    /// its list of variables to scrub from spawned binaries is written out; this
+    /// keeps it covering everything the in-process guards snapshot.
+    #[test]
+    fn the_integration_test_scrub_list_covers_every_guarded_variable() {
+        let list = std::fs::read_to_string(
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/common/mod.rs"),
+        )
+        .unwrap();
+        let guarded = super::EnvGuard::keys()
+            .into_iter()
+            .chain(crate::gmail::test_support::EnvGuard::keys());
+        for key in guarded.filter(|key| key != "HOME") {
+            assert!(list.contains(&format!("\"{key}\"")), "{key}");
         }
     }
 }

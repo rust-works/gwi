@@ -315,7 +315,8 @@ pub(crate) fn while_another_thread_exports(
                     for (key, value) in vars {
                         std::env::set_var(key, value);
                     }
-                    std::thread::yield_now();
+                    // Long enough that a checker without the lock is still running.
+                    std::thread::sleep(std::time::Duration::from_micros(50));
                     for ((key, _), previous) in vars.iter().zip(before) {
                         match previous {
                             Some(value) => std::env::set_var(key, value),
