@@ -1,7 +1,7 @@
 //! Binary entry point for the gwi MCP server.
 //!
 //! Speaks the Model Context Protocol over stdio so AI assistants can invoke gwi's
-//! Gmail operations as MCP tools. All non-trivial logic lives in `gwi::mcp::runtime`
+//! Gmail and Drive operations as MCP tools. All non-trivial logic lives in `gwi::mcp::runtime`
 //! so it can be exercised by library tests; this binary is intentionally a thin shim.
 
 use std::process;

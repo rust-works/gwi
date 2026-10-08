@@ -11,7 +11,7 @@ use rmcp::{
 };
 use serde::{Deserialize, Serialize};
 
-use super::{error::tool_error, server::OmniDevServer};
+use super::{error::tool_error, server::GwiServer};
 use crate::cli::drive::{helpers, lease::LeaseFlags, sheets::values::ValuesFormat};
 use crate::drive::{
     client::DriveClient,
@@ -40,7 +40,7 @@ pub struct DriveDocsReplaceParams {
     /// Preview without mutating or requiring a lease. Default false; preview first.
     #[serde(default)]
     pub dry_run: Option<bool>,
-    /// Token from drive_lease_acquire or omni-dev drive lease acquire. Not needed for
+    /// Token from drive_lease_acquire or gwi drive lease acquire. Not needed for
     /// dry_run or operator require_lease:false rules; any supplied token is still
     /// validated.
     #[serde(default)]
@@ -65,7 +65,7 @@ pub struct DriveDocsAppendParams {
     /// Preview without mutating or requiring a lease. Default false; preview first.
     #[serde(default)]
     pub dry_run: Option<bool>,
-    /// Token from drive_lease_acquire or omni-dev drive lease acquire. Not needed for
+    /// Token from drive_lease_acquire or gwi drive lease acquire. Not needed for
     /// dry_run or operator require_lease:false rules; any supplied token is still
     /// validated.
     #[serde(default)]
@@ -104,7 +104,7 @@ pub struct DriveSheetsWriteParams {
     /// Preview without mutating or requiring a lease. Default false; preview first.
     #[serde(default)]
     pub dry_run: Option<bool>,
-    /// Token from drive_lease_acquire or omni-dev drive lease acquire. Not needed for
+    /// Token from drive_lease_acquire or gwi drive lease acquire. Not needed for
     /// dry_run or operator require_lease:false rules; any supplied token is still
     /// validated.
     #[serde(default)]
@@ -130,7 +130,7 @@ pub struct DriveSheetsClearParams {
     /// Preview without mutating or requiring a lease. Default false; preview first.
     #[serde(default)]
     pub dry_run: Option<bool>,
-    /// Token from drive_lease_acquire or omni-dev drive lease acquire. Not needed for
+    /// Token from drive_lease_acquire or gwi drive lease acquire. Not needed for
     /// dry_run or operator require_lease:false rules; any supplied token is still
     /// validated.
     #[serde(default)]
@@ -157,11 +157,11 @@ pub struct DriveLeaseAcquireParams {
 
 #[allow(missing_docs)] // tool_router generates the public router.
 #[tool_router(router = drive_write_tool_router, vis = "pub")]
-impl OmniDevServer {
+impl GwiServer {
     /// Replace literal text in a Google Doc; use drive_docs_append to add text at the end.
     #[tool(
         description = "Replace literal text in a Google Doc; use drive_docs_append to add text at the end. \
-                       Mirrors `omni-dev drive docs replace`. Case-sensitive by default. Example: \
+                       Mirrors `gwi drive docs replace`. Case-sensitive by default. Example: \
                        document_id, search:\"draft\", replace:\"final\", dry_run:true. occurrences is a \
                        body-only estimate excluding headers/footers/footnotes; zero still sends a real \
                        request, and occurrences_changed is authoritative. stale-revision means reread and \
@@ -169,7 +169,7 @@ impl OmniDevServer {
                        defaults to false. Dry-run first: previews need no lease. Real writes require an \
                        operator allow rule and a lease unless require_lease:false. Acquire with \
                        drive_lease_acquire. A lease permits repeated writes to one file until expiry. \
-                       refused-lease-stale needs a fresh backup: release with omni-dev drive lease release \
+                       refused-lease-stale needs a fresh backup: release with gwi drive lease release \
                        or wait for expiry before acquiring (acquire reuses stale live tokens too). \
                        Cancellation/timeout is not rollback; inspect state before retrying, especially \
                        append. Output is complete tagged YAML; refusals/failures set is_error."
@@ -200,13 +200,13 @@ impl OmniDevServer {
     /// Append text at the end of a Google Doc; use drive_docs_replace to change existing text.
     #[tool(
         description = "Append text at the end of a Google Doc; use drive_docs_replace to change existing \
-                       text. Mirrors `omni-dev drive docs append`. Example: document_id, text:\"new \
+                       text. Mirrors `gwi drive docs append`. Example: document_id, text:\"new \
                        paragraph\", dry_run:true. Use text_path for existing files. stale-revision means \
                        reread and retry through the complete engine, which may then refuse a stale lease. \
                        dry_run defaults to false. Dry-run first: previews need no lease. Real writes require \
                        an operator allow rule and a lease unless require_lease:false. Acquire with \
                        drive_lease_acquire. A lease permits repeated writes to one file until expiry. \
-                       refused-lease-stale needs a fresh backup: release with omni-dev drive lease release \
+                       refused-lease-stale needs a fresh backup: release with gwi drive lease release \
                        or wait for expiry before acquiring (acquire reuses stale live tokens too). \
                        Cancellation/timeout is not rollback; inspect state before retrying, especially \
                        append. Output is complete tagged YAML; refusals/failures set is_error."
@@ -240,12 +240,12 @@ impl OmniDevServer {
     #[tool(
         description = "Overwrite cell values in a Google Sheet, dropping rich-text runs; use \
                        drive_sheets_append to add table rows or drive_sheets_clear to empty values. Mirrors \
-                       `omni-dev drive sheets write`. Example: spreadsheet_id, range:\"A1:B2\", \
+                       `gwi drive sheets write`. Example: spreadsheet_id, range:\"A1:B2\", \
                        values:[[\"a\",\"b\"]], dry_run:true. dry_run defaults to false. Dry-run first: previews \
                        need no lease. Real writes require an operator allow rule and a lease unless \
                        require_lease:false. Acquire with drive_lease_acquire. A lease permits repeated \
                        writes to one file until expiry. refused-lease-stale needs a fresh backup: release \
-                       with omni-dev drive lease release or wait for expiry before acquiring (acquire reuses \
+                       with gwi drive lease release or wait for expiry before acquiring (acquire reuses \
                        stale live tokens too). Cancellation/timeout is not rollback; inspect state before \
                        retrying, especially append. Output is complete tagged YAML; refusals/failures set \
                        is_error."
@@ -269,12 +269,12 @@ impl OmniDevServer {
     /// overwrite existing cells.
     #[tool(
         description = "Append rows after the table in a Google Sheet range; use drive_sheets_write to \
-                       overwrite existing cells. Mirrors `omni-dev drive sheets append`. Example: \
+                       overwrite existing cells. Mirrors `gwi drive sheets append`. Example: \
                        spreadsheet_id, range:\"A1:B2\", values:[[\"a\",\"b\"]], dry_run:true. dry_run defaults to \
                        false. Dry-run first: previews need no lease. Real writes require an operator allow \
                        rule and a lease unless require_lease:false. Acquire with drive_lease_acquire. A \
                        lease permits repeated writes to one file until expiry. refused-lease-stale needs a \
-                       fresh backup: release with omni-dev drive lease release or wait for expiry before \
+                       fresh backup: release with gwi drive lease release or wait for expiry before \
                        acquiring (acquire reuses stale live tokens too). Cancellation/timeout is not \
                        rollback; inspect state before retrying, especially append. Output is complete tagged \
                        YAML; refusals/failures set is_error."
@@ -297,11 +297,11 @@ impl OmniDevServer {
     /// Clear cell values while retaining formatting; use drive_sheets_write to replace them.
     #[tool(
         description = "Clear cell values while retaining formatting; use drive_sheets_write to replace them. \
-                       Mirrors `omni-dev drive sheets clear`. Example: spreadsheet_id, range:\"A1:B2\", \
+                       Mirrors `gwi drive sheets clear`. Example: spreadsheet_id, range:\"A1:B2\", \
                        dry_run:true. dry_run defaults to false. Dry-run first: previews need no lease. Real \
                        writes require an operator allow rule and a lease unless require_lease:false. Acquire \
                        with drive_lease_acquire. A lease permits repeated writes to one file until expiry. \
-                       refused-lease-stale needs a fresh backup: release with omni-dev drive lease release \
+                       refused-lease-stale needs a fresh backup: release with gwi drive lease release \
                        or wait for expiry before acquiring (acquire reuses stale live tokens too). \
                        Cancellation/timeout is not rollback; inspect state before retrying, especially \
                        append. Output is complete tagged YAML; refusals/failures set is_error."
@@ -322,7 +322,7 @@ impl OmniDevServer {
 
     /// Back up a Drive file and acquire a write lease.
     #[tool(
-        description = "Back up a Drive file and acquire a write lease. Mirrors `omni-dev drive lease \
+        description = "Back up a Drive file and acquire a write lease. Mirrors `gwi drive lease \
                        acquire`. Example: file_id:\"1a2B3c4D\", expiry_minutes:30. Prompts for device-owner \
                        authentication (Touch ID or account password; operator biometrics_only requires Touch \
                        ID). Native Docs/Sheets need the selected account's lease_backup_folder_id. \
@@ -610,12 +610,12 @@ mod tests {
     struct LogRoute(Vec<(&'static str, Option<std::ffi::OsString>)>);
     impl LogRoute {
         fn new(path: &std::path::Path) -> Self {
-            let snapshot = ["OMNI_DEV_LOG_FILE", "OMNI_DEV_LOG_DISABLE"]
+            let snapshot = ["GWI_LOG_FILE", "GWI_LOG_DISABLE"]
                 .into_iter()
                 .map(|key| (key, std::env::var_os(key)))
                 .collect();
-            std::env::set_var("OMNI_DEV_LOG_FILE", path);
-            std::env::remove_var("OMNI_DEV_LOG_DISABLE");
+            std::env::set_var("GWI_LOG_FILE", path);
+            std::env::remove_var("GWI_LOG_DISABLE");
             Self(snapshot)
         }
     }
@@ -647,7 +647,7 @@ mod tests {
             json!({"rules":[{"file_id":"target", "deny":["docs-write","sheets-write"]}]})
         };
         Settings::upsert_drive_account(
-            &dir.join(".omni-dev/settings.json"),
+            &dir.join(".gwi/settings.json"),
             "work",
             &[
                 ("write_permissions", rules),
@@ -949,7 +949,7 @@ mod tests {
         let dir = guard.clear_credentials();
         configure(dir.path(), true);
         Settings::upsert_drive_account(
-            &dir.path().join(".omni-dev/settings.json"),
+            &dir.path().join(".gwi/settings.json"),
             "other",
             &[("lease_backup_folder_id", json!("other-backups"))],
         )
@@ -1062,7 +1062,7 @@ mod tests {
     async fn all_six_handlers_propagate_credentials_errors() {
         let guard = EnvGuard::take();
         let _dir = guard.clear_credentials();
-        let server = OmniDevServer::new();
+        let server = GwiServer::new();
         assert!(server
             .drive_docs_replace(Parameters(params(
                 json!({"document_id":"target","search":"a","replace":"b"})

@@ -29,7 +29,11 @@ impl GwiServer {
     /// Constructs a new server with all tool routers combined.
     pub fn new() -> Self {
         Self {
-            tool_router: Self::gmail_tool_router(),
+            tool_router: Self::gmail_tool_router()
+                + Self::drive_tool_router()
+                + Self::drive_write_tool_router()
+                + Self::drive_docs_tool_router()
+                + Self::drive_sheets_tool_router(),
         }
     }
 }
@@ -80,11 +84,16 @@ impl ServerHandler for GwiServer {
             .with_server_info(Implementation::new("gwi-mcp", env!("CARGO_PKG_VERSION")))
             .with_protocol_version(ProtocolVersion::V_2024_11_05)
             .with_instructions(
-                "gwi MCP server. Provides read-only tools for Gmail: searching and reading \
-                 messages and threads, listing labels, drafts and configured accounts, and \
-                 checking authentication status. Every tool takes an optional `account` to \
-                 select a named account from ~/.gwi/settings.json. Sign in first with \
-                 `gwi gmail auth login`; there is no MCP tool for the interactive login.",
+                "gwi MCP server. Gmail tools are read-only: searching and reading messages \
+                 and threads, listing labels, drafts and configured accounts, and checking \
+                 authentication status. Drive tools search, read and inspect files, Docs and \
+                 Sheets; drive_docs_replace, drive_docs_append, drive_sheets_write, \
+                 drive_sheets_append, drive_sheets_clear and drive_lease_acquire change Drive \
+                 and are refused unless the write gate (a write lease and the folder permission \
+                 rules in settings.json) allows the target. Every tool \
+                 except the account lists takes an optional `account` to select a named \
+                 account from ~/.gwi/settings.json. Sign in first with `gwi gmail auth login` \
+                 or `gwi drive auth login`; there is no MCP tool for the interactive login.",
             )
     }
 }
@@ -105,6 +114,38 @@ mod tests {
         "gmail_draft_show",
     ];
 
+    const DRIVE_READ_TOOLS: [&str; 9] = [
+        "drive_auth_status",
+        "drive_search",
+        "drive_file_read",
+        "drive_account_list",
+        "drive_dedupe",
+        "drive_sheets_info",
+        "drive_sheets_read",
+        "drive_docs_info",
+        "drive_docs_read",
+    ];
+
+    /// The Drive tools that change Drive. Each is behind the write gate; the list
+    /// is deliberate, so a new mutating tool cannot appear without editing it.
+    const DRIVE_WRITE_TOOLS: [&str; 6] = [
+        "drive_docs_replace",
+        "drive_docs_append",
+        "drive_sheets_write",
+        "drive_sheets_append",
+        "drive_sheets_clear",
+        "drive_lease_acquire",
+    ];
+
+    fn all_tools() -> Vec<&'static str> {
+        GMAIL_TOOLS
+            .iter()
+            .chain(&DRIVE_READ_TOOLS)
+            .chain(&DRIVE_WRITE_TOOLS)
+            .copied()
+            .collect()
+    }
+
     #[test]
     fn server_info_advertises_only_the_tools_capability() {
         let info = GwiServer::new().get_info();
@@ -118,15 +159,15 @@ mod tests {
     }
 
     #[test]
-    fn tool_router_registers_all_gmail_tools() {
+    fn tool_router_registers_all_gmail_and_drive_tools() {
         let server = GwiServer::new();
-        for name in GMAIL_TOOLS {
+        for name in all_tools() {
             assert!(server.tool_router.has_route(name), "missing route: {name}");
         }
     }
 
     #[test]
-    fn tool_router_lists_exactly_the_gmail_tools() {
+    fn tool_router_lists_exactly_the_gmail_and_drive_tools() {
         let server = GwiServer::new();
         let mut names: Vec<String> = server
             .tool_router
@@ -135,19 +176,34 @@ mod tests {
             .map(|t| t.name.to_string())
             .collect();
         names.sort();
-        let mut expected: Vec<String> = GMAIL_TOOLS.iter().map(|s| (*s).to_string()).collect();
+        let mut expected: Vec<String> = all_tools().iter().map(|s| (*s).to_string()).collect();
         expected.sort();
         assert_eq!(names, expected);
+        assert_eq!(names.len(), 8 + 15, "8 Gmail and 15 Drive tools");
     }
 
+    /// ADR-0001 / omni-dev#1920: Gmail send and delete are not MCP tools, and no
+    /// tool of either service trashes or deletes. The only tools that change
+    /// anything are the Drive write tools, each behind the write gate.
     #[test]
-    fn every_tool_is_read_only_and_none_can_send_or_delete() {
-        // ADR-0001 / omni-dev#1920: send and delete are not MCP tools.
+    fn only_the_gated_drive_write_tools_can_change_anything() {
+        const MUTATING_WORDS: [&str; 12] = [
+            "send", "delete", "trash", "untrash", "upload", "create", "rename", "move", "copy",
+            "write", "append", "replace",
+        ];
         for tool in GwiServer::new().tool_router.list_all() {
             let name = tool.name.to_string();
             assert!(
                 !name.contains("send") && !name.contains("delete") && !name.contains("trash"),
                 "unexpected mutating tool: {name}"
+            );
+            let mutates = MUTATING_WORDS.iter().any(|w| name.contains(w))
+                || name.contains("clear")
+                || name.contains("lease");
+            assert_eq!(
+                mutates,
+                DRIVE_WRITE_TOOLS.contains(&name.as_str()),
+                "{name}: mutating tools must be exactly the gated Drive write tools"
             );
         }
     }
