@@ -50,8 +50,8 @@ const RENAMED_ENV_PREFIXES: &[(&str, &str)] = &[
 
 /// Printed after a dry run's summary when it found conflicts, since it still exits 0.
 const DRY_RUN_CONFLICT_NOTE: &str =
-    "Conflicts are part of the preview, so this dry run succeeds; a real run would exit 1 \
-     and leave them alone unless --force is given.";
+    "Conflicts are part of the preview, so this dry run succeeds; without --force a real run \
+     leaves them alone and exits 1.";
 
 /// Import Google Workspace settings and the Drive lease ledger from omni-dev.
 #[derive(Parser)]
@@ -72,7 +72,7 @@ pub struct ImportCommand {
     /// Show what would be imported and write nothing.
     ///
     /// Conflicts are reported as part of the preview and do not make a dry run fail: it
-    /// exits 0 unless the source cannot be read. A real run exits 1 on a conflict.
+    /// exits 0 unless the import itself fails. A real run exits 1 on a conflict.
     #[arg(long)]
     pub dry_run: bool,
 
@@ -127,12 +127,13 @@ struct Paths<'a> {
 /// A missing omni-dev settings file is an error only when there is no lease ledger to
 /// import either: someone who kept Drive in the environment has a ledger and no settings.
 fn run_all(paths: &Paths<'_>, dry_run: bool, force: bool, out: &mut impl Write) -> Result<()> {
-    let settings = if !paths.source.exists() && paths.source_ledger.exists() {
+    let settings: Result<usize> = if !paths.source.exists() && paths.source_ledger.exists() {
         writeln!(
             out,
             "No omni-dev settings file at {}; importing the lease ledger only.",
             paths.source.display()
         )
+        .map(|()| 0)
         .map_err(Into::into)
     } else {
         run_import(paths.source, paths.target, dry_run, force, out)
@@ -147,8 +148,13 @@ fn run_all(paths: &Paths<'_>, dry_run: bool, force: bool, out: &mut impl Write) 
     );
     match (settings, leases) {
         (Err(settings), Err(leases)) => Err(anyhow!("{settings:#}\n{leases:#}")),
-        (Err(err), Ok(())) | (Ok(()), Err(err)) => Err(err),
-        (Ok(()), Ok(())) => Ok(()),
+        (Err(err), Ok(_)) | (Ok(_), Err(err)) => Err(err),
+        (Ok(settings), Ok(leases)) => {
+            if settings + leases > 0 {
+                writeln!(out, "{DRY_RUN_CONFLICT_NOTE}")?;
+            }
+            Ok(())
+        }
     }
 }
 
@@ -403,14 +409,15 @@ fn reference_warnings(item: &Item, source_dir: Option<&Path>) -> Vec<String> {
 ///
 /// Returns an error when the source is unusable, or when conflicts were left
 /// unresolved (after importing everything that could be imported safely). A dry run
-/// reports its conflicts but does not fail on them: they are part of the preview.
+/// reports its conflicts but does not fail on them, as they are part of the preview:
+/// it returns how many there were so the caller can say so once.
 fn run_import(
     source: &Path,
     target: &Path,
     dry_run: bool,
     force: bool,
     out: &mut impl Write,
-) -> Result<()> {
+) -> Result<usize> {
     if !source.exists() {
         bail!(
             "no omni-dev settings file at {}; pass --source to point at one",
@@ -430,7 +437,7 @@ fn run_import(
             out,
             "Nothing to import: no Gmail or Drive settings found in the source."
         )?;
-        return Ok(());
+        return Ok(0);
     }
 
     let target_value = read_settings_value(target)?;
@@ -471,15 +478,13 @@ fn run_import(
     if !dry_run && merged.changed() {
         write_settings_value(target, &merged.value)?;
     }
-    if conflicts > 0 && dry_run {
-        writeln!(out, "{DRY_RUN_CONFLICT_NOTE}")?;
-    } else if conflicts > 0 {
+    if conflicts > 0 && !dry_run {
         return Err(anyhow!(
             "{conflicts} item(s) were not imported because gwi already has a different value; \
              re-run with --force to overwrite them"
         ));
     }
-    Ok(())
+    Ok(conflicts)
 }
 
 #[cfg(test)]
@@ -544,7 +549,7 @@ mod tests {
         (dir, source, target)
     }
 
-    fn import(source: &Path, target: &Path, dry_run: bool, force: bool) -> (Result<()>, String) {
+    fn import(source: &Path, target: &Path, dry_run: bool, force: bool) -> (Result<usize>, String) {
         let mut out = Vec::new();
         let result = run_import(source, target, dry_run, force, &mut out);
         (result, String::from_utf8(out).unwrap())
@@ -722,13 +727,12 @@ mod tests {
 
         let (result, report) = import(&source, &target, true, false);
 
-        result.unwrap();
+        assert_eq!(result.unwrap(), 1);
         assert!(
             report.contains("conflict    gmail.accounts.work"),
             "{report}"
         );
         assert!(report.contains("1 conflict(s)."), "{report}");
-        assert!(report.contains(DRY_RUN_CONFLICT_NOTE), "{report}");
         assert_eq!(read_json(&target), conflicting, "a dry run writes nothing");
         assert!(import(&source, &target, false, false).0.is_err());
     }

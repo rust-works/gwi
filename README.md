@@ -31,9 +31,7 @@ gwi import             # copy the Gmail and Drive accounts and Google variables
 It only reads omni-dev's `~/.omni-dev/settings.json` (use `--source PATH` for another file),
 never changes it, never overwrites a different value you already have in gwi (pass
 `--force` to), and never prints a secret. Anything gwi already has with the same value is
-reported as unchanged, so running it twice is safe. A dry run lists any conflicts as part of its
-preview and still exits 0 (the real run exits 1 on a conflict until you pass `--force`), so
-`gwi import --dry-run && gwi import` goes on to the real import. It warns about any `*_file` secret path
+reported as unchanged, so running it twice is safe. It warns about any `*_file` secret path
 that points inside `~/.omni-dev/`, since that file would be lost if you later remove
 omni-dev's directory.
 
@@ -44,6 +42,11 @@ copied, expired ones too, because a restore needs them. A lease that is still li
 over unchanged and stays valid until it expires, in both tools: the two ledgers are
 copies, so releasing it in omni-dev does not release it in gwi. Audit history is not
 copied. See [Coming from omni-dev](docs/drive.md#coming-from-omni-dev) for the details.
+
+`--dry-run` lists conflicts as part of its preview and exits 0 for them, in both the settings
+and the lease ledger, with a note saying so. It is a preview, not a check: the real run
+still exits 1 on a conflict until you pass `--force`, so read the report before
+`gwi import --dry-run && gwi import` (a dry run fails only when the import itself does).
 
 A folder you synced with `omni-dev drive sync` needs nothing: `gwi drive sync` reads its
 `.omni-dev-sync.json` and continues in `.gwi-sync.json`, leaving the old file alone.

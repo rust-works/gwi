@@ -8416,7 +8416,7 @@ Options:
       --dry-run
           Show what would be imported and write nothing.
           
-          Conflicts are reported as part of the preview and do not make a dry run fail: it exits 0 unless the source cannot be read. A real run exits 1 on a conflict.
+          Conflicts are reported as part of the preview and do not make a dry run fail: it exits 0 unless the import itself fails. A real run exits 1 on a conflict.
 
       --force
           Overwrite items and leases that gwi already has with a different value.

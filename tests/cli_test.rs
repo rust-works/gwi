@@ -236,6 +236,11 @@ fn import_dry_run_exits_zero_on_a_settings_conflict() {
         "{stdout}"
     );
     assert!(stdout.contains("1 conflict(s)"), "{stdout}");
+    assert_eq!(
+        stdout.matches("this dry run succeeds").count(),
+        1,
+        "{stdout}"
+    );
     assert_eq!(std::fs::read_to_string(&target).unwrap(), existing);
 
     assert_eq!(gwi(home.path(), &["import"]).status.code(), Some(1));
@@ -267,6 +272,11 @@ fn import_dry_run_exits_zero_on_a_ledger_conflict() {
     assert!(preview.status.success(), "{preview:?}");
     let stdout = String::from_utf8_lossy(&preview.stdout);
     assert!(stdout.contains("conflict    lease t1"), "{stdout}");
+    assert_eq!(
+        stdout.matches("this dry run succeeds").count(),
+        1,
+        "{stdout}"
+    );
     assert_eq!(std::fs::read(&target).unwrap(), before);
 
     let real = gwi(home.path(), &["import", "--source-ledger", source_ledger]);
