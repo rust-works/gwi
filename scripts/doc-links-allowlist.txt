@@ -3,5 +3,3 @@
 # that the pruning issue (#54) removes. Remove an entry when its link goes: an entry that
 # matches no dead link fails the check, so this list can only shrink. Do not add to it; fix
 # the link instead.
-CODE_OF_CONDUCT.md: docs/DEVELOPER_GUIDE.md
-CODE_OF_CONDUCT.md: docs/USER_GUIDE.md
