@@ -42,6 +42,13 @@ really blocked and refuses to run otherwise.
   made. Needs passwordless `sudo`, `unshare`, `setpriv` and `ip` (iproute2), and must run as a
   non-root user.
 
+The sandbox is the backstop for the browser, not the guarantee. Every browser launch goes
+through `launch_detached` in [src/utils/browser_launch.rs](src/utils/browser_launch.rs), which
+in a unit test panics unless the test installed a recorder with `LaunchGuard::install()`. A
+test that reaches a launch it did not expect therefore fails on every platform, sandboxed or
+not. Only the integration tests in `tests/`, which run the real binary, rely on the sandbox
+alone.
+
 [tests/sandbox_test.rs](tests/sandbox_test.rs) runs inside the sandbox and checks that an
 external connect is refused and loopback works.
 
