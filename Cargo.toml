@@ -107,6 +107,11 @@ url = "2.5.8"
 [target.'cfg(unix)'.dependencies]
 nix = { version = "0.31", default-features = false, features = ["fs", "hostname", "poll", "resource", "signal", "user"] }
 
+# File identity (volume serial number, file index) for `gwi log --follow`, whose std
+# accessors are unstable. A safe wrapper, already in the tree through `same-file`.
+[target.'cfg(windows)'.dependencies]
+winapi-util = "0.1"
+
 [dev-dependencies]
 rmcp = { version = "3.1", features = ["client", "server", "transport-io", "macros"] }
 insta = { version = "1.47", features = ["filters"] }

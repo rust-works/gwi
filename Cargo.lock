@@ -818,6 +818,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "url",
+ "winapi-util",
  "wiremock",
 ]
 
