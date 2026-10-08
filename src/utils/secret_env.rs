@@ -751,7 +751,9 @@ mod tests {
     /// is root-owned, which [`check_unix_security`] accepts up to `0644`, so
     /// [`SecretEnvError::LoosePermissions`] is unreachable; and root bypasses
     /// DAC, so a `0o500` directory is still writable. The pure
-    /// `check_unix_security` tests cover those rules under any uid.
+    /// `check_unix_security` tests keep the owner/mode rule covered under any
+    /// uid; the `stat` plumbing and the write paths are only exercised as a
+    /// normal user. A no-op off Unix, where nothing here is root-specific.
     #[cfg(unix)]
     macro_rules! skip_as_root {
         () => {
@@ -760,6 +762,11 @@ mod tests {
                 return;
             }
         };
+    }
+
+    #[cfg(not(unix))]
+    macro_rules! skip_as_root {
+        () => {};
     }
 
     fn env_with_file(path: &Path) -> MapEnv {
@@ -948,7 +955,7 @@ mod tests {
     #[test]
     fn loose_permissions_are_rejected_by_the_pure_check() {
         let path = Path::new("/home/me/key");
-        for mode in [0o100_644, 0o100_640, 0o100_604, 0o100_610, 0o100_601] {
+        for mode in [0o100_640, 0o100_604, 0o100_610, 0o100_601] {
             let err = check_unix_security(FILE_VAR, path, mode, 501, 501).unwrap_err();
             assert!(
                 matches!(err, SecretEnvError::LoosePermissions { .. }),
@@ -956,6 +963,10 @@ mod tests {
             );
         }
         let err = check_unix_security(FILE_VAR, path, 0o100_644, 501, 501).unwrap_err();
+        assert!(matches!(
+            err,
+            SecretEnvError::LoosePermissions { mode: 0o644, .. }
+        ));
         let msg = err.to_string();
         assert!(msg.contains("0644"), "{msg}");
         assert!(msg.contains("chmod 600 /home/me/key"), "{msg}");
@@ -1008,7 +1019,6 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn symlinks_are_followed_and_the_target_is_checked() {
-        skip_as_root!();
         let (dir, target) = secret_file(b"via-link\n", 0o600);
         let link = dir.path().join("link");
         std::os::unix::fs::symlink(&target, &link).unwrap();
@@ -1017,6 +1027,8 @@ mod tests {
             Some("via-link")
         );
 
+        // Only the loose-permissions half needs a non-root owner.
+        skip_as_root!();
         set_mode(&target, 0o644);
         assert!(matches!(
             resolve(&env_with_file(&link)).unwrap_err(),
