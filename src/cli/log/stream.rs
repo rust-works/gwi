@@ -9,7 +9,9 @@
 //! away while `--follow` is idle is only noticed on the next write.
 //!
 //! `--follow` also notices the log being replaced (`gwi log prune`, rotation):
-//! on unix by the file's device and inode, elsewhere only by its shrinking.
+//! by the file's identity (device and inode on unix; volume serial number, file
+//! index and creation time on Windows), and on any other platform only by its
+//! shrinking.
 
 use std::collections::VecDeque;
 use std::fs::File;
@@ -27,18 +29,48 @@ use crate::request_log::LogRecord;
 /// Poll interval while following the log.
 const FOLLOW_POLL: Duration = Duration::from_millis(250);
 
-/// Identity of a file on disk: `(device, inode)` on unix; always `None` elsewhere,
-/// where only shrinkage reveals a replacement.
-type FileId = Option<(u64, u64)>;
-
-#[cfg(unix)]
-fn file_id(meta: &std::fs::Metadata) -> FileId {
-    use std::os::unix::fs::MetadataExt;
-    Some((meta.dev(), meta.ino()))
+/// What identifies a file on disk, so a replacement at the same path can be told
+/// from the file that was being read.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct FileIdentity {
+    /// The device (unix) or volume serial number (Windows) the file lives on.
+    volume: u64,
+    /// The inode (unix) or file index (Windows).
+    index: u64,
+    /// The creation time (Windows), a second signal for filesystems whose file
+    /// index is not stable; `None` on unix, where the inode is the whole identity.
+    created: Option<u64>,
 }
 
-#[cfg(not(unix))]
-fn file_id(_meta: &std::fs::Metadata) -> FileId {
+/// Identity of a file on disk; `None` where the platform offers none, so only
+/// shrinkage reveals a replacement.
+type FileId = Option<FileIdentity>;
+
+/// The identity of the open `file`, whose metadata is `meta`.
+#[cfg(unix)]
+fn file_id(_file: &File, meta: &std::fs::Metadata) -> FileId {
+    use std::os::unix::fs::MetadataExt;
+    Some(FileIdentity {
+        volume: meta.dev(),
+        index: meta.ino(),
+        created: None,
+    })
+}
+
+/// The identity of the open `file`, from `GetFileInformationByHandle`; the std
+/// accessors for it (`MetadataExt::file_index`, `volume_serial_number`) are unstable.
+#[cfg(windows)]
+fn file_id(file: &File, _meta: &std::fs::Metadata) -> FileId {
+    let info = winapi_util::file::information(file).ok()?;
+    Some(FileIdentity {
+        volume: info.volume_serial_number(),
+        index: info.file_index(),
+        created: info.creation_time(),
+    })
+}
+
+#[cfg(not(any(unix, windows)))]
+fn file_id(_file: &File, _meta: &std::fs::Metadata) -> FileId {
     None
 }
 
@@ -76,7 +108,7 @@ pub fn run(
         Ok(file) => {
             // Taken from the handle that is scanned, so a replacement after this
             // point is seen as a change of identity by the follow loop.
-            tail.id = file.metadata().ok().and_then(|m| file_id(&m));
+            tail.id = file.metadata().ok().and_then(|m| file_id(&file, &m));
             let mut reader = BufReader::new(file);
             match emit_backlog(&mut reader, filter, format, limit, follow, &mut out)? {
                 Backlog::Complete(pos) => tail.pos = pos,
@@ -227,7 +259,7 @@ fn drain_appended<W: Write>(
     // Identity and length come from the handle that is read, not from the path.
     let meta = file.metadata().ok();
     // A failed `fstat` says nothing about replacement, so keep the saved identity.
-    let id = meta.as_ref().map_or(tail.id, file_id);
+    let id = meta.as_ref().and_then(|m| file_id(&file, m)).or(tail.id);
     let len = meta.map_or(tail.pos, |m| m.len());
     if id != tail.id || len < tail.pos {
         tail.pos = 0; // replaced, truncated or rotated — restart
@@ -813,16 +845,38 @@ mod tests {
         assert!(String::from_utf8(out).unwrap().is_empty());
     }
 
+    #[cfg(any(unix, windows))]
+    #[test]
+    fn file_id_is_stable_for_one_file_and_differs_between_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let (a, b) = (dir.path().join("a.jsonl"), dir.path().join("b.jsonl"));
+        std::fs::write(&a, sample_lines()).unwrap();
+        std::fs::write(&b, sample_lines()).unwrap();
+        let id_of = |path: &Path| {
+            let file = File::open(path).unwrap();
+            let meta = file.metadata().unwrap();
+            file_id(&file, &meta)
+        };
+
+        let first = id_of(&a);
+        assert!(first.is_some());
+        // Growing the file in place does not change its identity.
+        let mut f = std::fs::OpenOptions::new().append(true).open(&a).unwrap();
+        writeln!(f, "{{}}").unwrap();
+        assert_eq!(id_of(&a), first);
+        assert_ne!(id_of(&b), first);
+    }
+
     /// Replaces `path` with `content` the way `gwi log prune` does: write a sibling,
     /// then rename it over the original.
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     fn replace_by_rename(path: &Path, content: &str) {
         let sibling = path.with_extension("new");
         std::fs::write(&sibling, content).unwrap();
         std::fs::rename(&sibling, path).unwrap();
     }
 
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     #[test]
     fn drain_appended_restarts_when_the_log_is_replaced_by_a_larger_file() {
         let dir = tempfile::tempdir().unwrap();
@@ -851,7 +905,7 @@ mod tests {
         assert_eq!(tail.pos, replacement.len() as u64);
     }
 
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     #[test]
     fn drain_appended_restarts_when_the_log_is_replaced_by_a_same_size_file() {
         let dir = tempfile::tempdir().unwrap();
