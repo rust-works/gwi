@@ -54,9 +54,27 @@ pub fn run(
     Ok(())
 }
 
+/// Reads the next line (through its `\n`, if any) into `line`, returning the byte
+/// count. Invalid UTF-8 is replaced rather than failing the read, so one corrupt
+/// line cannot abort the scan; such a line is then skipped by [`render_if_match`]
+/// if it no longer parses, as any other malformed line is.
+fn read_line_lossy<R: BufRead>(
+    reader: &mut R,
+    buf: &mut Vec<u8>,
+    line: &mut String,
+) -> io::Result<usize> {
+    buf.clear();
+    let n = reader.read_until(b'\n', buf)?;
+    line.clear();
+    line.push_str(&String::from_utf8_lossy(buf));
+    Ok(n)
+}
+
 /// Reads every existing line, emitting matches. With `limit`, only the most
 /// recent N matches are kept (ring buffer) and printed at the end; without it,
-/// matches stream out as they are read. Returns the byte offset of end-of-file.
+/// matches stream out as they are read. Returns the byte offset just past the last
+/// newline-terminated line: a trailing partial line (a writer mid-append) is
+/// still tried, but is not counted, so `--follow` re-reads it once complete.
 fn emit_backlog<R: BufRead, W: Write>(
     reader: &mut R,
     filter: &Filter,
@@ -66,14 +84,16 @@ fn emit_backlog<R: BufRead, W: Write>(
 ) -> Result<u64> {
     let mut pos = 0u64;
     let mut ring: VecDeque<String> = VecDeque::new();
+    let mut buf = Vec::new();
     let mut line = String::new();
     loop {
-        line.clear();
-        let n = reader.read_line(&mut line)?;
+        let n = read_line_lossy(reader, &mut buf, &mut line)?;
         if n == 0 {
             break;
         }
-        pos += n as u64;
+        if line.ends_with('\n') {
+            pos += n as u64;
+        }
         if let Some(rendered) = render_if_match(&line, filter, format) {
             match limit {
                 Some(cap) => {
@@ -128,10 +148,10 @@ fn drain_appended<W: Write>(
     if len > pos {
         let mut reader = BufReader::new(file);
         reader.seek(SeekFrom::Start(pos))?;
+        let mut buf = Vec::new();
         let mut line = String::new();
         loop {
-            line.clear();
-            let n = reader.read_line(&mut line)?;
+            let n = read_line_lossy(&mut reader, &mut buf, &mut line)?;
             if n == 0 || !line.ends_with('\n') {
                 break; // EOF or partial trailing line — wait for more
             }
@@ -207,7 +227,7 @@ mod tests {
         let mut s = String::new();
         for i in 0..5 {
             s.push_str(&format!(
-                r#"{{"id":"{i}","invocation_id":"inv","kind":"http","timestamp":"2026-06-22T00:00:0{i}.000Z","service":"jira","method":"GET","status_code":200,"url":"/x/{i}"}}"#,
+                r#"{{"id":"{i}","invocation_id":"inv","kind":"http","timestamp":"2026-06-22T00:00:0{i}.000Z","service":"gmail","method":"GET","status_code":200,"url":"/x/{i}"}}"#,
             ));
             s.push('\n');
         }

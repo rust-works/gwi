@@ -84,7 +84,13 @@ impl Filter {
 
     /// Whether `rec` (whose verbatim JSON line is `raw`) passes every clause.
     pub fn matches(&self, rec: &LogRecord, raw: &str) -> bool {
-        let raw_lower = raw.to_ascii_lowercase();
+        // Only the fuzzy and query clauses read the lowercased line, so skip the
+        // copy for the common structured-flag-only search.
+        let raw_lower = if self.fuzzy.is_empty() && self.queries.is_empty() {
+            String::new()
+        } else {
+            raw.to_ascii_lowercase()
+        };
 
         if let Some(cutoff) = self.since {
             match parse_timestamp(&rec.timestamp) {
@@ -224,7 +230,7 @@ impl StatusMatcher {
 }
 
 /// Whether the record's command path matches `prefix` on whole path segments
-/// (so `jira` matches `["jira","read"]` but `jir` does not).
+/// (so `gmail` matches `["gmail","read"]` but `jir` does not).
 fn command_matches(rec: &LogRecord, prefix: &str) -> bool {
     let joined = rec.command.join(" ");
     let prefix = prefix.trim();
@@ -568,26 +574,26 @@ mod tests {
     #[test]
     fn command_prefix_matches() {
         let rec = LogRecord {
-            command: vec!["jira".to_string(), "read".to_string()],
+            command: vec!["gmail".to_string(), "read".to_string()],
             ..LogRecord::default()
         };
-        assert!(command_matches(&rec, "jira"));
-        assert!(command_matches(&rec, "jira read"));
+        assert!(command_matches(&rec, "gmail"));
+        assert!(command_matches(&rec, "gmail read"));
         assert!(!command_matches(&rec, "git"));
     }
 
     #[test]
     fn query_field_and_implicit_and() {
-        let rec = http(Some(500), "jira", "POST");
-        let expr = parse_query("status:5xx service:jira").unwrap();
+        let rec = http(Some(500), "gmail", "POST");
+        let expr = parse_query("status:5xx service:gmail").unwrap();
         assert!(expr.eval(&rec, "{}"));
-        let expr = parse_query("status:5xx service:datadog").unwrap();
+        let expr = parse_query("status:5xx service:drive").unwrap();
         assert!(!expr.eval(&rec, "{}"));
     }
 
     #[test]
     fn query_or_not_and_parens() {
-        let rec = http(Some(404), "jira", "GET");
+        let rec = http(Some(404), "gmail", "GET");
         assert!(parse_query("status:5xx OR status:4xx")
             .unwrap()
             .eval(&rec, "{}"));
@@ -617,13 +623,13 @@ mod tests {
 
     #[test]
     fn filter_ands_flags_together() {
-        let rec = http(Some(500), "jira", "GET");
+        let rec = http(Some(500), "gmail", "GET");
         let pass = Filter::build(FilterInput {
             since: None,
             until: None,
             method: Some("GET"),
             status: Some("5xx"),
-            service: Some("jira"),
+            service: Some("gmail"),
             command: None,
             url: None,
             grep: None,
@@ -673,9 +679,9 @@ mod tests {
             invocation_id: "inv-9".to_string(),
             kind: RecordKind::Http,
             timestamp: "2026-06-22T10:00:00.000Z".to_string(),
-            service: Some("jira".to_string()),
+            service: Some("gmail".to_string()),
             method: Some("GET".to_string()),
-            url: Some("https://acme.atlassian.net/rest/api/3/issue/X-1".to_string()),
+            url: Some("https://gmail.googleapis.com/gmail/v1/users/me/messages/X-1".to_string()),
             status_code: Some(200),
             ..LogRecord::default()
         }
@@ -714,11 +720,11 @@ mod tests {
         assert!(!Filter::build(i).unwrap().matches(&rec, &raw));
 
         let mut i = empty_input();
-        i.service = Some("jira");
+        i.service = Some("gmail");
         assert!(Filter::build(i).unwrap().matches(&rec, &raw));
 
         let mut i = empty_input();
-        i.url = Some("issue/X-1");
+        i.url = Some("messages/X-1");
         assert!(Filter::build(i).unwrap().matches(&rec, &raw));
         let mut i = empty_input();
         i.url = Some("nope");
@@ -728,7 +734,7 @@ mod tests {
         i.grep = Some("X-\\d+");
         assert!(Filter::build(i).unwrap().matches(&rec, &raw));
 
-        let toks = vec!["jira".to_string(), "issue".to_string()];
+        let toks = vec!["gmail".to_string(), "messages".to_string()];
         let mut i = empty_input();
         i.fuzzy = &toks;
         assert!(Filter::build(i).unwrap().matches(&rec, &raw));
@@ -772,10 +778,10 @@ mod tests {
     fn query_covers_every_field_arm() {
         let mut rec = rec_http();
         rec.source = Some(Source::Mcp);
-        rec.mcp_tool = Some("jira_read".to_string());
+        rec.mcp_tool = Some("gmail_search".to_string());
         rec.via_daemon = true;
         rec.error = Some("boom timeout".to_string());
-        rec.command = vec!["jira".to_string(), "read".to_string()];
+        rec.command = vec!["gmail".to_string(), "read".to_string()];
         let raw = serde_json::to_string(&rec).unwrap().to_ascii_lowercase();
 
         let cases = [
@@ -783,19 +789,19 @@ mod tests {
             ("kind:invocation", false),
             ("source:mcp", true),
             ("source:cli", false),
-            ("service:jira", true),
+            ("service:gmail", true),
             ("method:GET", true),
             ("status:2xx", true),
             ("status:5xx", false),
-            ("command:jira", true),
-            ("cmd:\"jira read\"", true),
-            ("url:issue", true),
+            ("command:gmail", true),
+            ("cmd:\"gmail read\"", true),
+            ("url:messages", true),
             ("id:rec-1", true),
             ("id:inv-9", true),
             ("id:nope", false),
             ("inv:inv-9", true),
             ("invocation_id:inv-9", true),
-            ("tool:jira_read", true),
+            ("tool:gmail_search", true),
             ("mcp_tool:other", false),
             ("via_daemon:true", true),
             ("via_daemon:false", false),
@@ -882,7 +888,7 @@ mod tests {
     #[test]
     fn matches_rejects_on_each_clause() {
         let mut rec = rec_http();
-        rec.command = vec!["jira".to_string(), "read".to_string()];
+        rec.command = vec!["gmail".to_string(), "read".to_string()];
         let raw = serde_json::to_string(&rec).unwrap();
 
         // Each clause, set to a value the record does NOT satisfy, fails the match.
@@ -891,7 +897,7 @@ mod tests {
         assert!(!Filter::build(status).unwrap().matches(&rec, &raw));
 
         let mut service = empty_input();
-        service.service = Some("datadog");
+        service.service = Some("drive");
         assert!(!Filter::build(service).unwrap().matches(&rec, &raw));
 
         let mut command = empty_input();
@@ -899,7 +905,7 @@ mod tests {
         assert!(!Filter::build(command).unwrap().matches(&rec, &raw));
         // …and the matching command passes.
         let mut command = empty_input();
-        command.command = Some("jira");
+        command.command = Some("gmail");
         assert!(Filter::build(command).unwrap().matches(&rec, &raw));
 
         let mut url = empty_input();
@@ -911,7 +917,7 @@ mod tests {
         assert!(!Filter::build(grep).unwrap().matches(&rec, &raw));
 
         // A --query clause that fails also rejects the record.
-        let q = vec!["service:datadog".to_string()];
+        let q = vec!["service:drive".to_string()];
         let mut query = empty_input();
         query.query = &q;
         assert!(!Filter::build(query).unwrap().matches(&rec, &raw));

@@ -8422,7 +8422,8 @@ Options:
 ===== gwi log =====
 Log: search the request and audit logs, and prune the request log
 
-Usage: gwi log [OPTIONS] [COMMAND]
+Usage: gwi log [OPTIONS]
+       gwi log <COMMAND>
 
 Commands:
   prune  Prune old records to bound the log's on-disk growth
@@ -8450,7 +8451,7 @@ Options:
           Match the service tag, e.g. `gmail`, `drive`
 
       --command <PATH>
-          Match the resolved command path prefix, e.g. `"gmail search"`
+          Match the resolved command path prefix, e.g. `"gmail read"`
 
       --url <SUBSTR>
           Match a substring of the request URL

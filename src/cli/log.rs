@@ -9,7 +9,7 @@ mod prune;
 mod query;
 mod stream;
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result};
 use clap::{Parser, Subcommand, ValueEnum};
 
 use crate::request_log;
@@ -33,6 +33,9 @@ pub enum Format {
 /// With no subcommand, the flags below search the log; the `prune` subcommand
 /// trims the log to bound its on-disk growth.
 #[derive(Parser)]
+// A search flag placed before `prune` would otherwise parse and be silently
+// ignored; refuse it instead. (`--profile` is global, so it is unaffected.)
+#[command(args_conflicts_with_subcommands = true)]
 pub struct LogCommand {
     /// Subcommand; when absent, the flags below search the log.
     #[command(subcommand)]
@@ -54,7 +57,7 @@ pub struct LogCommand {
     /// Match the service tag, e.g. `gmail`, `drive`.
     #[arg(long, value_name = "NAME")]
     service: Option<String>,
-    /// Match the resolved command path prefix, e.g. `"gmail search"`.
+    /// Match the resolved command path prefix, e.g. `"gmail read"`.
     #[arg(long, value_name = "PATH")]
     command: Option<String>,
     /// Match a substring of the request URL.
@@ -106,17 +109,9 @@ impl LogCommand {
     /// Executes the `gwi log` command.
     pub fn execute(mut self) -> Result<()> {
         if let Some(action) = self.action {
-            // `self.audit` only affects the bare search below — a subcommand
-            // never sees it, so silently proceeding here would make `--audit`
-            // placed before the subcommand name a silent no-op instead of the
-            // explicit refusal ADR-0080 §11 calls for. `prune` has its own
-            // `--audit` (placed *after* the subcommand) that refuses loudly.
-            if self.audit {
-                bail!(
-                    "--audit has no effect here: it must follow the subcommand, e.g. \
-                     `gwi log prune --audit`, not `gwi log --audit prune`"
-                );
-            }
+            // `args_conflicts_with_subcommands` guarantees no search flag (so not
+            // `--audit` either) reached here; `prune` has its own `--audit` that
+            // refuses loudly.
             return match action {
                 LogAction::Prune(cmd) => cmd.execute(),
             };
@@ -220,15 +215,29 @@ mod tests {
     }
 
     #[test]
-    fn top_level_audit_before_a_subcommand_is_refused_not_silently_dropped() {
-        // `--audit` only wires into the bare-search path; placed before a
-        // subcommand it must never be a silent no-op (it used to be, since
-        // `execute` returned out of the subcommand match before checking
-        // `self.audit` at all).
-        let err = parse(&["--audit", "prune", "--older-than", "7d"])
-            .execute()
-            .unwrap_err();
-        assert!(format!("{err}").contains("gwi log prune --audit"), "{err}");
+    fn search_flags_before_a_subcommand_are_refused_not_silently_dropped() {
+        // Including `--audit`, which would otherwise look like it scoped the prune.
+        for flag in [
+            &["--since", "1d"][..],
+            &["--query", "status:5xx"],
+            &["--audit"],
+        ] {
+            let mut args = vec!["gwi", "log"];
+            args.extend_from_slice(flag);
+            args.extend_from_slice(&["prune", "--older-than", "7d"]);
+            assert!(Wrapper::try_parse_from(args).is_err(), "{flag:?}");
+        }
+        // The subcommand's own flags, and the global `--profile`, still parse.
+        let args = [
+            "gwi",
+            "--profile",
+            "work",
+            "log",
+            "prune",
+            "--older-than",
+            "7d",
+        ];
+        assert!(crate::Cli::try_parse_from(args).is_ok());
     }
 
     #[test]
@@ -251,7 +260,7 @@ mod tests {
             "--service",
             "gmail",
             "--command",
-            "gmail search",
+            "gmail read",
             "--url",
             "issue",
             "--grep",

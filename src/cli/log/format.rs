@@ -155,7 +155,7 @@ mod tests {
         let mut rec = LogRecord {
             kind: RecordKind::Http,
             timestamp: "2026-06-22T12:34:56.789Z".to_string(),
-            service: Some("jira".to_string()),
+            service: Some("gmail".to_string()),
             method: Some("GET".to_string()),
             status_code: Some(200),
             elapsed_ms: Some(42),
@@ -164,7 +164,7 @@ mod tests {
         };
         let line = render(&rec, "", Format::Oneline);
         assert!(line.contains("http"));
-        assert!(line.contains("jira"));
+        assert!(line.contains("gmail"));
         assert!(line.contains("GET"));
         assert!(line.contains("200"));
         assert!(line.contains("42ms"));
@@ -182,7 +182,7 @@ mod tests {
         let rec = LogRecord {
             kind: RecordKind::Invocation,
             timestamp: "2026-06-22T12:34:56.789Z".to_string(),
-            command: vec!["jira".to_string(), "read".to_string()],
+            command: vec!["gmail".to_string(), "read".to_string()],
             source: Some(Source::Cli),
             exit_code: Some(0),
             duration_ms: Some(120),
@@ -191,7 +191,7 @@ mod tests {
         let line = render(&rec, "", Format::Oneline);
         assert!(line.contains("inv"));
         assert!(line.contains("cli"));
-        assert!(line.contains("jira read"));
+        assert!(line.contains("gmail read"));
         assert!(line.contains("exit=0"));
         assert!(line.contains("120ms"));
     }
@@ -202,12 +202,12 @@ mod tests {
             kind: RecordKind::Invocation,
             timestamp: "2026-06-22T12:00:00.000Z".to_string(),
             source: Some(Source::Mcp),
-            mcp_tool: Some("jira_read".to_string()),
+            mcp_tool: Some("gmail_search".to_string()),
             ..LogRecord::default()
         };
         let line = render(&rec, "", Format::Oneline);
         assert!(line.contains("mcp"));
-        assert!(line.contains("jira_read"));
+        assert!(line.contains("gmail_search"));
     }
 
     #[test]
@@ -282,7 +282,7 @@ mod tests {
         let rec = LogRecord {
             kind: RecordKind::Http,
             timestamp: "2026-06-22T12:00:00.000Z".to_string(),
-            service: Some("snowflake".to_string()),
+            service: Some("drive".to_string()),
             method: Some("POST".to_string()),
             status_code: Some(200),
             via_daemon: true,
@@ -302,11 +302,11 @@ mod tests {
     fn full_format_is_pretty_json() {
         let rec = LogRecord {
             kind: RecordKind::Http,
-            service: Some("jira".to_string()),
+            service: Some("gmail".to_string()),
             ..LogRecord::default()
         };
         let out = render(&rec, "", Format::Full);
-        assert!(out.contains("\"service\": \"jira\""));
+        assert!(out.contains("\"service\": \"gmail\""));
         assert!(out.contains('\n'), "pretty output spans multiple lines");
     }
 
