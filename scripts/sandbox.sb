@@ -1,0 +1,15 @@
+;; macOS sandbox-exec profile for scripts/sandbox-test.sh (rust-works/gwi#22).
+;;
+;; Everything stays allowed (cargo and rustc need too much to deny by default)
+;; except what a test must never rely on:
+;;   - external network: only loopback is reachable, because the wiremock and
+;;     MCP stdio tests bind 127.0.0.1;
+;;   - the browser opener: `open` is how the OAuth flow would launch a browser.
+(version 1)
+(allow default)
+
+(deny network*)
+(allow network* (local ip "localhost:*"))
+(allow network* (remote ip "localhost:*"))
+
+(deny process-exec (literal "/usr/bin/open"))
