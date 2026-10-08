@@ -746,6 +746,22 @@ mod tests {
     #[cfg(not(unix))]
     fn set_mode(_path: &Path, _mode: u32) {}
 
+    /// Returns from the calling test when the process runs as root, whose
+    /// file-permission checks these tests cannot exercise: a file root creates
+    /// is root-owned, which [`check_unix_security`] accepts up to `0644`, so
+    /// [`SecretEnvError::LoosePermissions`] is unreachable; and root bypasses
+    /// DAC, so a `0o500` directory is still writable. The pure
+    /// `check_unix_security` tests cover those rules under any uid.
+    #[cfg(unix)]
+    macro_rules! skip_as_root {
+        () => {
+            if nix::unistd::geteuid().is_root() {
+                eprintln!("skipping: needs file-permission checks that root bypasses");
+                return;
+            }
+        };
+    }
+
     fn env_with_file(path: &Path) -> MapEnv {
         MapEnv::new().with(FILE_VAR, path.to_str().unwrap())
     }
@@ -872,6 +888,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn mode_0644_is_rejected_with_the_mode_and_the_fix() {
+        skip_as_root!();
         let (_dir, path) = secret_file(SECRET_BYTES.as_bytes(), 0o644);
         let err = resolve(&env_with_file(&path)).unwrap_err();
         assert!(matches!(
@@ -890,6 +907,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn any_group_or_other_bit_is_rejected() {
+        skip_as_root!();
         for mode in [0o640, 0o604, 0o610, 0o601] {
             let (_dir, path) = secret_file(b"x", mode);
             // patchcov: coverage ignore reason="the loop above runs this 4 times and every mode fails the same way; verified locally that llvm-cov still reports 0 hits on the matches!( line — a region-attribution artifact on the nested assert!/matches! macro call, not an untested path"
@@ -921,6 +939,26 @@ mod tests {
         assert!(msg.contains("uid 502") && msg.contains("uid 501"), "{msg}");
         // The file type bits are masked off before the mode check.
         assert!(check_unix_security(FILE_VAR, path, 0o100_600, 501, 501).is_ok());
+    }
+
+    /// The rule behind the `0644` file tests, which are skipped as root: a file
+    /// owned by the effective uid must be owner-only. Pure, so it runs under
+    /// any uid.
+    #[cfg(unix)]
+    #[test]
+    fn loose_permissions_are_rejected_by_the_pure_check() {
+        let path = Path::new("/home/me/key");
+        for mode in [0o100_644, 0o100_640, 0o100_604, 0o100_610, 0o100_601] {
+            let err = check_unix_security(FILE_VAR, path, mode, 501, 501).unwrap_err();
+            assert!(
+                matches!(err, SecretEnvError::LoosePermissions { .. }),
+                "mode {mode:o}"
+            );
+        }
+        let err = check_unix_security(FILE_VAR, path, 0o100_644, 501, 501).unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("0644"), "{msg}");
+        assert!(msg.contains("chmod 600 /home/me/key"), "{msg}");
     }
 
     /// Container secrets are root-owned and often group/world-readable:
@@ -970,6 +1008,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn symlinks_are_followed_and_the_target_is_checked() {
+        skip_as_root!();
         let (dir, target) = secret_file(b"via-link\n", 0o600);
         let link = dir.path().join("link");
         std::os::unix::fs::symlink(&target, &link).unwrap();
@@ -1685,6 +1724,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn write_secret_file_refuses_to_replace_a_file_the_reader_rejects() {
+        skip_as_root!();
         let (_dir, path) = secret_file(b"old\n", 0o644);
         let err = write_secret_file("k_file", &path, &Secret::new("new".to_string())).unwrap_err();
         assert!(
@@ -1757,6 +1797,7 @@ mod tests {
     /// applied.
     #[test]
     fn write_secret_file_reports_an_io_error_from_an_unwritable_directory() {
+        skip_as_root!();
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("secret");
         set_mode(dir.path(), 0o500);
