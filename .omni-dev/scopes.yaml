@@ -32,8 +32,8 @@ scopes:
     examples: ["mcp: register gmail tools"]
     file_patterns: ["src/mcp.rs", "src/mcp/**"]
   - name: "utils"
-    description: "Shared utilities: settings, secrets, local state paths"
-    examples: ["utils: prune omni-dev names from settings", "utils: fix local state path race"]
+    description: "Shared utilities: HTTP, settings, secrets, paths, rate limiting"
+    examples: ["utils: tighten secret file permissions", "utils: fix rate limiter window"]
     file_patterns: ["src/utils.rs", "src/utils/**"]
   - name: "workflows"
     description: "GitHub Actions workflow files"
