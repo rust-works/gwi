@@ -99,9 +99,11 @@ impl Filter {
     /// One warning per `field:value` query term whose field is not a built-in
     /// name and appeared in the `context` of none of the records scanned, with a
     /// suggestion when it is a near miss. Empty when nothing was scanned (there
-    /// is nothing to judge against) or every such field was seen.
-    pub fn unknown_field_warnings(&self) -> Vec<String> {
-        self.watch.borrow().warnings()
+    /// is nothing to judge against) or every such field was seen. With
+    /// `following`, the log is still growing, so the warning says the field
+    /// matched nothing *so far* rather than claiming it never will.
+    pub fn unknown_field_warnings(&self, following: bool) -> Vec<String> {
+        self.watch.borrow().warnings(following)
     }
 
     /// Whether `rec` (whose verbatim JSON line is `raw`) passes every clause.
@@ -558,7 +560,7 @@ impl FieldWatch {
         }
     }
 
-    fn warnings(&self) -> Vec<String> {
+    fn warnings(&self, following: bool) -> Vec<String> {
         if self.scanned == 0 {
             return Vec::new();
         }
@@ -567,6 +569,7 @@ impl FieldWatch {
         } else {
             format!("any of the {} records scanned", self.scanned)
         };
+        let so_far = if following { " so far" } else { "" };
         self.unseen
             .iter()
             .map(|(field, term)| {
@@ -576,7 +579,7 @@ impl FieldWatch {
                 };
                 format!(
                     "warning: query field `{field}` is not a built-in field and is not a context key \
-                     in {scanned}, so `{term}` matches nothing.{hint} \
+                     in {scanned}, so `{term}` matches nothing{so_far}.{hint} \
                      To search for the text instead, quote it: \"{term}\""
                 )
             })
@@ -675,6 +678,9 @@ fn tokenize(input: &str) -> Result<Vec<Token>> {
                     chars.next();
                 }
                 if quoted == 1 && !bare {
+                    if word.is_empty() {
+                        bail!("empty quoted term in query");
+                    }
                     tokens.push(Token::Literal(word));
                     continue;
                 }
@@ -1389,7 +1395,7 @@ mod tests {
         let f = filter_for(None, &["servce:drive"]).unwrap();
         let rec = drive_rec("blocked");
         assert!(!f.matches(&rec, "{}"));
-        let warnings = f.unknown_field_warnings();
+        let warnings = f.unknown_field_warnings(false);
         assert_eq!(warnings.len(), 1, "{warnings:?}");
         assert!(warnings[0].contains("`servce`"), "{}", warnings[0]);
         assert!(
@@ -1410,7 +1416,7 @@ mod tests {
         let f = filter_for(None, &["12:34:56"]).unwrap();
         f.matches(&drive_rec("blocked"), "{}");
         f.matches(&rec_http(), "{}");
-        let warnings = f.unknown_field_warnings();
+        let warnings = f.unknown_field_warnings(false);
         assert_eq!(warnings.len(), 1, "{warnings:?}");
         assert!(warnings[0].contains("any of the 2 records scanned"));
         assert!(!warnings[0].contains("Did you mean"), "{}", warnings[0]);
@@ -1420,7 +1426,7 @@ mod tests {
     fn typo_of_a_seen_context_key_suggests_that_key() {
         let f = filter_for(None, &["file_idd:1abc"]).unwrap();
         f.matches(&drive_rec("blocked"), "{}");
-        let warnings = f.unknown_field_warnings();
+        let warnings = f.unknown_field_warnings(false);
         assert!(
             warnings[0].contains("Did you mean `file_id`?"),
             "{warnings:?}"
@@ -1435,7 +1441,7 @@ mod tests {
         )
         .unwrap();
         f.matches(&drive_rec("blocked"), "{}");
-        assert!(f.unknown_field_warnings().is_empty());
+        assert!(f.unknown_field_warnings(false).is_empty());
     }
 
     #[test]
@@ -1443,20 +1449,20 @@ mod tests {
         let f = filter_for(None, &["file_id:1abc"]).unwrap();
         f.matches(&rec_http(), "{}");
         f.matches(&drive_rec("blocked"), "{}");
-        assert!(f.unknown_field_warnings().is_empty());
+        assert!(f.unknown_field_warnings(false).is_empty());
     }
 
     #[test]
     fn nothing_scanned_means_nothing_to_warn_about() {
         let f = filter_for(None, &["servce:drive"]).unwrap();
-        assert!(f.unknown_field_warnings().is_empty());
+        assert!(f.unknown_field_warnings(false).is_empty());
     }
 
     #[test]
     fn no_context_terms_means_no_warnings() {
         let f = filter_for(Some("5xx"), &["status:5xx deploy"]).unwrap();
         f.matches(&rec_http(), "{}");
-        assert!(f.unknown_field_warnings().is_empty());
+        assert!(f.unknown_field_warnings(false).is_empty());
     }
 
     #[test]
@@ -1481,6 +1487,22 @@ mod tests {
     }
 
     #[test]
+    fn an_empty_quoted_term_is_rejected_not_match_all() {
+        assert!(parse_query("\"\"").is_err());
+        assert!(parse_query("deploy \"\"").is_err());
+        // An empty quoted *value* in a field term is still allowed.
+        assert!(parse_query("error:\"\"").is_ok());
+    }
+
+    #[test]
+    fn following_warnings_say_so_far() {
+        let f = filter_for(None, &["servce:drive"]).unwrap();
+        f.matches(&drive_rec("blocked"), "{}");
+        assert!(f.unknown_field_warnings(true)[0].contains("matches nothing so far."));
+        assert!(f.unknown_field_warnings(false)[0].contains("matches nothing."));
+    }
+
+    #[test]
     fn a_quoted_word_is_never_a_field_term() {
         let rec = http(Some(500), "gmail", "GET");
         // As a field term `status:5xx` would match; as text it does not.
@@ -1497,7 +1519,7 @@ mod tests {
         // A quoted literal raises no unknown-field warning.
         let f = filter_for(None, &["\"12:34:56\""]).unwrap();
         f.matches(&drive_rec("blocked"), "{}");
-        assert!(f.unknown_field_warnings().is_empty());
+        assert!(f.unknown_field_warnings(false).is_empty());
     }
 
     #[test]
