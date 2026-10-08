@@ -17,7 +17,9 @@
 //!   row still shows live, and the rows differ in nothing else, gwi's row takes omni-dev's
 //!   `released_at` (and `superseded_by`) and is reported as `released`. This is the mirror
 //!   of the rule above: an import only ever ends authority, never grants it, so it is
-//!   always on. A row that differs in anything else is still a conflict.
+//!   always on. A row that differs in anything else (a write under the lease moves its
+//!   `version`, for one) is still a conflict. A lease both tools released, at different
+//!   moments, is unchanged.
 //! - **Every row is copied, expired and released ones included.** The ledger keeps them
 //!   on purpose: `drive lease restore` finds a backup by token, and a restore is almost
 //!   always wanted after the expiry window (ADR-0080 §4).
@@ -69,16 +71,13 @@ struct Outcome {
     note: Option<&'static str>,
 }
 
-/// Whether `source` is `current` plus a release: `current` is unreleased, `source` is
-/// released, and setting the release fields on `current` makes the two rows identical.
-fn differs_only_by_release(current: &LeaseRecord, source: &LeaseRecord) -> bool {
-    if current.released_at.is_some() || source.released_at.is_none() {
-        return false;
-    }
-    let mut released = current.clone();
-    released.released_at = source.released_at;
-    released.superseded_by.clone_from(&source.superseded_by);
-    released == *source
+/// Whether the two rows are identical once the release fields (`released_at` and
+/// `superseded_by`) are set aside.
+fn same_but_for_release(current: &LeaseRecord, source: &LeaseRecord) -> bool {
+    let mut normalised = current.clone();
+    normalised.released_at = source.released_at;
+    normalised.superseded_by.clone_from(&source.superseded_by);
+    normalised == *source
 }
 
 /// Merges `source`'s rows into `target`, never replacing a differing row unless `force`.
@@ -101,16 +100,36 @@ fn merge(
             }
             // omni-dev ended this lease after the last import and nothing else differs:
             // end it here too. Only ever stricter, so it needs no `--force`.
-            Some(current) if differs_only_by_release(current, record) => {
+            Some(current)
+                if current.released_at.is_none()
+                    && record.released_at.is_some()
+                    && same_but_for_release(current, record) =>
+            {
                 note = Some("released in omni-dev");
                 Status::Released
+            }
+            // Both tools ended it, at different moments: nothing left to propagate.
+            Some(current)
+                if current.released_at.is_some()
+                    && record.released_at.is_some()
+                    && same_but_for_release(current, record) =>
+            {
+                note = Some("already released in gwi");
+                Status::Unchanged
             }
             Some(_) if force => Status::Overwritten,
             Some(_) => Status::Conflict,
         };
         let copied = matches!(status, Status::Added | Status::Overwritten);
-        if copied || status == Status::Released {
+        if copied {
             target.insert(record.clone());
+        } else if status == Status::Released {
+            // End authority only: keep every other field of gwi's row as it is.
+            if let Some(mut row) = target.get(&record.token).cloned() {
+                row.released_at = record.released_at;
+                row.superseded_by.clone_from(&record.superseded_by);
+                target.insert(row);
+            }
         }
         outcomes.push(Outcome {
             token: record.token.clone(),
@@ -261,8 +280,8 @@ fn run_ledger_import_waiting(
         writeln!(
             out,
             "warning: {live} live lease(s) were carried over and stay valid in gwi until they \
-             expire; the two ledgers are copies, so a lease released in omni-dev is released \
-             in gwi only by re-running `gwi import` (or `gwi drive lease release`)"
+             expire; the two ledgers are copies, so releasing a lease in omni-dev ends gwi's \
+             copy only on a later `gwi import` (or with `gwi drive lease release`)"
         )?;
     }
     let conflicts = count(Status::Conflict);
@@ -686,6 +705,49 @@ mod tests {
             .unwrap()
             .released_at
             .is_some());
+    }
+
+    #[test]
+    fn a_lease_released_in_both_tools_at_different_moments_is_unchanged() {
+        let (_dir, source, target) = setup();
+        import(&source, &target, false, false).0.unwrap();
+        let mut ledger = LeaseLedger::load(&target).unwrap();
+        let mut row = ledger.get("live").unwrap().clone();
+        row.released_at = Some(Utc::now() - ChronoDuration::hours(1));
+        ledger.insert(row.clone());
+        ledger.save(&target).unwrap();
+        release_in_source(&source, "live", None);
+
+        let (result, report) = import(&source, &target, false, true);
+
+        result.unwrap();
+        assert!(report.contains("already released in gwi"), "{report}");
+        assert_eq!(LeaseLedger::load(&target).unwrap().get("live"), Some(&row));
+    }
+
+    #[test]
+    fn a_release_changes_only_the_release_fields_of_gwis_row() {
+        let (_dir, source, target) = setup();
+        import(&source, &target, false, false).0.unwrap();
+        release_in_source(&source, "live", Some("replacement"));
+        let before = LeaseLedger::load(&target)
+            .unwrap()
+            .get("live")
+            .unwrap()
+            .clone();
+
+        import(&source, &target, false, false).0.unwrap();
+
+        let after = LeaseLedger::load(&target)
+            .unwrap()
+            .get("live")
+            .unwrap()
+            .clone();
+        let mut expected = before;
+        expected.released_at = after.released_at;
+        expected.superseded_by = Some("replacement".to_string());
+        assert!(after.released_at.is_some());
+        assert_eq!(after, expected);
     }
 
     #[test]
