@@ -103,11 +103,13 @@ impl GwiServer {
         Parameters(params): Parameters<DriveDocsInfoParams>,
     ) -> Result<CallToolResult, McpError> {
         let client = create_client_for(params.account.as_deref()).map_err(tool_error)?;
+        // patchcov: coverage ignore reason="handler glue after create_client_for: the OAuth token endpoint is not overridable, so no in-process test can get a client to this line; the run_* function it calls is covered against wiremock"
         let docs = DocsClient::from_drive_client(&client).map_err(tool_error)?;
         let yaml = run_docs_info(&client, &docs, &params)
             .await
             .map_err(tool_error)?;
         Ok(build_truncated_result(yaml))
+        // patchcov: coverage end
     }
 
     /// Tool: read a document's structural elements with their index ranges.
@@ -132,6 +134,7 @@ impl GwiServer {
         Parameters(params): Parameters<DriveDocsReadParams>,
     ) -> Result<CallToolResult, McpError> {
         let client = create_client_for(params.account.as_deref()).map_err(tool_error)?;
+        // patchcov: coverage ignore reason="handler glue after create_client_for: the OAuth token endpoint is not overridable, so no in-process test can get a client to this line; the run_* function it calls is covered against wiremock"
         let docs = DocsClient::from_drive_client(&client).map_err(tool_error)?;
         let wrote_to_file = params.output_file.is_some();
         let text = run_docs_read(&client, &docs, &params)
@@ -141,6 +144,7 @@ impl GwiServer {
             Ok(CallToolResult::success(vec![Content::text(text)]))
         } else {
             Ok(build_truncated_result(text))
+            // patchcov: coverage end
         }
     }
 }

@@ -179,6 +179,7 @@ impl GwiServer {
         Parameters(params): Parameters<DriveDocsReplaceParams>,
     ) -> Result<CallToolResult, McpError> {
         let client = helpers::create_client_for(params.account.as_deref()).map_err(tool_error)?;
+        // patchcov: coverage ignore reason="handler glue after create_client_for: the OAuth token endpoint is not overridable, so no in-process test can get a client to this line; the run_* function it calls is covered against wiremock"
         let payload = docs_write::WritePayload::Replace {
             search: params.search.clone(),
             replace: params.replace.clone(),
@@ -195,6 +196,7 @@ impl GwiServer {
         )
         .await
         .map_err(tool_error)
+        // patchcov: coverage end
     }
 
     /// Append text at the end of a Google Doc; use drive_docs_replace to change existing text.
@@ -216,6 +218,7 @@ impl GwiServer {
         Parameters(params): Parameters<DriveDocsAppendParams>,
     ) -> Result<CallToolResult, McpError> {
         let client = helpers::create_client_for(params.account.as_deref()).map_err(tool_error)?;
+        // patchcov: coverage ignore reason="handler glue after create_client_for: the OAuth token endpoint is not overridable, so no in-process test can get a client to this line; the run_* function it calls is covered against wiremock"
         let input = params.clone();
         let text = tokio::task::spawn_blocking(move || append_text(&input))
             .await
@@ -233,6 +236,7 @@ impl GwiServer {
         )
         .await
         .map_err(tool_error)
+        // patchcov: coverage end
     }
 
     /// Overwrite cell values in a Google Sheet, dropping rich-text runs; use
@@ -255,6 +259,7 @@ impl GwiServer {
         Parameters(params): Parameters<DriveSheetsWriteParams>,
     ) -> Result<CallToolResult, McpError> {
         let client = helpers::create_client_for(params.account.as_deref()).map_err(tool_error)?;
+        // patchcov: coverage ignore reason="handler glue after create_client_for: the OAuth token endpoint is not overridable, so no in-process test can get a client to this line; the run_* function it calls is covered against wiremock"
         run_sheets_write(
             &client,
             &SheetsClient::from_drive_client(&client).map_err(tool_error)?,
@@ -263,6 +268,7 @@ impl GwiServer {
         )
         .await
         .map_err(tool_error)
+        // patchcov: coverage end
     }
 
     /// Append rows after the table in a Google Sheet range; use drive_sheets_write to
@@ -284,6 +290,7 @@ impl GwiServer {
         Parameters(params): Parameters<DriveSheetsWriteParams>,
     ) -> Result<CallToolResult, McpError> {
         let client = helpers::create_client_for(params.account.as_deref()).map_err(tool_error)?;
+        // patchcov: coverage ignore reason="handler glue after create_client_for: the OAuth token endpoint is not overridable, so no in-process test can get a client to this line; the run_* function it calls is covered against wiremock"
         run_sheets_write(
             &client,
             &SheetsClient::from_drive_client(&client).map_err(tool_error)?,
@@ -292,6 +299,7 @@ impl GwiServer {
         )
         .await
         .map_err(tool_error)
+        // patchcov: coverage end
     }
 
     /// Clear cell values while retaining formatting; use drive_sheets_write to replace them.
@@ -311,6 +319,7 @@ impl GwiServer {
         Parameters(params): Parameters<DriveSheetsClearParams>,
     ) -> Result<CallToolResult, McpError> {
         let client = helpers::create_client_for(params.account.as_deref()).map_err(tool_error)?;
+        // patchcov: coverage ignore reason="handler glue after create_client_for: the OAuth token endpoint is not overridable, so no in-process test can get a client to this line; the run_* function it calls is covered against wiremock"
         run_sheets_clear(
             &client,
             &SheetsClient::from_drive_client(&client).map_err(tool_error)?,
@@ -318,6 +327,7 @@ impl GwiServer {
         )
         .await
         .map_err(tool_error)
+        // patchcov: coverage end
     }
 
     /// Back up a Drive file and acquire a write lease.
@@ -339,11 +349,13 @@ impl GwiServer {
         Parameters(params): Parameters<DriveLeaseAcquireParams>,
     ) -> Result<CallToolResult, McpError> {
         let client = helpers::create_client_for(params.account.as_deref()).map_err(tool_error)?;
+        // patchcov: coverage ignore reason="handler glue after create_client_for: the OAuth token endpoint is not overridable, so no in-process test can get a client to this line; the run_* function it calls is covered against wiremock"
         let opts = acquire_options(&params).map_err(tool_error)?;
         let authenticator = authenticate::platform_authenticator();
         run_lease_acquire(&client, &opts, authenticator.as_ref())
             .await
             .map_err(tool_error)
+        // patchcov: coverage end
     }
 }
 
@@ -623,7 +635,7 @@ mod tests {
         fn drop(&mut self) {
             for (key, value) in &self.0 {
                 if let Some(value) = value {
-                    std::env::set_var(key, value);
+                    std::env::set_var(key, value); // patchcov: coverage ignore-line reason="only runs when the developer exported GWI_LOG_FILE/GWI_LOG_DISABLE before the test; CI and a clean shell take the remove_var arm"
                 } else {
                     std::env::remove_var(key);
                 }
@@ -1140,7 +1152,7 @@ mod tests {
         for entry in std::fs::read_dir(root).unwrap() {
             let path = entry.unwrap().path();
             if path.extension().is_none_or(|ext| ext != "rs") {
-                continue;
+                continue; // patchcov: coverage ignore-line reason="a non-.rs file in src/mcp; the directory holds none, so the guard exists only for a future stray file"
             }
             let source = std::fs::read_to_string(&path).unwrap();
             let production = source.split("#[cfg(test)]").next().unwrap();
@@ -1166,7 +1178,7 @@ mod tests {
                     (method == "create" || !production.contains(&direct))
                         && !production.contains(&associated),
                     "{} directly calls mutation wrapper {method}",
-                    path.display()
+                    path.display() // patchcov: coverage ignore-line reason="the assertion message is formatted only when the assertion fails"
                 );
             }
         }
@@ -1303,6 +1315,10 @@ mod tests {
             );
             assert!(opts.supersedes.is_none());
         }
+        // An account that is not configured fails while reading its backup folder.
+        let err =
+            acquire_options(&params(json!({"file_id":"target","account":"bogus"}))).unwrap_err();
+        assert!(err.to_string().contains("bogus"), "{err}");
         assert!(serde_json::from_value::<DriveLeaseAcquireParams>(
             json!({"file_id":"target","allow_headless":true})
         )

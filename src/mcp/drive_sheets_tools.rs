@@ -95,11 +95,13 @@ impl GwiServer {
         Parameters(params): Parameters<DriveSheetsInfoParams>,
     ) -> Result<CallToolResult, McpError> {
         let client = create_client_for(params.account.as_deref()).map_err(tool_error)?;
+        // patchcov: coverage ignore reason="handler glue after create_client_for: the OAuth token endpoint is not overridable, so no in-process test can get a client to this line; the run_* function it calls is covered against wiremock"
         let sheets = SheetsClient::from_drive_client(&client).map_err(tool_error)?;
         let yaml = run_sheets_info(&sheets, &params)
             .await
             .map_err(tool_error)?;
         Ok(build_truncated_result(yaml))
+        // patchcov: coverage end
     }
 
     /// Tool: read cell values from a spreadsheet.
@@ -123,6 +125,7 @@ impl GwiServer {
         Parameters(params): Parameters<DriveSheetsReadParams>,
     ) -> Result<CallToolResult, McpError> {
         let client = create_client_for(params.account.as_deref()).map_err(tool_error)?;
+        // patchcov: coverage ignore reason="handler glue after create_client_for: the OAuth token endpoint is not overridable, so no in-process test can get a client to this line; the run_* function it calls is covered against wiremock"
         let sheets = SheetsClient::from_drive_client(&client).map_err(tool_error)?;
         let wrote_to_file = params.output_file.is_some();
         let text = run_sheets_read(&sheets, &params)
@@ -132,6 +135,7 @@ impl GwiServer {
             Ok(CallToolResult::success(vec![Content::text(text)]))
         } else {
             Ok(build_truncated_result(text))
+            // patchcov: coverage end
         }
     }
 }

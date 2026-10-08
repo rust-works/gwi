@@ -188,8 +188,10 @@ impl GwiServer {
         Parameters(params): Parameters<DriveSearchParams>,
     ) -> Result<CallToolResult, McpError> {
         let client = create_client_for(params.account.as_deref()).map_err(tool_error)?;
+        // patchcov: coverage ignore reason="handler glue after create_client_for: the OAuth token endpoint is not overridable, so no in-process test can get a client to this line; the run_* function it calls is covered against wiremock"
         let yaml = run_search(&client, &params).await.map_err(tool_error)?;
         Ok(build_truncated_result(yaml))
+        // patchcov: coverage end
     }
 
     /// Tool: find Drive files sharing the same content hash.
@@ -209,8 +211,10 @@ impl GwiServer {
         Parameters(params): Parameters<DriveDedupeParams>,
     ) -> Result<CallToolResult, McpError> {
         let client = create_client_for(params.account.as_deref()).map_err(tool_error)?;
+        // patchcov: coverage ignore reason="handler glue after create_client_for: the OAuth token endpoint is not overridable, so no in-process test can get a client to this line; the run_* function it calls is covered against wiremock"
         let yaml = run_dedupe(&client, &params).await.map_err(tool_error)?;
         Ok(build_truncated_result(yaml))
+        // patchcov: coverage end
     }
 
     /// Tool: read a single Drive file's metadata or content.
@@ -233,6 +237,7 @@ impl GwiServer {
     pub async fn drive_file_read(
         &self,
         Parameters(params): Parameters<DriveFileReadParams>,
+        // patchcov: coverage ignore reason="handler glue after create_client_for: the OAuth token endpoint is not overridable, so no in-process test can get a client to this line; the run_* function it calls is covered against wiremock"
     ) -> Result<CallToolResult, McpError> {
         let client = create_client_for(params.account.as_deref()).map_err(tool_error)?;
         let wrote_to_file = params.output_file.is_some();
@@ -241,6 +246,7 @@ impl GwiServer {
             Ok(CallToolResult::success(vec![Content::text(text)]))
         } else {
             Ok(build_truncated_result(text))
+            // patchcov: coverage end
         }
     }
 
@@ -960,6 +966,20 @@ mod tests {
         assert!(err
             .to_string()
             .contains("refusing to return binary content"));
+    }
+
+    #[test]
+    fn inline_content_refuses_text_that_is_not_valid_utf8() {
+        assert_eq!(
+            inline_content(b"hello", "text/plain").unwrap(),
+            "hello".to_string()
+        );
+        let err = inline_content(&[0xff, 0xfe], "text/plain").unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("claims to be text but is not valid UTF-8"),
+            "{err}"
+        );
     }
 
     #[tokio::test]
