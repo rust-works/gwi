@@ -186,6 +186,7 @@ pub(crate) fn seed_lease_at(
         superseded_by: None,
         restored_at: None,
         restored_sheet_id: None,
+        extra: serde_json::Map::new(),
     });
     ledger.save(ledger_path).unwrap();
     token.to_string()

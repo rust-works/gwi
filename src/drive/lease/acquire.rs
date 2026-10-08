@@ -727,6 +727,7 @@ fn mint(
         superseded_by: None,
         restored_at: None,
         restored_sheet_id: None,
+        extra: serde_json::Map::new(),
     };
     // Synchronous ledger I/O (lock, load, save) on the async runtime's
     // current thread — `block_in_place` hands its other queued tasks off
@@ -3003,6 +3004,7 @@ mod tests {
                     superseded_by: None,
                     restored_at: None,
                     restored_sheet_id: None,
+                    extra: serde_json::Map::new(),
                 });
             })
             .unwrap();
@@ -3282,6 +3284,7 @@ mod tests {
             superseded_by: None,
             restored_at: None,
             restored_sheet_id: None,
+            extra: serde_json::Map::new(),
         }
     }
 

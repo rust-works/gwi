@@ -24,6 +24,9 @@
 //! - Both ledgers' advisory locks are held while copying (omni-dev's only if its lock
 //!   file already exists, because taking a lock creates the file and the source must not
 //!   be touched). A dry run takes no lock and writes nothing.
+//! - **A field gwi does not know is copied too.** A row from a newer omni-dev keeps its
+//!   unknown top-level fields through the import and through every later rewrite of the
+//!   ledger (`LeaseRecord::extra`); a field inside `backup` is not kept.
 //! - No audit history is copied (ADR-0001 §3).
 //! - The report names tokens (identifiers, not credentials: ADR-0080 §2) and never a
 //!   backup path, hash or file id.
@@ -384,6 +387,70 @@ mod tests {
         assert_eq!(std::fs::read(&target).unwrap(), after_first);
         assert!(report.contains("0 added, 0 overwritten, 3 unchanged, 0 conflict(s)"));
         assert!(!report.contains("warning"), "{report}");
+    }
+
+    /// A source row with a field this build does not know, as a newer omni-dev would write.
+    fn newer_row() -> LeaseRecord {
+        let mut row = serde_json::to_value(record("newer", 10)).unwrap();
+        row["field_from_a_newer_omni_dev"] = serde_json::json!({"mode": "strict", "n": [1, 2]});
+        serde_json::from_value(row).unwrap()
+    }
+
+    #[test]
+    fn a_field_from_a_newer_omni_dev_survives_the_import_and_a_later_rewrite() {
+        let (_dir, source, target) = setup();
+        ledger_of(vec![newer_row()]).save(&source).unwrap();
+
+        let (result, _) = import(&source, &target, false, false);
+        result.unwrap();
+
+        let want = serde_json::json!({"mode": "strict", "n": [1, 2]});
+        let on_disk = std::fs::read_to_string(&target).unwrap();
+        let row: serde_json::Value = serde_json::from_str(on_disk.trim()).unwrap();
+        assert_eq!(row["field_from_a_newer_omni_dev"], want);
+
+        // A later `gwi drive lease` change reloads and rewrites the whole ledger.
+        let lock = LedgerLock::acquire(&target).unwrap();
+        LeaseLedger::mutate(&lock, &target, |ledger| {
+            ledger.record_write("newer", "4".into(), None);
+        })
+        .unwrap();
+        let rewritten = LeaseLedger::load(&target).unwrap();
+        let rec = rewritten.get("newer").unwrap();
+        assert_eq!(rec.version, "4");
+        assert_eq!(rec.extra["field_from_a_newer_omni_dev"], want);
+    }
+
+    #[test]
+    fn rows_differing_only_in_an_unknown_field_are_a_conflict() {
+        let (_dir, source, target) = setup();
+        let gwi_row = record("newer", 10);
+        let mut source_row = gwi_row.clone();
+        source_row
+            .extra
+            .insert("field_from_a_newer_omni_dev".into(), serde_json::json!(1));
+        ledger_of(vec![source_row]).save(&source).unwrap();
+        ledger_of(vec![gwi_row]).save(&target).unwrap();
+
+        let (result, report) = import(&source, &target, false, false);
+
+        assert!(result.is_err(), "{report}");
+        assert!(report.contains("conflict    lease newer"), "{report}");
+        assert!(LeaseLedger::load(&target)
+            .unwrap()
+            .get("newer")
+            .unwrap()
+            .extra
+            .is_empty());
+
+        let (result, _) = import(&source, &target, false, true);
+        result.unwrap();
+        assert!(!LeaseLedger::load(&target)
+            .unwrap()
+            .get("newer")
+            .unwrap()
+            .extra
+            .is_empty());
     }
 
     #[test]
