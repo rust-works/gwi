@@ -13,7 +13,7 @@
 //! - The child inherits the environment minus every registered secret and its
 //!   `_FILE`/`_COMMAND` companion, so a helper never receives sibling secrets.
 //! - A timeout (default 60 s: a biometric prompt needs a human) kills the
-//!   child. With no terminal attached (the daemon, the MCP server, a pipe) the
+//!   child. With no terminal attached (the MCP server, a pipe) the
 //!   helper runs in its own process group and the whole group is killed. With
 //!   a terminal it stays in the foreground group, so a helper that prompts on
 //!   `/dev/tty` (`pass`, `gpg`'s curses pinentry) is not stopped by `SIGTTIN`,
