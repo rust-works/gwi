@@ -3,8 +3,19 @@
 //! A [`Filter`] is the AND of every supplied flag plus every `--query`
 //! expression. The query language supports `AND`/`OR`/`NOT` (and a leading `-`
 //! for negation), parentheses, `field:value` structured terms, and bare fuzzy
-//! tokens matched against the raw JSON line. Field matching is shared with the
-//! structured flags so `--status 5xx` and `status:5xx` behave identically.
+//! tokens matched against the raw JSON line. A word that is exactly one quoted
+//! string (`"not"`, `"12:34:56"`) is always a bare token: never an operator and
+//! never a `field:value` term. Status matching is shared with the structured
+//! flags so `--status 5xx` and `status:5xx` (and `--status blocked` and
+//! `status:blocked`) behave identically.
+//!
+//! A `field:value` term whose field is not a built-in name falls back to the
+//! record's free-form `context` map. That fallback cannot tell a typo from a
+//! real context key, so the [`Filter`] watches which context keys it sees and
+//! [`Filter::unknown_field_warnings`] reports the ones that matched nothing.
+
+use std::cell::RefCell;
+use std::collections::{BTreeMap, BTreeSet};
 
 use anyhow::{bail, Context, Result};
 use chrono::{DateTime, Utc};
@@ -33,7 +44,7 @@ pub struct Filter {
     since: Option<DateTime<Utc>>,
     until: Option<DateTime<Utc>>,
     method: Option<String>,
-    status: Option<StatusMatcher>,
+    status: Option<StatusFilter>,
     service: Option<String>,
     command: Option<String>,
     url: Option<String>,
@@ -41,6 +52,7 @@ pub struct Filter {
     fuzzy: Vec<String>,
     id: Option<String>,
     queries: Vec<Expr>,
+    watch: RefCell<FieldWatch>,
 }
 
 impl Filter {
@@ -56,7 +68,7 @@ impl Filter {
             None => None,
         };
         let status = match input.status {
-            Some(s) => Some(StatusMatcher::parse(s)?),
+            Some(s) => Some(StatusFilter::parse(s)?),
             None => None,
         };
         let grep = match input.grep {
@@ -67,6 +79,7 @@ impl Filter {
         for q in input.query {
             queries.push(parse_query(q).with_context(|| format!("invalid --query: {q}"))?);
         }
+        let watch = FieldWatch::new(&queries);
         Ok(Self {
             since,
             until,
@@ -79,11 +92,24 @@ impl Filter {
             fuzzy: input.fuzzy.to_vec(),
             id: input.id.map(str::to_string),
             queries,
+            watch: RefCell::new(watch),
         })
+    }
+
+    /// One warning per `field:value` query term whose field is not a built-in
+    /// name and appeared in the `context` of none of the records scanned, with a
+    /// suggestion when it is a near miss. Empty when nothing was scanned (there
+    /// is nothing to judge against) or every such field was seen. With
+    /// `following`, the log is still growing, so the warning says the field
+    /// matched nothing *so far* rather than claiming it never will.
+    pub fn unknown_field_warnings(&self, following: bool) -> Vec<String> {
+        self.watch.borrow().warnings(following)
     }
 
     /// Whether `rec` (whose verbatim JSON line is `raw`) passes every clause.
     pub fn matches(&self, rec: &LogRecord, raw: &str) -> bool {
+        self.watch.borrow_mut().observe(rec);
+
         // Only the fuzzy and query clauses read the lowercased line, so skip the
         // copy for the common structured-flag-only search.
         let raw_lower = if self.fuzzy.is_empty() && self.queries.is_empty() {
@@ -110,7 +136,7 @@ impl Filter {
             }
         }
         if let Some(s) = &self.status {
-            if !s.matches(rec.status_code) {
+            if !s.matches(rec) {
                 return false;
             }
         }
@@ -229,6 +255,59 @@ impl StatusMatcher {
     }
 }
 
+/// A compiled `--status` filter, accepting every form `status:` does.
+enum StatusFilter {
+    /// Exact codes and `Nxx` classes (`200`, `5xx`, `4xx,5xx`).
+    Codes(StatusMatcher),
+    /// A numeric comparison (`>=400`), kept as the spec for [`numeric_match`].
+    Compare(String),
+    /// Drive-mutation domain statuses (`blocked`, `blocked,written`).
+    Domain(String),
+}
+
+impl StatusFilter {
+    /// Parses a `--status` value. A leading comparator selects a numeric
+    /// comparison, a leading letter selects the domain statuses of a
+    /// `drivemutation` record, and anything else is codes and classes, which
+    /// are validated strictly so `9xx` or `4xx,blocked` still fail up front.
+    fn parse(spec: &str) -> Result<Self> {
+        let spec = spec.trim();
+        if has_comparator(spec) {
+            split_comparator(spec)
+                .0
+                .trim()
+                .parse::<i64>()
+                .with_context(|| format!("invalid status comparison: {spec}"))?;
+            Ok(Self::Compare(spec.to_string()))
+        } else if spec.starts_with(|c: char| c.is_ascii_alphabetic()) {
+            Ok(Self::Domain(spec.to_string()))
+        } else {
+            StatusMatcher::parse(spec).map(Self::Codes)
+        }
+    }
+
+    /// Whether `rec` passes: the same answer `status:<spec>` gives.
+    fn matches(&self, rec: &LogRecord) -> bool {
+        match self {
+            Self::Codes(m) => m.matches(rec.status_code),
+            Self::Compare(spec) => numeric_match(rec.status_code.map(i64::from), spec),
+            Self::Domain(spec) => domain_status_matches(rec, spec),
+        }
+    }
+}
+
+/// Whether a `drivemutation` record's domain status (`context["status"]`) is
+/// one of the comma-separated `spec` values. Exact, not substring: the status
+/// set is enum-like and several values share substrings (`written` /
+/// `would-write`, `blocked` / `refused-*`). Other kinds never match.
+fn domain_status_matches(rec: &LogRecord, spec: &str) -> bool {
+    rec.kind == RecordKind::DriveMutation
+        && rec.context.get("status").is_some_and(|status| {
+            spec.split(',')
+                .any(|want| status.eq_ignore_ascii_case(want.trim()))
+        })
+}
+
 /// Whether the record's command path matches `prefix` on whole path segments
 /// (so `gmail` matches `["gmail","read"]` but `jir` does not).
 fn command_matches(rec: &LogRecord, prefix: &str) -> bool {
@@ -257,9 +336,60 @@ fn source_str(source: Source) -> &'static str {
     }
 }
 
+/// The built-in field names and aliases [`builtin_field_matches`] handles. Used
+/// only to suggest a correction; a test keeps it in step with the match arms.
+const BUILTIN_FIELDS: &[&str] = &[
+    "kind",
+    "source",
+    "service",
+    "method",
+    "status",
+    "command",
+    "cmd",
+    "url",
+    "id",
+    "invocation_id",
+    "inv",
+    "mcp_tool",
+    "tool",
+    "via_daemon",
+    "error",
+    "err",
+    "exit_code",
+    "exit",
+    "duration_ms",
+    "duration",
+    "dur",
+    "elapsed_ms",
+    "elapsed",
+    "hostname",
+    "host",
+    "system_user",
+    "user",
+    "cwd",
+    "auth_principal",
+    "principal",
+];
+
 /// Evaluates a `field:value` term against a record (shared by the query AST).
 fn field_matches(rec: &LogRecord, field: &str, value: &str) -> bool {
-    match field.to_ascii_lowercase().as_str() {
+    builtin_field_matches(rec, field, value).unwrap_or_else(|| {
+        // Unknown field names fall back to the free-form `context` map
+        // (HTTP correlation tags and the Drive-mutation and audit fields such
+        // as `file_id`, `lease_id` and `verdict`): case-insensitive substring, like `url`.
+        contains_ci(
+            rec.context
+                .get(&field.to_ascii_lowercase())
+                .map(String::as_str),
+            value,
+        )
+    })
+}
+
+/// Evaluates a `field:value` term against a built-in field, or `None` when
+/// `field` is not one (so the caller falls back to the `context` map).
+fn builtin_field_matches(rec: &LogRecord, field: &str, value: &str) -> Option<bool> {
+    Some(match field.to_ascii_lowercase().as_str() {
         "kind" => rec.kind.as_str().eq_ignore_ascii_case(value),
         "source" => rec
             .source
@@ -268,12 +398,8 @@ fn field_matches(rec: &LogRecord, field: &str, value: &str) -> bool {
         "method" => opt_eq_ci(rec.method.as_deref(), value),
         // A `drivemutation` record has no `status_code` — its domain status
         // (`blocked`, `written`, `stale-revision`, ...) lives in
-        // `context["status"]`. Exact match (not `contains_ci`): the status
-        // set is enum-like and several values share substrings
-        // (`written`/`would-write`, `blocked`/`refused-*`).
-        "status" if rec.kind == RecordKind::DriveMutation => {
-            opt_eq_ci(rec.context.get("status").map(String::as_str), value)
-        }
+        // `context["status"]`, matched exactly (see [`domain_status_matches`]).
+        "status" if rec.kind == RecordKind::DriveMutation => domain_status_matches(rec, value),
         // `status` keeps its class syntax (`5xx`, `4xx,5xx`); a leading
         // comparator (`status:>=400`) routes to the numeric matcher instead.
         "status" if has_comparator(value) => numeric_match(rec.status_code.map(i64::from), value),
@@ -300,11 +426,13 @@ fn field_matches(rec: &LogRecord, field: &str, value: &str) -> bool {
         "system_user" | "user" => contains_ci(Some(&rec.system_user), value),
         "cwd" => contains_ci(Some(&rec.cwd), value),
         "auth_principal" | "principal" => contains_ci(rec.auth_principal.as_deref(), value),
-        // Unknown field names fall back to the free-form `context` map
-        // (HTTP correlation tags and the Drive-mutation and audit fields such
-        // as `file_id`, `lease_id` and `verdict`): case-insensitive substring, like `url`.
-        other => contains_ci(rec.context.get(other).map(String::as_str), value),
-    }
+        _ => return None,
+    })
+}
+
+/// Whether `field` is a built-in name rather than a `context` key.
+fn is_builtin_field(field: &str) -> bool {
+    builtin_field_matches(&LogRecord::default(), field, "").is_some()
 }
 
 /// Whether a numeric-field value carries a leading comparison operator
@@ -313,15 +441,11 @@ fn has_comparator(spec: &str) -> bool {
     spec.trim_start().starts_with(['>', '<', '='])
 }
 
-/// Matches a numeric record field against a spec that may carry a leading
-/// comparator: `>N`, `>=N`, `<N`, `<=N`, `=N`, or a bare `N` (equality). An
-/// absent field never matches; an unparseable number never matches.
-fn numeric_match(field: Option<i64>, spec: &str) -> bool {
-    let Some(actual) = field else {
-        return false;
-    };
+/// Splits a numeric spec into its operand and comparison: `>N`, `>=N`, `<N`,
+/// `<=N`, `=N`, or a bare `N` (equality).
+fn split_comparator(spec: &str) -> (&str, fn(i64, i64) -> bool) {
     let spec = spec.trim();
-    let (rest, cmp): (&str, fn(i64, i64) -> bool) = if let Some(r) = spec.strip_prefix(">=") {
+    if let Some(r) = spec.strip_prefix(">=") {
         (r, |a, b| a >= b)
     } else if let Some(r) = spec.strip_prefix("<=") {
         (r, |a, b| a <= b)
@@ -333,7 +457,17 @@ fn numeric_match(field: Option<i64>, spec: &str) -> bool {
         (r, |a, b| a == b)
     } else {
         (spec, |a, b| a == b)
+    }
+}
+
+/// Matches a numeric record field against a spec that may carry a leading
+/// comparator: `>N`, `>=N`, `<N`, `<=N`, `=N`, or a bare `N` (equality). An
+/// absent field never matches; an unparseable number never matches.
+fn numeric_match(field: Option<i64>, spec: &str) -> bool {
+    let Some(actual) = field else {
+        return false;
     };
+    let (rest, cmp) = split_comparator(spec);
     match rest.trim().parse::<i64>() {
         Ok(n) => cmp(actual, n),
         Err(_) => false,
@@ -364,6 +498,122 @@ impl Expr {
             Self::Term(t) => raw_lower.contains(&t.to_ascii_lowercase()),
         }
     }
+
+    /// Appends every `field:value` term whose field is not a built-in name
+    /// (so it is looked up in the `context` map) as `(field, value)`.
+    fn collect_context_terms<'a>(&'a self, out: &mut Vec<(&'a str, &'a str)>) {
+        match self {
+            Self::And(a, b) | Self::Or(a, b) => {
+                a.collect_context_terms(out);
+                b.collect_context_terms(out);
+            }
+            Self::Not(a) => a.collect_context_terms(out),
+            Self::Field(f, v) if !is_builtin_field(f) => out.push((f, v)),
+            Self::Field(..) | Self::Term(_) => {}
+        }
+    }
+}
+
+/// Tracks, while records are scanned, whether each `context`-fallback query
+/// field ever appears as a `context` key, so a typo'd field name (which
+/// otherwise matches nothing without a word) can be reported afterwards.
+struct FieldWatch {
+    /// Fields not yet seen in any record's `context`, keyed by lowercased name,
+    /// with the first `field:value` term that used each, for the message.
+    unseen: BTreeMap<String, String>,
+    /// Every `context` key seen so far; the pool for "did you mean". Only
+    /// collected while a field is unseen, which is the only time it is needed.
+    keys: BTreeSet<String>,
+    /// Records scanned (parsed lines presented to the filter).
+    scanned: u64,
+}
+
+impl FieldWatch {
+    fn new(queries: &[Expr]) -> Self {
+        let mut terms = Vec::new();
+        for q in queries {
+            q.collect_context_terms(&mut terms);
+        }
+        let mut unseen = BTreeMap::new();
+        for (field, value) in terms {
+            unseen
+                .entry(field.to_ascii_lowercase())
+                .or_insert_with(|| format!("{field}:{value}"));
+        }
+        Self {
+            unseen,
+            keys: BTreeSet::new(),
+            scanned: 0,
+        }
+    }
+
+    fn observe(&mut self, rec: &LogRecord) {
+        if self.unseen.is_empty() {
+            return;
+        }
+        self.scanned += 1;
+        for key in rec.context.keys() {
+            self.unseen.remove(key);
+            if !self.keys.contains(key) {
+                self.keys.insert(key.clone());
+            }
+        }
+    }
+
+    fn warnings(&self, following: bool) -> Vec<String> {
+        if self.scanned == 0 {
+            return Vec::new();
+        }
+        let scanned = if self.scanned == 1 {
+            "the 1 record scanned".to_string()
+        } else {
+            format!("any of the {} records scanned", self.scanned)
+        };
+        let so_far = if following { " so far" } else { "" };
+        self.unseen
+            .iter()
+            .map(|(field, term)| {
+                let hint = match suggest(field, &self.keys) {
+                    Some(name) => format!(" Did you mean `{name}`?"),
+                    None => String::new(),
+                };
+                format!(
+                    "warning: query field `{field}` is not a built-in field and is not a context key \
+                     in {scanned}, so `{term}` matches nothing{so_far}.{hint} \
+                     To search for the text instead, quote it: \"{term}\""
+                )
+            })
+            .collect()
+    }
+}
+
+/// The closest built-in field or seen `context` key to `field`, if one is within
+/// a small edit distance (so `servce` suggests `service`).
+fn suggest<'a>(field: &str, keys: &'a BTreeSet<String>) -> Option<&'a str> {
+    let max = if field.len() <= 4 { 1 } else { 2 };
+    BUILTIN_FIELDS
+        .iter()
+        .copied()
+        .chain(keys.iter().map(String::as_str))
+        .map(|candidate| (edit_distance(field, candidate), candidate))
+        .filter(|&(d, _)| (1..=max).contains(&d))
+        .min_by_key(|&(d, _)| d)
+        .map(|(_, candidate)| candidate)
+}
+
+/// Levenshtein distance between two strings, by character.
+fn edit_distance(a: &str, b: &str) -> usize {
+    let b: Vec<char> = b.chars().collect();
+    let mut prev: Vec<usize> = (0..=b.len()).collect();
+    for (i, ca) in a.chars().enumerate() {
+        let mut cur = vec![i + 1];
+        for (j, &cb) in b.iter().enumerate() {
+            let sub = prev[j] + usize::from(ca != cb);
+            cur.push(sub.min(prev[j + 1] + 1).min(cur[j] + 1));
+        }
+        prev = cur;
+    }
+    prev[b.len()]
 }
 
 /// A query token stream cursor for the recursive-descent parser.
@@ -375,10 +625,14 @@ enum Token {
     Or,
     Not,
     Word(String),
+    /// A word that was exactly one quoted string: text, never an operator or a
+    /// `field:value` term.
+    Literal(String),
 }
 
 /// Splits a query string into tokens, honoring parentheses, `"quoted values"`,
-/// and a leading `-` as negation.
+/// and a leading `-` as negation. A word that is nothing but one quoted string
+/// becomes a [`Token::Literal`], so `"not"` searches for the word `not`.
 fn tokenize(input: &str) -> Result<Vec<Token>> {
     let mut tokens = Vec::new();
     let mut chars = input.chars().peekable();
@@ -402,11 +656,14 @@ fn tokenize(input: &str) -> Result<Vec<Token>> {
             }
             _ => {
                 let mut word = String::new();
+                let mut quoted = 0;
+                let mut bare = false;
                 while let Some(&c) = chars.peek() {
                     if c.is_whitespace() || c == '(' || c == ')' {
                         break;
                     }
                     if c == '"' {
+                        quoted += 1;
                         chars.next();
                         for qc in chars.by_ref() {
                             if qc == '"' {
@@ -416,8 +673,16 @@ fn tokenize(input: &str) -> Result<Vec<Token>> {
                         }
                         continue;
                     }
+                    bare = true;
                     word.push(c);
                     chars.next();
+                }
+                if quoted == 1 && !bare {
+                    if word.is_empty() {
+                        bail!("empty quoted term in query");
+                    }
+                    tokens.push(Token::Literal(word));
+                    continue;
                 }
                 match word.to_ascii_uppercase().as_str() {
                     "AND" => tokens.push(Token::And),
@@ -475,7 +740,7 @@ impl Parser {
                     left = Expr::And(Box::new(left), Box::new(right));
                 }
                 // Implicit AND between adjacent terms (stop at OR/`)`/EOF).
-                Some(Token::Word(_) | Token::Not | Token::LParen) => {
+                Some(Token::Word(_) | Token::Literal(_) | Token::Not | Token::LParen) => {
                     let right = self.parse_unary()?;
                     left = Expr::And(Box::new(left), Box::new(right));
                 }
@@ -515,6 +780,11 @@ impl Parser {
                     }
                     _ => Expr::Term(word),
                 })
+            }
+            Some(Token::Literal(text)) => {
+                let text = text.clone();
+                self.pos += 1;
+                Ok(Expr::Term(text))
             }
             _ => bail!("expected a term in query"),
         }
@@ -1079,5 +1349,235 @@ mod tests {
         let f = Filter::build(i).unwrap();
         assert!(!f.matches(&old, raw), "before --since");
         assert!(!f.matches(&recent, raw), "after --until");
+    }
+
+    fn drive_rec(status: &str) -> LogRecord {
+        let mut rec = LogRecord {
+            kind: RecordKind::DriveMutation,
+            ..LogRecord::default()
+        };
+        rec.context.insert("status".to_string(), status.to_string());
+        rec.context
+            .insert("file_id".to_string(), "1AbC".to_string());
+        rec
+    }
+
+    fn filter_for(status: Option<&str>, query: &[&str]) -> Result<Filter> {
+        let query: Vec<String> = query.iter().map(|q| (*q).to_string()).collect();
+        let mut input = empty_input();
+        input.status = status;
+        input.query = &query;
+        Filter::build(input)
+    }
+
+    #[test]
+    fn builtin_fields_list_matches_the_match_arms() {
+        for name in BUILTIN_FIELDS {
+            assert!(is_builtin_field(name), "{name} is listed but not handled");
+            assert!(is_builtin_field(&name.to_ascii_uppercase()), "{name}");
+        }
+        assert!(!is_builtin_field("file_id"));
+        assert!(!is_builtin_field("servce"));
+        assert!(!is_builtin_field("12"));
+    }
+
+    #[test]
+    fn edit_distance_counts_single_edits() {
+        assert_eq!(edit_distance("service", "service"), 0);
+        assert_eq!(edit_distance("servce", "service"), 1);
+        assert_eq!(edit_distance("sevrice", "service"), 2);
+        assert_eq!(edit_distance("", "abc"), 3);
+        assert_eq!(edit_distance("abc", ""), 3);
+    }
+
+    #[test]
+    fn typo_field_warns_with_a_suggestion() {
+        let f = filter_for(None, &["servce:drive"]).unwrap();
+        let rec = drive_rec("blocked");
+        assert!(!f.matches(&rec, "{}"));
+        let warnings = f.unknown_field_warnings(false);
+        assert_eq!(warnings.len(), 1, "{warnings:?}");
+        let w = &warnings[0];
+        assert!(w.contains("`servce`"), "{w}");
+        assert!(w.contains("Did you mean `service`?"), "{w}");
+        assert!(w.contains("the 1 record scanned"), "{w}");
+        assert!(w.contains("\"servce:drive\""), "{w}");
+    }
+
+    #[test]
+    fn time_like_token_warns_without_a_suggestion() {
+        let f = filter_for(None, &["12:34:56"]).unwrap();
+        f.matches(&drive_rec("blocked"), "{}");
+        f.matches(&rec_http(), "{}");
+        let warnings = f.unknown_field_warnings(false);
+        assert_eq!(warnings.len(), 1, "{warnings:?}");
+        assert!(warnings[0].contains("any of the 2 records scanned"));
+        assert!(!warnings[0].contains("Did you mean"), "{}", warnings[0]);
+    }
+
+    #[test]
+    fn typo_of_a_seen_context_key_suggests_that_key() {
+        let f = filter_for(None, &["file_idd:1abc"]).unwrap();
+        f.matches(&drive_rec("blocked"), "{}");
+        let warnings = f.unknown_field_warnings(false);
+        assert!(
+            warnings[0].contains("Did you mean `file_id`?"),
+            "{warnings:?}"
+        );
+    }
+
+    #[test]
+    fn real_fields_and_seen_context_keys_do_not_warn() {
+        let f = filter_for(
+            None,
+            &["file_id:1abc service:drive OR NOT (status:blocked AND File_ID:x)"],
+        )
+        .unwrap();
+        f.matches(&drive_rec("blocked"), "{}");
+        assert!(f.unknown_field_warnings(false).is_empty());
+    }
+
+    #[test]
+    fn a_field_seen_in_a_later_record_stops_warning() {
+        let f = filter_for(None, &["file_id:1abc"]).unwrap();
+        f.matches(&rec_http(), "{}");
+        f.matches(&drive_rec("blocked"), "{}");
+        assert!(f.unknown_field_warnings(false).is_empty());
+    }
+
+    #[test]
+    fn nothing_scanned_means_nothing_to_warn_about() {
+        let f = filter_for(None, &["servce:drive"]).unwrap();
+        assert!(f.unknown_field_warnings(false).is_empty());
+    }
+
+    #[test]
+    fn no_context_terms_means_no_warnings() {
+        let f = filter_for(Some("5xx"), &["status:5xx deploy"]).unwrap();
+        f.matches(&rec_http(), "{}");
+        assert!(f.unknown_field_warnings(false).is_empty());
+    }
+
+    #[test]
+    fn a_quoted_word_is_a_literal_not_an_operator() {
+        let rec = LogRecord::default();
+        let raw = "an error: not found, or maybe and";
+        for word in ["not", "or", "and", "NOT"] {
+            let q = format!("\"{word}\"");
+            assert!(parse_query(&q).unwrap().eval(&rec, raw), "{q}");
+            assert!(!parse_query(&q).unwrap().eval(&rec, "all fine here"), "{q}");
+        }
+        // Unquoted, `not` is still the operator.
+        assert!(parse_query("error not found").unwrap().eval(&rec, "error"));
+        assert!(!parse_query("error not found")
+            .unwrap()
+            .eval(&rec, "error found"));
+        // Literals compose with operators and negation.
+        assert!(parse_query("error \"not\" found")
+            .unwrap()
+            .eval(&rec, "error not found"));
+        assert!(parse_query("-\"not\"").unwrap().eval(&rec, "all fine"));
+    }
+
+    #[test]
+    fn an_empty_quoted_term_is_rejected_not_match_all() {
+        assert!(parse_query("\"\"").is_err());
+        assert!(parse_query("deploy \"\"").is_err());
+        // An empty quoted *value* in a field term is still allowed.
+        assert!(parse_query("error:\"\"").is_ok());
+    }
+
+    #[test]
+    fn following_warnings_say_so_far() {
+        let f = filter_for(None, &["servce:drive"]).unwrap();
+        f.matches(&drive_rec("blocked"), "{}");
+        assert!(f.unknown_field_warnings(true)[0].contains("matches nothing so far."));
+        assert!(f.unknown_field_warnings(false)[0].contains("matches nothing."));
+    }
+
+    #[test]
+    fn a_quoted_word_is_never_a_field_term() {
+        let rec = http(Some(500), "gmail", "GET");
+        // As a field term `status:5xx` would match; as text it does not.
+        assert!(!parse_query("\"status:5xx\"").unwrap().eval(&rec, "{}"));
+        assert!(parse_query("\"12:34:56\"")
+            .unwrap()
+            .eval(&rec, "at 12:34:56 utc"));
+        // A quote inside a `field:value` word keeps its field meaning.
+        let rec = LogRecord {
+            cwd: "/tmp/a b".to_string(),
+            ..LogRecord::default()
+        };
+        assert!(parse_query("cwd:\"a b\"").unwrap().eval(&rec, "{}"));
+        // A quoted literal raises no unknown-field warning.
+        let f = filter_for(None, &["\"12:34:56\""]).unwrap();
+        f.matches(&drive_rec("blocked"), "{}");
+        assert!(f.unknown_field_warnings(false).is_empty());
+    }
+
+    #[test]
+    fn status_flag_accepts_drive_mutation_statuses_like_the_query_field() {
+        let blocked = drive_rec("blocked");
+        let written = drive_rec("written");
+        let would = drive_rec("would-write");
+        let flag = |s: &str, rec: &LogRecord| {
+            let f = filter_for(Some(s), &[]).unwrap();
+            f.matches(rec, "{}")
+        };
+        assert!(flag("blocked", &blocked));
+        assert!(flag("BLOCKED", &blocked));
+        assert!(!flag("blocked", &written));
+        assert!(flag("blocked,written", &written));
+        assert!(flag("blocked, written", &written));
+        // Exact, not substring.
+        assert!(!flag("written", &would));
+        // Not a Drive-mutation record: no domain status to match.
+        assert!(!flag("blocked", &rec_http()));
+        assert!(!flag("5xx", &blocked));
+    }
+
+    #[test]
+    fn status_flag_and_status_query_agree() {
+        let mut records = vec![drive_rec("blocked"), drive_rec("written"), rec_http()];
+        for code in [200, 404, 503] {
+            records.push(http(Some(code), "gmail", "GET"));
+        }
+        for spec in [
+            "blocked",
+            "blocked,written",
+            "200",
+            "5xx",
+            "4xx,5xx",
+            ">=400",
+            "<300",
+            "=404",
+        ] {
+            let flag = filter_for(Some(spec), &[]).unwrap();
+            let query = filter_for(None, &[&format!("status:{spec}")]).unwrap();
+            for rec in &records {
+                assert_eq!(
+                    flag.matches(rec, "{}"),
+                    query.matches(rec, "{}"),
+                    "--status {spec} vs status:{spec} on {rec:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn status_flag_still_rejects_malformed_numeric_forms() {
+        for bad in ["9xx", "", "4xx,blocked", ">=abc", ">", "!!", "20x"] {
+            assert!(filter_for(Some(bad), &[]).is_err(), "{bad:?}");
+        }
+        for good in [
+            "200",
+            "5xx",
+            "4xx,5xx",
+            ">=400",
+            "blocked",
+            "stale-revision",
+        ] {
+            assert!(filter_for(Some(good), &[]).is_ok(), "{good:?}");
+        }
     }
 }

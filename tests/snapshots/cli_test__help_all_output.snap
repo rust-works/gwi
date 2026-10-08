@@ -8450,7 +8450,7 @@ Options:
           Match the HTTP method (case-insensitive), e.g. `GET`
 
       --status <STATUS>
-          Match the status: exact (`200`), class (`5xx`), or list (`4xx,5xx`)
+          Match the status: exact (`200`), class (`5xx`), list (`4xx,5xx`), comparison (`>=400`), or a Drive-mutation status such as `blocked` (exact, case-insensitive; a comma list is accepted). Same values as `status:` in `--query`
 
       --service <NAME>
           Match the service tag, e.g. `gmail`, `drive`
@@ -8468,7 +8468,7 @@ Options:
           Require a fuzzy token (substring of the raw line); repeatable, AND-ed
 
       --query <EXPR>
-          A query expression (AND/OR/NOT, `field:value`, bare tokens); repeatable, AND-ed together
+          A query expression (AND/OR/NOT, `field:value`, bare tokens); repeatable, AND-ed together. A field that is not built in is looked up in the record's context, and a warning names it if no record has it. Quote a word to search for it as text, e.g. `--query '"not"'`
 
       --id <ID>
           Match this record `id` or `invocation_id` (pulls a run and its requests)
