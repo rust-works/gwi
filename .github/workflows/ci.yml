@@ -95,6 +95,10 @@ jobs:
     - run: cargo doc --no-deps --document-private-items --features mcp
       env:
         RUSTDOCFLAGS: -D warnings
+    # The public build (what docs.rs renders) must be clean too, not just the private-items one.
+    - run: cargo doc --no-deps --features mcp
+      env:
+        RUSTDOCFLAGS: -D warnings
 
   coverage:
     name: Coverage
