@@ -54,3 +54,12 @@ external connect is refused and loopback works.
 
 CI runs the same script in the `Sandboxed Test` job. A test that cannot run under the
 sandbox must be fixed, or gated with a comment saying why.
+
+## Tests on Windows
+
+The `Windows Build` job builds the release binary and compiles every test target with
+`cargo test --no-run`, with and without `--features mcp`. It does not run them: many tests
+exercise Unix behaviour (file modes, symlinks, `flock`, `/bin/sh`), so they are gated with
+`#[cfg(unix)]`. What is compiled on Windows must still compile there, so gate Unix-only
+imports and helpers (`std::os::unix`, a macro defined under `cfg(unix)`) on the item that uses
+them, and keep the rest of a test running everywhere where it can.
