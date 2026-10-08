@@ -2,9 +2,12 @@
 
 Conventions for code, documentation, and other project artifacts in the gwi project.
 
-> **Provenance:** seeded verbatim from omni-dev's `docs/STYLE_GUIDE.md` (rust-works/omni-dev#2203,
-> Phase 0). Rules and examples that mention omni-dev subsystems (Atlassian, Datadog, the daemon)
-> are to be pruned or adapted as the code they describe does or does not move into gwi.
+> **Provenance:** seeded from omni-dev's `docs/STYLE_GUIDE.md` (rust-works/omni-dev#2203, Phase 0)
+> and pruned in #47 to the subsystems gwi has (Gmail, Drive, MCP, shared utilities). Rule IDs are
+> kept from omni-dev so existing references resolve; a rule ID is never reused or renumbered (the numbered
+> items inside a rule may be, as in STYLE-0026). Where a rule cites an omni-dev issue, that is omni-dev's
+> issue number.
+
 Each item has a unique ID for easy reference.
 
 ## Tag-based lookup
@@ -15,25 +18,26 @@ which tags apply to the changes and search this file for those tags. Each rule h
 
 **Search command:** `grep "Tags:.*<tag>" docs/STYLE_GUIDE.md` returns matching rule headings.
 
-| When you are…                                    | Search for tags                          |
-|--------------------------------------------------|------------------------------------------|
-| Adding or modifying a function                   | `code-style`, `naming`, `documentation`  |
-| Adding a type, enum, or trait                    | `api-design`, `naming`, `documentation`  |
-| Adding or changing error handling                | `error-handling`                         |
-| Creating or restructuring a module/file          | `module-organization`, `naming`          |
-| Writing or updating tests                        | `testing`                                |
-| Adding a new Atlassian API client method         | `testing`, `api-design`                  |
-| Adding a new CLI command                         | `testing`, `module-organization`         |
-| Changing visibility (`pub`, `pub(crate)`)        | `api-design`, `module-organization`      |
-| Adding constants or replacing magic values       | `code-style`, `naming`                   |
-| Writing commit messages                          | `commits`                                |
-| After creating commits (before push / PR)        | `commits`                                |
-| Suppressing a lint or considering `unsafe`       | `code-style`, `unsafe`                   |
-| Writing or updating an ADR                       | `adrs`                                   |
-| Adding an MCP tool, resource, or param struct    | `api-design`, `module-organization`, `testing`, `documentation` |
-| Adding or modifying a docs/plan/ file            | `documentation`, `adrs`                  |
-| Reading env vars, or testing env-dependent code  | `testing`, `module-organization`         |
-| Reviewing code for style compliance              | All tags relevant to the changed code    |
+| When you are…                                   | Search for tags                                                 |
+|-------------------------------------------------|-----------------------------------------------------------------|
+| Adding or modifying a function                  | `code-style`, `naming`, `documentation`                         |
+| Adding a type, enum, or trait                   | `api-design`, `naming`, `documentation`                         |
+| Adding or changing error handling               | `error-handling`                                                |
+| Creating or restructuring a module/file         | `module-organization`, `naming`                                 |
+| Writing or updating tests                       | `testing`                                                       |
+| Adding a new Gmail or Drive client method       | `testing`, `api-design`                                         |
+| Adding a new CLI command                        | `testing`, `module-organization`                                |
+| Changing visibility (`pub`, `pub(crate)`)       | `api-design`, `module-organization`                             |
+| Adding constants or replacing magic values      | `code-style`, `naming`                                          |
+| Writing commit messages                         | `commits`                                                       |
+| After creating commits (before push / PR)       | `commits`                                                       |
+| Suppressing a lint or considering `unsafe`      | `code-style`, `unsafe`                                          |
+| Writing or updating an ADR                      | `adrs`                                                          |
+| Adding an MCP tool or param struct              | `api-design`, `module-organization`, `testing`, `documentation` |
+| Adding or modifying a docs/plan/ file           | `documentation`, `adrs`                                         |
+| Reading env vars, or testing env-dependent code | `testing`, `module-organization`                                |
+| Reading a credential or other secret            | `module-organization`, `api-design`, `testing`                  |
+| Reviewing code for style compliance             | All tags relevant to the changed code                           |
 
 ---
 
@@ -47,7 +51,8 @@ A new convention needs to be added to this style guide.
 
 ### Guidance
 
-Assign the next sequential ID (currently next is `STYLE-0031`) and include:
+Assign the next sequential ID (currently next is `STYLE-0031`; IDs of removed rules are
+retired, not reused) and include:
 
 1. A **Tags** line immediately after the heading — a comma-separated list of category labels
    from the tag vocabulary below.
@@ -102,21 +107,24 @@ Use `anyhow::Result<T>` as the return type. Import both `Context` and `Result`:
 ```rust
 use anyhow::{Context, Result};
 
-fn open_repo() -> Result<Repository> {
-    Repository::open(".").context("Failed to open git repository")?;
+fn load_settings(path: &Path) -> Result<Settings> {
+    let content = fs::read_to_string(path).context("Failed to read settings file")?;
     // ...
 }
 ```
 
 Reserve `thiserror` enums for domain boundaries where callers need to match on specific
-error variants. Currently the only custom error type is `ClaudeError` in
-`src/claude/error.rs`, which covers API-specific failure modes (key not found, rate limit,
-network error). These convert to `anyhow::Error` automatically via the blanket impl.
+error variants. The custom error types are `DriveError` in
+[`src/drive/error.rs`](../src/drive/error.rs), `GmailError` in
+[`src/gmail/error.rs`](../src/gmail/error.rs) and `SecretEnvError` in
+[`src/utils/secret_env.rs`](../src/utils/secret_env.rs), which cover API-specific failure
+modes (credentials not configured, a failed API request, an unreadable secret file). These
+convert to `anyhow::Error` automatically via the blanket impl.
 
 Use `anyhow::bail!()` for early returns with an error message:
 
 ```rust
-anyhow::bail!("Repository is in detached HEAD state");
+anyhow::bail!("Sheet range must not be empty");
 ```
 
 ### Motivation
@@ -141,12 +149,12 @@ Write context messages in **sentence case** describing the **failed operation**:
 
 ```rust
 // Good — describes the operation that failed
-.context("Failed to get HEAD reference")?;
-.context("Cannot amend commits with uncommitted changes")?;
-.context("Not in a git repository")?;
+.context("Failed to read settings file")?;
+.context("Cannot write to a read-only Drive account")?;
+.context("Not signed in to Gmail")?;
 
 // Bad — includes function name
-.context("open_repo: could not open")?;
+.context("load_settings: could not open")?;
 
 // Bad — too generic
 .context("error")?;
@@ -155,7 +163,7 @@ Write context messages in **sentence case** describing the **failed operation**:
 Use `.with_context()` when the message needs runtime values:
 
 ```rust
-.with_context(|| format!("Failed to parse start commit: {}", start_spec))?;
+.with_context(|| format!("Failed to parse account name: {}", name))?;
 ```
 
 Prefer `.context()` over `.with_context()` for static messages since it avoids the closure
@@ -230,23 +238,21 @@ module in a file named after the module alongside a directory of the same name:
 
 ```
 src/
-├── claude.rs           # declares submodules, re-exports public types
-├── claude/
+├── drive.rs            # declares submodules
+├── drive/
 │   ├── client.rs
 │   ├── error.rs
-│   ├── prompts.rs
-│   ├── ai.rs           # declares ai submodules
-│   ├── ai/
-│   │   ├── bedrock.rs
-│   │   ├── claude.rs
-│   │   └── openai.rs
-│   ├── context.rs      # declares context submodules
-│   └── context/
-│       ├── branch.rs
-│       ├── discovery.rs
-│       ├── files.rs
-│       └── patterns.rs
-├── core.rs             # no submodules, so just a single file
+│   ├── docs.rs         # declares docs submodules
+│   ├── docs/
+│   │   ├── anchor.rs
+│   │   ├── api.rs
+│   │   └── client.rs
+│   ├── lease.rs        # declares lease submodules
+│   └── lease/
+│       ├── acquire.rs
+│       ├── check.rs
+│       └── ledger.rs
+├── request_log.rs      # no submodules, so just a single file
 ├── lib.rs
 └── main.rs
 ```
@@ -259,10 +265,10 @@ Re-export key public types from each module root so consumers can import from th
 module:
 
 ```rust
-// src/git.rs
-pub use amendment::AmendmentHandler;
-pub use commit::{CommitAnalysis, CommitInfo};
-pub use repository::GitRepository;
+// src/mcp.rs
+pub use error::tool_error;
+pub use server::GwiServer;
+pub use truncate::{truncate_response, DEFAULT_MAX_RESPONSE_BYTES};
 ```
 
 Only re-export types that appear in the module's public API signatures. Internal helpers,
@@ -273,7 +279,7 @@ contract.
 ### Motivation
 
 The named-file layout is recommended by the Rust Book and is the default assumed by
-`rust-analyzer`. Each module root has a distinct filename (e.g., `claude.rs` vs `context.rs`)
+`rust-analyzer`. Each module root has a distinct filename (e.g., `drive.rs` vs `lease.rs`)
 instead of multiple `mod.rs` files, making editor tabs, file search, and `git log` output
 unambiguous. Re-exports in the module root present a clean public interface per module.
 Limiting re-exports to API-surface types prevents leaking implementation details that would
@@ -300,10 +306,10 @@ Default to **private** (no visibility modifier). Use three visibility levels:
 | `pub`        | Fully public             | Part of the crate's published API surface              |
 
 ```rust
-impl AmendmentFile {
-    pub fn load_from_file<P: AsRef<Path>>(path: P) -> Result<Self> { ... }  // public API
-    pub(crate) fn validate_schema(&self) -> Result<()> { ... }              // crate-internal
-    fn format_multiline_yaml(&self, yaml: &str) -> String { ... }          // module-private
+impl DriveClient {
+    pub fn from_credentials(credentials: &DriveCredentials) -> Result<Self> { ... }  // public API
+    pub(crate) fn from_credentials_with(/* ... */) -> Result<Self> { ... }         // crate-internal
+    pub(in crate::drive) fn transport(&self) -> &GoogleApiClient { ... }            // one subsystem
 }
 ```
 
@@ -334,31 +340,22 @@ Naming a new type, function, CLI command, environment variable, or YAML field.
 
 | Element           | Convention            | Examples                                      |
 |-------------------|-----------------------|-----------------------------------------------|
-| Structs / Enums   | PascalCase            | `CommitInfo`, `ClaudeError`, `WorkType`       |
-| Traits            | PascalCase (adj/verb) | `AiClient`, `Serialize`, `Display`            |
-| Functions/Methods | snake_case            | `from_git_commit()`, `analyze_commit()`       |
+| Structs / Enums   | PascalCase            | `DriveClient`, `GmailError`, `OutputFormat`   |
+| Traits            | PascalCase (adj/verb) | `EnvSource`, `Serialize`, `Display`           |
+| Functions/Methods | snake_case            | `create_client_from()`, `tool_error()`        |
 | Type aliases      | PascalCase            | `Result<T>` (for crate-local aliases)         |
-| Constants         | UPPER_SNAKE_CASE      | `VERSION`                                     |
-| Environment vars  | UPPER_SNAKE_CASE      | `CLAUDE_API_KEY`, `AI_SCRATCH`                |
-| CLI commands      | kebab-case            | `help-all`, `commit message view`             |
-| YAML fields       | snake_case            | `original_message`, `in_main_branches`        |
-| Modules / files   | snake_case            | `model_config.rs`, `ai_scratch.rs`            |
-
-**Project-specific pattern — `*ForAI` suffix:** When a data structure has a variant that
-includes additional content for AI processing (e.g., full diff text), suffix the variant
-with `ForAI`:
-
-```rust
-pub struct CommitInfo { ... }       // standard version
-pub struct CommitInfoForAI { ... }  // includes diff_content field
-```
+| Constants         | UPPER_SNAKE_CASE      | `VERSION`, `DEFAULT_MAX_RESPONSE_BYTES`       |
+| Environment vars  | UPPER_SNAKE_CASE      | `GWI_CONFIG_DIR`, `DRIVE_REFRESH_TOKEN`       |
+| CLI commands      | kebab-case            | `help-all`, `drive sheets append`             |
+| MCP tools         | snake_case            | `gmail_search`, `drive_docs_replace`          |
+| YAML fields       | snake_case            | `require_lease`, `refresh_token`              |
+| Modules / files   | snake_case            | `chrome_profile.rs`, `rate_limit.rs`          |
 
 ### Motivation
 
 Standard Rust naming (`PascalCase` types, `snake_case` functions) is enforced by compiler
-warnings and `clippy`. The `*ForAI` suffix convention makes it immediately clear which
-structs carry the heavier AI-oriented payload. Kebab-case CLI commands follow `clap`
-conventions and are standard across Unix tools.
+warnings and `clippy`. Kebab-case CLI commands follow `clap` conventions and are standard
+across Unix tools.
 
 ---
 
@@ -374,9 +371,10 @@ Writing a commit message.
 
 Follow [`.omni-dev/commit-guidelines.md`](../.omni-dev/commit-guidelines.md) for the full
 specification including types, scopes, subject line rules, body guidelines, and breaking
-change conventions. See [`omni-dev-directory.md`](https://github.com/rust-works/omni-dev/blob/main/docs/omni-dev-directory.md#commit-guidelinesmd)
-for the file's format contract, validation behaviour, and how it is resolved relative to
-local overrides and the global fallback.
+change conventions. omni-dev's
+[`omni-dev-directory.md`](https://github.com/rust-works/omni-dev/blob/main/docs/omni-dev-directory.md#commit-guidelinesmd)
+documents the file's format contract, validation behaviour, and how it is resolved relative
+to local overrides and the global fallback.
 
 The commit guidelines must themselves follow **Conventional Commits** and remain consistent
 with the scope definitions in `.omni-dev/scopes.yaml`:
@@ -389,7 +387,7 @@ with the scope definitions in `.omni-dev/scopes.yaml`:
    exceptions.
 2. **Examples** — every `<scope>` used in the `## Examples` section must be a scope that
    exists in `scopes.yaml`. Do not use scopes from other projects or hypothetical scopes.
-3. **Tree coverage** — every tracked file under `src/`, `editors/` and `.github/` must be
+3. **Tree coverage** — every tracked file under `src/` and `.github/` must be
    matched by some scope's `file_patterns` (or listed in the `allow:` list for files that
    legitimately belong to no subsystem). When a new subsystem or module facade lands,
    `scopes.yaml` must gain a pattern for it in the same change. Coverage is checked against
@@ -399,15 +397,12 @@ with the scope definitions in `.omni-dev/scopes.yaml`:
    one — so keep it small and prefer a scope or a `file_patterns` entry; growing it is at
    least a visible diff in review, unlike a catch-all that absorbs new subsystems silently.
 
-The inventory and example contracts are enforced by
-[`tests/commit_guidelines_scopes_test.rs`](https://github.com/rust-works/omni-dev/blob/main/tests/commit_guidelines_scopes_test.rs), which
-also checks that the guidelines' example subjects remain parseable. Prompt unit tests in
-[`src/claude/prompts.rs`](https://github.com/rust-works/omni-dev/blob/main/src/claude/prompts.rs) cover injection with custom guidelines
-and compatibility with downstream Markdown scope lists when the resolved set is empty.
-Clause 3 is enforced by `omni-dev config scopes lint --root src --root editors --root .github`,
-exercised end-to-end by the `binary_config_scopes_lint_*` tests in
-[`tests/integration_test.rs`](https://github.com/rust-works/omni-dev/blob/main/tests/integration_test.rs). Together they make a divergence
-fail the build rather than silently degrading the prompt.
+Commit subjects are checked on every pull request by
+[`commit-lint.yml`](../.github/workflows/commit-lint.yml), which runs
+`omni-dev git commit message lint` against these guidelines and `scopes.yaml`. Clause 3 is
+checked with `omni-dev config scopes lint --root src --root .github`; that command is not yet
+a CI step (#50), so run it by hand when a change adds or moves files under `src/` or
+`.github/`.
 
 ### Motivation
 
@@ -419,10 +414,11 @@ Both `commit-guidelines.md` and `scopes.yaml` are injected into the AI prompt fo
 checking. If the two files list different scopes the AI receives contradictory instructions
 and may incorrectly flag valid scopes as invalid — or accept scopes that no longer exist.
 
-The list is hand-maintained, and before it was tested it had drifted by nine entries
+The list is hand-maintained, and in omni-dev it drifted by nine entries
 ([#1421](https://github.com/rust-works/omni-dev/issues/1421)) without producing a visible
 failure: the judge happened to resolve the contradiction in favour of `scopes.yaml`. Relying
-on that is a coin flip, which is why the rule is now checked by a test.
+on that is a coin flip, which is why omni-dev checks the rule with a test. gwi has no such test
+yet: clauses 1 and 2 are kept by review, so check them by hand when either file changes.
 
 ---
 
@@ -439,18 +435,18 @@ Adding or updating documentation on a module, type, or function.
 **Module-level docs** — every module file starts with a `//!` comment:
 
 ```rust
-//! Git commit operations and analysis.
+//! Large-output handling for MCP tool responses.
 ```
 
 **Item-level docs** — every public struct, enum, field, variant, and method gets `///`:
 
 ```rust
-/// Represents a single commit with its metadata and analysis.
-pub struct CommitInfo {
-    /// Full SHA-1 hash of the commit.
-    pub hash: String,
-    /// Commit author name and email address.
-    pub author: String,
+/// Represents a Drive file with its metadata.
+pub struct DriveFile {
+    /// Drive's opaque file id.
+    pub id: String,
+    /// The file's display name.
+    pub name: String,
 }
 ```
 
@@ -459,11 +455,11 @@ pub struct CommitInfo {
 sentences ending with a period:
 
 ```rust
-/// Creates a `CommitInfo` from a `git2::Commit`.
-pub fn from_git_commit(...) -> Result<Self> { ... }
+/// Builds a client from already-resolved credentials.
+pub fn create_client_from(credentials: DriveCredentials) -> Result<DriveClient> { ... }
 
-/// Returns the suggested level of detail for commit messages.
-pub fn suggested_verbosity(&self) -> VerbosityLevel { ... }
+/// Returns the API base URL (without trailing slash).
+pub fn base_url(&self) -> &str { ... }
 ```
 
 | Correct (third-person)         | Incorrect (imperative)        |
@@ -480,16 +476,15 @@ doc example. These are compiled and run by `cargo test`, so they serve as both d
 and regression tests:
 
 ```rust
-/// Parses a conventional commit subject line.
+/// Parses a relative duration such as `30m` into the cutoff `now - duration`.
 ///
 /// # Examples
 ///
 /// ```
-/// let parsed = parse_subject("feat(cli): add --fresh flag");
-/// assert_eq!(parsed.commit_type, "feat");
-/// assert_eq!(parsed.scope, Some("cli"));
+/// let cutoff = gwi::utils::duration::parse_since("30m").unwrap();
+/// assert!(cutoff < chrono::Utc::now());
 /// ```
-pub fn parse_subject(input: &str) -> ParsedSubject { ... }
+pub fn parse_since(s: &str) -> Result<DateTime<Utc>> { ... }
 ```
 
 Doc examples are not required for trivial getters, builders, or `From`/`Into`
@@ -524,9 +519,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn app_creation() {
-        let app = App::new();
-        assert!(!app.config.verbose);
+    fn single_error_flattens_to_message() {
+        let mcp = tool_error(anyhow!("top-level failure"));
+        assert!(mcp.message.contains("top-level failure"));
     }
 }
 ```
@@ -536,17 +531,17 @@ the `#[test]` attribute and `tests` module already identify these as tests. Clip
 `redundant_test_prefix` lint (restriction group) flags the prefix as redundant.
 
 ```rust
-fn load_model_registry() { ... }
-fn parse_beta_header_valid() { ... }
-fn app_with_config() { ... }
+fn single_error_flattens_to_message() { ... }
+fn list_propagates_api_errors() { ... }
+fn create_client_from_uses_drive_api_host() { ... }
 ```
 
 When a test uses `?` for error propagation, return `Result<()>`:
 
 ```rust
 #[test]
-fn amend_command_with_temporary_repo() -> Result<()> {
-    let repo = TestRepo::new()?;
+fn load_settings_from_temp_dir() -> Result<()> {
+    let dir = tempfile::TempDir::new()?;
     // ...
     Ok(())
 }
@@ -561,7 +556,7 @@ Place integration tests in the `tests/` directory.
   refactors. Use it only when testing that a documented panic condition (e.g., an `expect()`
   from STYLE-0003) fires correctly.
 - **`#[ignore]`** — acceptable for tests that require external resources (network, API keys)
-  or are unusually slow. Always add a reason: `#[ignore = "requires CLAUDE_API_KEY"]`. Run
+  or are unusually slow. Always add a reason: `#[ignore = "requires a live Google account"]`. Run
   ignored tests explicitly with `cargo test -- --ignored`.
 
 ### Motivation
@@ -569,7 +564,7 @@ Place integration tests in the `tests/` directory.
 The `mod tests` convention is idiomatic Rust and gives tests access to private items via
 `use super::*`. Dropping the `test_` prefix avoids the triple-redundancy of
 `tests::test_foo` in `cargo test` output. Consistent naming makes
-`cargo test parse_beta` filtering predictable.
+`cargo test list_propagates` filtering predictable.
 
 ---
 
@@ -579,28 +574,28 @@ The `mod tests` convention is idiomatic Rust and gives tests access to private i
 
 ### Situation
 
-A test needs a git repository, temporary files, or other fixture data.
+A test needs temporary files, a fake HTTP server, or other fixture data.
 
 ### Guidance
 
-Use `tempfile::TempDir` for isolated file system fixtures. For git-based tests, use a
-helper struct that wraps the temp directory:
+Use `tempfile::TempDir` for isolated file system fixtures. When a fixture needs more than the
+directory, wrap it in a helper struct that keeps the `TempDir` alive for the test:
 
 ```rust
-struct TestRepo {
+struct TestState {
     _temp_dir: TempDir,
-    repo_path: PathBuf,
-    repo: Repository,
-    commits: Vec<git2::Oid>,
+    state_dir: PathBuf,
 }
 
-impl TestRepo {
+impl TestState {
     fn new() -> Result<Self> { ... }
-    fn add_commit(&mut self, message: &str, content: &str) -> Result<()> { ... }
 }
 ```
 
-Use the `insta` crate for snapshot (golden) tests where output stability matters.
+Use `wiremock::MockServer` for HTTP fixtures (see STYLE-0024), never the real Google APIs.
+
+Use the `insta` crate for snapshot (golden) tests where output stability matters; the
+`--help` snapshots live in [`tests/snapshots/`](../tests/snapshots/).
 
 Do not commit large binary fixtures. Prefer constructing test data programmatically.
 
@@ -637,8 +632,8 @@ use std::path::PathBuf;
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 
-use crate::data::context::ScopeDefinition;
-use crate::git::CommitInfo;
+use crate::drive::client::DriveClient;
+use crate::utils::env::EnvSource;
 ```
 
 **Enforcement note:** The rustfmt option `group_imports = "StdExternalCrate"` that codifies
@@ -672,8 +667,9 @@ specific lints allowed where they are too noisy or conflict with project convent
 Project-specific thresholds (argument count, cognitive complexity, etc.) are configured in
 `clippy.toml`. Formatting rules are documented in `rustfmt.toml`.
 
-The only lint attribute remaining in `src/lib.rs` is `#![warn(missing_docs)]`, which is
-kept there because it should only apply to the library crate, not to tests or the binary.
+The only lint attributes remaining in `src/lib.rs` are `#![warn(missing_docs)]`, which is
+kept there because it should only apply to the library crate, not to tests or the binary,
+and `#![deny(rustdoc::broken_intra_doc_links)]`.
 
 When suppressing a lint on a specific item, use `#[allow(clippy::...)]` with a justification
 comment explaining why the suppression is necessary:
@@ -707,8 +703,8 @@ Considering the use of `unsafe` code.
 
 ### Guidance
 
-This project forbids `unsafe` code via `#![deny(unsafe_code)]` in `src/lib.rs`. This lint
-is a hard error and applies to the entire crate.
+This project denies `unsafe` code via `unsafe_code = "deny"` under `[lints.rust]` in
+`Cargo.toml`. This lint is a hard error and applies to the entire crate.
 
 If `unsafe` is ever required (e.g., FFI), it must be:
 
@@ -716,10 +712,14 @@ If `unsafe` is ever required (e.g., FFI), it must be:
 2. Isolated in a dedicated module
 3. Annotated with a `// SAFETY:` comment per Clippy's `undocumented_unsafe_blocks` lint
 
+The one exception is the macOS `LocalAuthentication` / `SessionGetInfo` FFI in
+[`src/drive/lease/authenticate/macos.rs`](../src/drive/lease/authenticate/macos.rs)
+([ADR-0080](adrs/adr-0080.md)), which opts out per item with `#[allow(unsafe_code)]`.
+
 ### Motivation
 
-omni-dev has no need for `unsafe` — it delegates low-level operations to well-audited
-dependencies (`git2`, `reqwest`, `tokio`). The `deny` lint makes this a compile-time
+gwi has almost no need for `unsafe` — it delegates low-level operations to well-audited
+dependencies (`reqwest`, `tokio`, `nix`). The `deny` lint makes this a compile-time
 guarantee rather than a convention. Requiring an ADR for any future exception ensures the
 decision is reviewed and documented.
 
@@ -740,10 +740,10 @@ Discarding the result is almost certainly a bug:
 
 ```rust
 #[must_use]
-pub fn suggested_verbosity(&self) -> VerbosityLevel { ... }
+pub fn base_url(&self) -> &str { ... }
 
 #[must_use]
-pub fn is_conventional(&self) -> bool { ... }
+pub fn is_system(&self) -> bool { ... }
 ```
 
 **Do not apply** `#[must_use]` to:
@@ -776,7 +776,7 @@ Use the cheapest type that satisfies the function's needs:
 
 | The function…                          | Accept              | Example                                     |
 |----------------------------------------|---------------------|---------------------------------------------|
-| Only reads the string                  | `&str`              | `fn parse_subject(input: &str)`             |
+| Only reads the string                  | `&str`              | `fn parse_since(s: &str)`                   |
 | Stores the string in a struct/`Vec`    | `String`            | `fn set_title(&mut self, title: String)`    |
 | Needs flexibility (public API surface) | `impl Into<String>` | `fn new(name: impl Into<String>) -> Self`   |
 
@@ -790,8 +790,8 @@ borrow-or-own flexibility is needed.
 
 ```rust
 // Good — borrows for read-only access
-pub fn commit_type(&self) -> &str {
-    &self.commit_type
+pub fn name(&self) -> &str {
+    &self.name
 }
 
 // Good — takes ownership because it stores the value
@@ -802,7 +802,7 @@ pub fn with_title(mut self, title: String) -> Self {
 
 // Good — constructs a new string
 pub fn format_summary(&self) -> String {
-    format!("{}: {}", self.commit_type, self.subject)
+    format!("{}: {}", self.id, self.name)
 }
 ```
 
@@ -830,11 +830,11 @@ purpose is not self-evident at the usage site:
 
 ```rust
 // Bad — what does 8 mean?
-let short = &hash[..8];
+let short = &file_id[..8];
 
 // Good — the name documents the intent
-const SHORT_HASH_LEN: usize = 8;
-let short = &hash[..SHORT_HASH_LEN];
+const SHORT_ID_LEN: usize = 8;
+let short = &file_id[..SHORT_ID_LEN];
 ```
 
 ```rust
@@ -863,7 +863,7 @@ the same module, crate-level if shared across modules, or function-local `const`
 ### Motivation
 
 Named constants make the code self-documenting and provide a single point of change when a value
-needs updating. Searching for `SHORT_HASH_LEN` finds every usage; searching for `8` returns
+needs updating. Searching for `SHORT_ID_LEN` finds every usage; searching for `8` returns
 hundreds of false positives. The exceptions prevent over-extraction of trivially obvious values.
 
 ---
@@ -887,20 +887,20 @@ Common extraction targets:
 - **Setup / teardown** — opening resources, building configuration structs.
 - **Distinct phases** — validation, transformation, output formatting.
 - **Repeated patterns** — similar blocks that differ only in parameters.
-- **Nested closures or callbacks** — especially credential handlers, diff callbacks.
+- **Nested closures or callbacks** — especially retry handlers and stream callbacks.
 
 ```rust
-// Before — 120-line execute() mixing validation, AI calls, file I/O, and display
+// Before — 120-line execute() mixing validation, API calls, file I/O, and display
 fn execute(&self) -> Result<()> {
     // ... 120 lines ...
 }
 
 // After — orchestrator delegates to focused helpers
 fn execute(&self) -> Result<()> {
-    let repo_view = self.generate_repository_view()?;
-    let context = self.collect_context(&repo_view)?;
-    let amendments = self.generate_amendments(&repo_view, &context)?;
-    self.apply_and_display(amendments)?;
+    let account = self.resolve_account()?;
+    let files = self.fetch_files(&account)?;
+    let report = self.build_report(&files)?;
+    self.write_output(&report)?;
     Ok(())
 }
 ```
@@ -936,13 +936,13 @@ for:
    cleanup), add a comment explaining why:
 
    ```rust
-   // Bad — caller has no idea the abort failed
-   let _ = Command::new("git").args(["rebase", "--abort"]).output();
+   // Bad — caller has no idea the cleanup failed
+   let _ = fs::remove_file(&partial_download);
 
    // Good — intent is documented, failure is logged
-   // Best-effort cleanup; the rebase may already have been aborted.
-   if let Err(e) = Command::new("git").args(["rebase", "--abort"]).output() {
-       tracing::debug!("Rebase abort during cleanup failed: {e}");
+   // Best-effort cleanup; the partial file may already be gone.
+   if let Err(e) = fs::remove_file(&partial_download) {
+       tracing::debug!("Removing the partial download failed: {e}");
    }
    ```
 
@@ -950,10 +950,10 @@ for:
    or I/O failure hides broken configuration files from the user:
 
    ```rust
-   // Bad — silently returns empty vec on malformed YAML
+   // Bad — silently returns no rules on a malformed file
    if let Ok(content) = fs::read_to_string(&path) {
        if let Ok(config) = serde_yaml::from_str(&content) {
-           return config.scopes;
+           return config.rules;
        }
    }
    Vec::new()
@@ -961,7 +961,7 @@ for:
    // Good — warns so the user knows their file was ignored
    match fs::read_to_string(&path) {
        Ok(content) => match serde_yaml::from_str(&content) {
-           Ok(config) => return config.scopes,
+           Ok(config) => return config.rules,
            Err(e) => tracing::warn!("Ignoring {}: {e}", path.display()),
        },
        Err(e) if e.kind() != io::ErrorKind::NotFound => {
@@ -997,7 +997,7 @@ which often reveals that the error should not be ignored after all.
 ### Situation
 
 Routing behaviour based on a value that comes from a fixed, known set of alternatives (e.g.,
-AI provider, output format, environment name).
+output format, account kind, permission level).
 
 ### Guidance
 
@@ -1006,28 +1006,24 @@ branch on known variants:
 
 ```rust
 // Bad — brittle, easy to typo, no exhaustiveness checking
-let provider_name = if provider.to_lowercase().contains("openai")
-    || provider.to_lowercase().contains("ollama")
-{
-    "openai"
+let rendered = if format.to_lowercase().contains("json") {
+    to_json(&rows)?
 } else {
-    "claude"
+    to_table(&rows)
 };
 
 // Good — the compiler enforces every variant is handled
-enum AiProvider {
-    Claude,
-    Bedrock,
-    OpenAi,
-    Ollama,
+enum OutputFormat {
+    Table,
+    Json,
+    Yaml,
 }
 
-fn resolve_provider(raw: &str) -> Result<AiProvider> {
-    match raw.to_lowercase().as_str() {
-        s if s.contains("openai") => Ok(AiProvider::OpenAi),
-        s if s.contains("ollama") => Ok(AiProvider::Ollama),
-        s if s.contains("bedrock") => Ok(AiProvider::Bedrock),
-        _ => Ok(AiProvider::Claude),
+fn render(rows: &[Row], format: &OutputFormat) -> Result<String> {
+    match format {
+        OutputFormat::Table => Ok(to_table(rows)),
+        OutputFormat::Json => to_json(rows),
+        OutputFormat::Yaml => to_yaml(rows),
     }
 }
 ```
@@ -1037,7 +1033,8 @@ at the boundary (CLI parsing, config loading, environment variable reading). All
 receives the enum and uses `match`, which the compiler checks for exhaustiveness.
 
 This applies to any situation where the set of values is known at compile time — not just
-providers. Output formats, log levels, feature flags, and similar categories all benefit from
+output formats ([`OutputFormat`](../src/cli/format.rs) is the real one, bound to `-o/--output`
+by `clap`'s `ValueEnum`). Log levels, feature flags, and similar categories all benefit from
 the same pattern.
 
 ### Motivation
@@ -1073,12 +1070,12 @@ as an **earlier** commit so that:
 ```
 # Good — reviewable, bisectable, revertible
 git log --oneline
-a1b2c3  refactor(cli): extract shared repository-view builder
-d4e5f6  feat(cli): add --json output to check command
+a1b2c3  refactor(cli): extract shared account resolver
+d4e5f6  feat(cli): add --json output to the search command
 
 # Bad — mixed intent, hard to review or revert half of it
 git log --oneline
-f7g8h9  feat(cli): add --json output and refactor repo-view builder
+f7g8h9  feat(cli): add --json output and refactor account resolver
 ```
 
 **Acceptable exceptions:**
@@ -1115,7 +1112,7 @@ would be clearer in separate submodules.
 **Signals that a module should be split:**
 
 - It contains multiple independent command or handler types that share little or no private
-  state (e.g., `ViewCommand`, `CheckCommand`, and `CreatePrCommand` in one file).
+  state (e.g., `SearchCommand`, `TrashCommand`, and `UploadCommand` in one file).
 - Unrelated sections require scanning past hundreds of lines to find the piece you need.
 - Changes to one logical area routinely cause merge conflicts with work in another area of
   the same file.
@@ -1131,18 +1128,17 @@ When splitting, apply the layout from STYLE-0004 and extract each distinct respo
 into its own submodule:
 
 ```
-# Before — one file with five unrelated command types
-src/cli/git.rs          # 3 700 lines, five commands + helpers
+# Before — one file with several unrelated command types
+src/cli/drive.rs        # thousands of lines, every command + helpers
 
 # After — each command owns its module, shared code is explicit
 src/cli/
-├── git.rs              # re-exports, shared types
-└── git/
-    ├── view.rs         # ViewCommand
-    ├── twiddle.rs      # TwiddleCommand
-    ├── check.rs        # CheckCommand
-    ├── create_pr.rs    # CreatePrCommand
-    └── helpers.rs      # shared repo-view builder, guidance display
+├── drive.rs            # declares submodules, shared types
+└── drive/
+    ├── search.rs       # SearchCommand
+    ├── trash.rs        # TrashCommand
+    ├── upload.rs       # UploadCommand
+    └── helpers.rs      # shared client construction
 ```
 
 ### Motivation
@@ -1195,22 +1191,12 @@ After creating one or more commits and before pushing or opening a pull request.
 
 ### Guidance
 
-After every `git commit`, invoke the `commit-twiddle` skill to validate and fix the
-message against the guidelines in
-[`.omni-dev/commit-guidelines.md`](https://github.com/rust-works/omni-dev/blob/main/docs/omni-dev-directory.md#commit-guidelinesmd). The skill
-calls `omni-dev git commit message view` to analyse the commit, then
-`omni-dev git commit message amend` to rewrite the message if needed.
-
-Claude Code also enforces this rule at turn-end through the
-[commit-message Stop hook](https://github.com/rust-works/omni-dev/blob/main/.claude/hooks/check-commit-messages.sh), registered
-alongside the snapshot hook in `.claude/settings.json`. It checks every commit
-ahead of the default base with `omni-dev git commit message check --strict --quiet
--o json` and feeds validation findings back to the model to fix with this skill.
-Successful checks (including empty ranges) cache HEAD in the AI scratch directory,
-with a separate cache per worktree; an unchanged checked HEAD skips the AI call.
-Re-entrant Stops are skipped. Missing tools, credential/API failures and unavailable
-scratch storage fail open with a stderr note and are retried on the next Stop.
-The hook never applies amendments itself and does not replace the post-commit skill.
+After every `git commit`, and before pushing, run
+`omni-dev git commit message lint origin/main..HEAD` to validate the messages against the
+guidelines in [`.omni-dev/commit-guidelines.md`](../.omni-dev/commit-guidelines.md); it is
+deterministic and needs no API key. CI runs the same check
+([`commit-lint.yml`](../.github/workflows/commit-lint.yml)), so a message that fails here
+fails the pull request. Fix a failing message with `omni-dev git commit message amend`.
 
 **Constraints to observe:**
 
@@ -1223,23 +1209,27 @@ The hook never applies amendments itself and does not replace the post-commit sk
 
 ### Motivation
 
-Running the twiddle step after commit creation catches scope, casing, and footer
+Running the lint after commit creation catches scope, casing, and footer
 violations before they reach the remote, avoiding the costly reset-and-redo cycle
 required to rewrite history once a commit has been merged to `main`.
 
 ---
 
-## STYLE-0024: Wiremock tests for Atlassian client methods
+## STYLE-0024: Wiremock tests for Gmail and Drive client methods
 
 **Tags:** `testing`, `api-design`
 
 ### Situation
 
-Adding a new public method to `AtlassianClient` in `src/atlassian/client.rs`.
+Adding a new public method that calls the Gmail or Drive REST API: the API façades
+(`LabelsApi` in [`src/gmail/labels_api.rs`](../src/gmail/labels_api.rs), the `*_api.rs` modules
+beside it, and their Drive counterparts under [`src/drive/`](../src/drive/)) and the clients
+in [`src/gmail/client.rs`](../src/gmail/client.rs) and
+[`src/drive/client.rs`](../src/drive/client.rs).
 
 ### Guidance
 
-Every new public method on `AtlassianClient` must have corresponding `#[tokio::test]`
+Every new public method that sends a request must have corresponding `#[tokio::test]`
 tests using `wiremock::MockServer`. At minimum, cover three cases:
 
 1. **Success** — mock the expected HTTP method and path, return a valid response, and
@@ -1249,35 +1239,38 @@ tests using `wiremock::MockServer`. At minimum, cover three cases:
 3. **API error** — return a non-success status code (e.g., 404, 403) and assert the
    error is propagated with the status code in the message.
 
-Follow the existing test pattern in `client.rs`:
+Follow the existing test pattern in `labels_api.rs`:
 
 ```rust
 #[tokio::test]
-async fn get_watchers_success() {
+async fn get_builds_correct_url_and_parses_a_single_label() {
     let server = wiremock::MockServer::start().await;
-
+    let client = client_with_bootstrapped_token(&server).await;
     wiremock::Mock::given(wiremock::matchers::method("GET"))
-        .and(wiremock::matchers::path("/rest/api/3/issue/PROJ-1/watchers"))
+        .and(wiremock::matchers::path("/gmail/v1/users/me/labels/Label_1"))
         .respond_with(
             wiremock::ResponseTemplate::new(200).set_body_json(serde_json::json!({
-                "watchCount": 1,
-                "watchers": [{"accountId": "abc123", "displayName": "Alice"}]
+                "id": "Label_1",
+                "name": "Finance",
+                "type": "user",
             })),
         )
         .expect(1)
         .mount(&server)
         .await;
 
-    let client = AtlassianClient::new(&server.uri(), "user@test.com", "token").unwrap();
-    let result = client.get_watchers("PROJ-1").await.unwrap();
-    assert_eq!(result.watchers.len(), 1);
+    let label = LabelsApi::new(&client).get("Label_1").await.unwrap();
+    assert_eq!(label.name, "Finance");
 }
 ```
 
+`client_with_bootstrapped_token` mounts the OAuth token endpoint on the same mock server, so
+the test needs no real credentials and one server per test.
+
 ### Motivation
 
-Client methods are the project's primary integration boundary with the Atlassian REST
-API. Wiremock tests verify request construction (method, path, query params, body) and
+Client methods are the project's primary integration boundary with the Google REST
+APIs. Wiremock tests verify request construction (method, path, query params, body) and
 response parsing without hitting a live API. Skipping these tests leaves the entire
 HTTP layer uncovered, which CI coverage checks will flag as a patch coverage gap.
 
@@ -1289,37 +1282,43 @@ HTTP layer uncovered, which CI coverage checks will flag as a patch coverage gap
 
 ### Situation
 
-Adding or modifying a CLI command in `src/cli/atlassian/`.
+Adding or modifying a CLI command in `src/cli/drive/` or `src/cli/gmail/`.
 
 ### Guidance
 
-`create_client()` reads credentials from the environment, making any code after it
-unreachable in unit tests. When an `execute` method contains **non-trivial logic** beyond
-`create_client()`, extract that logic into a standalone `run_*` function that accepts an
-`&AtlassianClient` (or the relevant API wrapper) so it can be tested with wiremock.
+The parent command builds the client from credentials it reads from the environment and
+settings (`create_client` / `create_client_for` in
+[`src/cli/drive/helpers.rs`](../src/cli/drive/helpers.rs) and
+[`src/cli/gmail/helpers.rs`](../src/cli/gmail/helpers.rs)), so a subcommand's `execute` is
+unreachable in unit tests with a real client. When an `execute` method contains **non-trivial
+logic**, extract that logic into a standalone `run_*` function that accepts a `&DriveClient` or
+`&GmailClient` (or the relevant API wrapper) so it can be tested with wiremock.
 
 **Extract when** the `execute` body contains any of:
 
 - Multi-step orchestration (e.g., fetch → resolve → mutate → confirm).
-- Branching or validation on user input (e.g., resolving a transition by name/ID,
-  parsing and validating issue keys, confirmation prompts).
+- Branching or validation on user input (e.g., resolving a folder by name or ID,
+  parsing and validating file ids, confirmation prompts).
 - Logic that combines results from multiple API calls.
 
 ```rust
-impl TransitionCommand {
-    pub async fn execute(self) -> Result<()> {
-        let (client, _instance_url) = create_client()?;
-        run_transition(&client, &self.key, self.transition.as_deref(), self.list, &self.output).await
+impl CreateCommand {
+    pub async fn execute(self, client: &DriveClient) -> Result<()> {
+        // ... build the options from the flags, load the permission rules ...
+        run_create(client, &opts, &rules, &self.output).await
     }
 }
 
-async fn run_transition(
-    client: &AtlassianClient, key: &str, transition: Option<&str>, list: bool, output: &OutputFormat,
+async fn run_create(
+    client: &DriveClient, opts: &CreateOptions, rules: &[FolderPermissionRule], output: &OutputFormat,
 ) -> Result<()> {
-    let transitions = client.get_transitions(key).await?;
-    // ... resolve, execute, print ...
+    let outcome = create::create(client, opts, rules).await;
+    // ... emit the outcome in the requested format ...
 }
 ```
+
+(See [`src/cli/drive/create.rs`](../src/cli/drive/create.rs) and
+[`src/cli/drive/dedupe.rs`](../src/cli/drive/dedupe.rs).)
 
 Write tests for `run_*` functions covering the success path, structured output formats
 (JSON/YAML), and API error propagation.
@@ -1329,20 +1328,21 @@ into `output_as` / print with no branching or validation:
 
 ```rust
 impl ListCommand {
-    pub async fn execute(self) -> Result<()> {
-        let (client, _instance_url) = create_client()?;
-        let result = client.get_projects(self.limit).await?;
+    pub async fn execute(self, client: &GmailClient) -> Result<()> {
+        let result = LabelsApi::new(client).list().await?;
         if output_as(&result, &self.output)? {
             return Ok(());
         }
-        print_projects(&result);
+        print_labels(&result);
         Ok(())
     }
 }
 ```
 
 Here the client method itself should have wiremock tests (per STYLE-0024), and extraction
-would add indirection without catching additional bugs. Inline is fine.
+would add indirection without catching additional bugs. Inline is fine. (The real
+`gmail label list` still has a `run_list`, because it also owns the table rendering and its
+empty-result message; extraction is allowed when it buys a test, just not required.)
 
 ### Motivation
 
@@ -1352,19 +1352,20 @@ new test coverage beyond what STYLE-0024 client tests already provide. Reserving
 for commands with real orchestration or validation keeps the codebase lean while ensuring
 the code most likely to harbour bugs is covered.
 
-## STYLE-0026: MCP tool and resource authoring conventions
+## STYLE-0026: MCP tool authoring conventions
 
 **Tags:** `api-design`, `module-organization`, `testing`
 
 ### Situation
 
-Adding or modifying MCP tools, resources, or supporting types under `src/mcp/`.
+Adding or modifying MCP tools or supporting types under `src/mcp/`. gwi serves tools only,
+no resources (`server_info_advertises_only_the_tools_capability`).
 
 ### Guidance
 
 1. **Parameter structs.** Every tool defines its input as a dedicated
    `#[derive(Debug, Deserialize, schemars::JsonSchema)]` struct with a name
-   ending in `Params` (e.g. `GitViewCommitsParams`). All fields get a doc
+   ending in `Params` (e.g. `DriveDocsReplaceParams`). All fields get a doc
    comment — it flows through to the tool's JSON schema and is what the
    assistant sees. Optional fields use `#[serde(default)]` and `Option<T>`;
    never `Default::default()` in the handler body.
@@ -1372,39 +1373,37 @@ Adding or modifying MCP tools, resources, or supporting types under `src/mcp/`.
 2. **One tool router per module.** Group related tools in their own submodule
    and expose the router via `#[tool_router(router = name_tool_router, vis = "pub")]`
    (see [src/mcp/drive_tools.rs](../src/mcp/drive_tools.rs)). `GwiServer::new`
-   combines all routers — add a new module there rather than cramming tools
-   into an existing router.
+   in [src/mcp/server.rs](../src/mcp/server.rs) combines all routers — add a new
+   module there rather than cramming tools into an existing router.
 
 3. **Error mapping.** Inside tool handlers, bubble `anyhow::Error` out via
    the shared [`tool_error`](../src/mcp/error.rs) helper so the full error
    chain reaches the client. Do **not** build `McpError` values by hand with
    bespoke messages — go through `tool_error` so the format stays consistent
-   across tools. Resource handlers use `resources::not_found(uri, err)`
-   for URI-lookup failures so the raw URI appears in the response `data`.
+   across tools.
 
 4. **Blocking work belongs in `spawn_blocking`.** Tools that call into
-   synchronous business logic (e.g. `git2` operations) must wrap the call
+   synchronous business logic (e.g. local file reads and writes, as
+   `drive_docs_append` does with `append_text`) must wrap the call
    in `tokio::task::spawn_blocking` — the MCP transport loop is async, and
    blocking it stalls every in-flight request.
 
-5. **Output format.** YAML for repository/commit analysis (matches the CLI),
-   markdown for rendered prose (JIRA/Confluence JFM), JSON for raw
-   structured payloads (ADF). Advertise the MIME type on resources so
-   clients can route output appropriately.
+5. **Output format.** YAML for structured results (matches the CLI's
+   `-o yaml`, so the tool and the command describe the same data), plain text
+   for rendered prose such as document content. Return large payloads through
+   [`build_truncated_result`](../src/mcp/truncate.rs) so a response over the
+   size cap is cut at a UTF-8 boundary and flagged as truncated instead of
+   flooding the client's context. Write tools return complete tagged YAML and
+   set `is_error` on refusals.
 
-6. **Resource URIs.** New URI templates must round-trip through
-   [`ResourceUri::parse`](https://github.com/rust-works/omni-dev/blob/main/src/mcp/resources.rs) with a dedicated unit
-   test per template *and* per malformed-input class (unknown scheme,
-   wrong path shape, empty identifier). Keep the catalogue in
-   `resource_templates()` and `resource_listing()` in sync — add a
-   `templates_include_all_*_uris` assertion when the count changes.
-
-7. **Testing.** Tools and resources both need at least:
+6. **Testing.** Tools need at least:
    - A library-level unit test covering the success path with a fabricated
-     input (temp repo, mock API, or hand-built `ContentItem`).
-   - An integration test under `tests/mcp_integration_test.rs` that spins
-     up `OmniDevServer` on an in-memory duplex and exercises the MCP
-     protocol round-trip (list + read/call).
+     input (a wiremock server through the `run_*` function the handler
+     calls, or a temp dir).
+   - An integration test in [`tests/mcp_test.rs`](../tests/mcp_test.rs) that
+     spins up `GwiServer` on an in-memory duplex and exercises the MCP
+     protocol round-trip (list + call). Add the tool to the pinned tool lists
+     there so a tool cannot appear or vanish unnoticed.
 
 ### Motivation
 
@@ -1413,7 +1412,7 @@ schema and error messages tell them. Uniform parameter structs make the
 schema predictable; shared error mapping keeps diagnostics legible across
 tools; router splitting keeps modules small and testable; the paired
 unit+integration test requirement means a regression in protocol wiring is
-caught without requiring a live Claude Desktop to reproduce.
+caught without requiring a live MCP client to reproduce.
 
 ---
 
@@ -1460,7 +1459,7 @@ A plan directory that mixes shipped, in-progress, and superseded content with no
 
 Writing code that reads an environment variable, or writing a test for code
 whose behaviour depends on the environment (`HOME`, `XDG_CONFIG_HOME`,
-`USE_OPENAI`, `ATLASSIAN_*`, `OMNI_DEV_*`, provider/API-key vars, …).
+`GWI_*`, `GMAIL_*`, `DRIVE_*`, credential vars, …).
 
 ### Guidance
 
@@ -1471,26 +1470,30 @@ process-global environment. Pick the seam by what is read:
 
 1. **Resolved domain value** — incidental config. Provide a `*_from(value)`
    constructor alongside the env-resolving entry point. (e.g.
-   [`create_client_from`](https://github.com/rust-works/omni-dev/blob/main/src/cli/atlassian/helpers.rs),
-   [`DatadogClient::from_credentials`](https://github.com/rust-works/omni-dev/blob/main/src/datadog/client.rs).)
+   [`create_client_from`](../src/cli/drive/helpers.rs) and its
+   [Gmail twin](../src/cli/gmail/helpers.rs),
+   [`DriveClient::from_credentials`](../src/drive/client.rs).)
 
    ```rust
-   pub fn create_client() -> Result<(Client, String)> {
-       create_client_from(load_credentials()?)        // prod: resolve env → value
+   pub fn create_client_for(account: Option<&str>) -> Result<DriveClient> {
+       create_client_from(auth::load_credentials_for(account)?)   // prod: resolve env → value
    }
-   pub fn create_client_from(creds: Credentials) -> Result<(Client, String)> { /* … */ }
+   pub fn create_client_from(credentials: DriveCredentials) -> Result<DriveClient> { /* … */ }
    ```
 
 2. **`std::env::var` parsing boundary** — "given these vars, what do we do?".
    Take `&impl EnvSource` (see [`crate::utils::env`](../src/utils/env.rs)); the
-   prod wrapper passes `&SystemEnv`, tests pass a `MapEnv`.
+   prod wrapper passes `&SystemEnv`, tests pass a `MapEnv`
+   ([`crate::test_support::env`](../src/test_support.rs)).
 
    ```rust
-   pub fn check_ai_credentials(model: Option<&str>) -> Result<Info> {
-       check_ai_credentials_with(&SystemEnv, model)    // thin wrapper
+   pub fn from_credentials(credentials: &DriveCredentials) -> Result<Self> {
+       Self::from_credentials_with(&SystemEnv, credentials)    // thin wrapper
    }
-   fn check_ai_credentials_with(env: &impl EnvSource, model: Option<&str>) -> Result<Info> { /* … */ }
+   pub(crate) fn from_credentials_with(env: &impl EnvSource, credentials: &DriveCredentials) -> Result<Self> { /* … */ }
    ```
+
+   ([`request_log.rs`](../src/request_log.rs) has more: `disabled_with`, `log_file_path_with`.)
 
 3. **`dirs::home_dir()` / `dirs::config_dir()`** — these read `HOME` /
    `XDG_CONFIG_HOME` *inside* the `dirs` crate, where `EnvSource` can't reach.
@@ -1573,76 +1576,79 @@ Writing or revising any `#[tool(description = "…")]` text or any doc comment o
 a `*Params` struct field under `src/mcp/`. These strings are the **only** thing
 an AI agent reads to decide how to call a tool: field doc comments flow through
 `schemars::JsonSchema` into each field's JSON-schema `description`, and
-`description = "…"` sets the tool-level text. [STYLE-0026](#style-0026-mcp-tool-and-resource-authoring-conventions)
+`description = "…"` sets the tool-level text. [STYLE-0026](#style-0026-mcp-tool-authoring-conventions)
 covers the *wiring* (struct shape, router, tests); this rule covers the *prose
 quality* the agent actually reads.
 
 ### Guidance
 
 Every tool description and parameter doc comment must satisfy this checklist.
-The reference exemplars are [`LinkCreateParams`](https://github.com/rust-works/omni-dev/blob/main/src/mcp/jira_tools.rs)
-(`inward`/`outward` with the concrete `Blocks` example) and the
-[`git_*` tool descriptions](https://github.com/rust-works/omni-dev/blob/main/src/mcp/git_tools.rs).
+The reference exemplars are the write tools in
+[`src/mcp/drive_write_tools.rs`](../src/mcp/drive_write_tools.rs): `DriveDocsReplaceParams`
+(`search`/`replace` with concrete `draft` → `final` values and the empty-deletes case) and the
+`drive_docs_replace` tool description.
 
 **Tool-level `description`:**
 
 1. **One-line "what it does"** as the first sentence — a single, skimmable
    summary an agent reads before the params.
 2. **CLI cross-reference, both directions.** The tool description names its
-   equivalent subcommand: ``Mirrors `omni-dev <subcommand>`.`` The clap
+   equivalent subcommand: ``Mirrors `gwi <subcommand>`.`` The clap
    subcommand's doc comment carries the reverse, ending with
-   ``(mirrors the `<tool_name>` MCP tool)`` (see
-   [src/cli/atlassian/jira/link.rs](https://github.com/rust-works/omni-dev/blob/main/src/cli/atlassian/jira/link.rs)). The
-   two must stay in lock-step. A tool with no CLI equivalent (e.g.
-   `atlassian_convert`'s `system_prompt` override) says so explicitly.
+   ``(mirrors the `<tool_name>` MCP tool)`` (see the `Auth`, `Account` and `Search`
+   variants in [src/cli/gmail.rs](../src/cli/gmail.rs)). The
+   two must stay in lock-step. A tool with no CLI equivalent says so explicitly.
 3. **"When to use vs `<sibling>`"** wherever two tools overlap or could be
-   confused (e.g. updating a body via `jira_write` vs setting hierarchy via
-   `jira_link_parent`; `jira_link_create` vs `jira_link_parent`). One sentence
-   pointing at the sibling and when to prefer it.
-4. **A concrete example in the tool text**, not only on fields — a real key
-   (`PROJ-123`), a real enum value, or a one-line call shape. Surface the
-   single most error-prone value at the tool level the agent skims first.
-5. **Mutating/destructive affordances.** State any `dry_run`, `confirm`, or
-   preflight behaviour and its default (e.g. "Set `dry_run = true` to return
-   the would-be request without sending it"; "Requires `confirm: true`").
+   confused (e.g. `drive_docs_replace` vs `drive_docs_append`; `drive_sheets_append` vs
+   `drive_sheets_clear`). One sentence pointing at the sibling and when to prefer it.
+4. **A concrete example in the tool text**, not only on fields — a real id, a
+   real enum value, or a one-line call shape (``Example: document_id, search:"draft",
+   replace:"final", dry_run:true``). Surface the single most error-prone value at
+   the tool level the agent skims first.
+5. **Mutating/destructive affordances.** State any `dry_run`, lease, or
+   preflight behaviour and its default (e.g. "dry_run defaults to false. Dry-run
+   first: previews need no lease. Real writes require an operator allow rule and
+   a lease").
 
 **Per-parameter doc comment:**
 
-6. **A concrete example value** — ``e.g. `PROJ-123` ``, ``e.g. `2025-01-31` ``,
-   ``e.g. `Blocks` ``.
+6. **A concrete example value** — ``e.g. `1a2B3c4D` ``, ``e.g. `2025-01-31` ``,
+   ``e.g. `draft` ``.
 7. **Allowed values for enums / closed sets** spelled out
-   (``one of `future`, `active`, `closed` ``) — don't make the agent guess.
-8. **Expected wire format** — JFM markdown vs ADF JSON, `YYYY-MM-DD`, JIRA
-   duration (`2h 30m`), Atlassian `accountId` vs display name, JQL/CQL.
-9. **Directional / order-dependent semantics spelled out** — never "source" /
-   "target" alone. Name which end is which, with an example: *"Source (inward)
-   issue — for `Blocks`, the issue doing the blocking."* This is the #1054
-   regression this rule exists to prevent.
+   (``one of `metadata`, `content` ``) — don't make the agent guess.
+8. **Expected wire format** — Gmail search syntax vs a Drive query, a Docs
+   document id from the `/d/<ID>/` part of a URL, an A1 range (`A1:B2`),
+   `YYYY-MM-DD`, an RFC 3339 timestamp.
+9. **Directional / order-dependent semantics spelled out** — never "from" /
+   "to" or "old" / "new" alone. Name which end is which, with an example:
+   *"Literal text to find, e.g. draft; not a regular expression"* and *"Replacement
+   text, e.g. final. Empty deletes matches."* An inverted pair of arguments
+   is the failure this item exists to prevent.
 10. **Required vs optional.** Optional fields use `#[serde(default)]` +
     `Option<T>` (per STYLE-0026) and the doc comment states the default
     behaviour when the field is omitted.
 
-Keep the tool catalog (gwi's lives in the [README](../README.md#mcp-server), [drive.md](drive.md) and [gmail.md](gmail.md); omni-dev's is [`docs/mcp.md`](https://github.com/rust-works/omni-dev/blob/main/docs/mcp.md)) in sync when a tool's purpose or CLI
-mapping changes, and run omni-dev's [`update-snapshots`](https://github.com/rust-works/omni-dev/blob/main/.claude/skills/update-snapshots/SKILL.md)
-skill whenever the reverse-reference edits change CLI `--help` text.
+Keep the MCP mentions in [docs/gmail.md](gmail.md) (its "MCP equivalent(s)" sections) and
+[docs/drive.md](drive.md) (e.g. "Also available as the `drive_docs_info` MCP tool"), and the MCP
+section of the [README](../README.md#mcp-server), in sync when a tool's purpose or CLI mapping
+changes, and review the `--help`
+snapshots in [`tests/snapshots/`](../tests/snapshots/) with `cargo insta review`
+whenever the reverse-reference edits change CLI `--help` text.
 
-The `present and non-empty` floor of this checklist (items 1 and 6) is enforced
-mechanically by `all_tools_advertise_descriptions_and_param_schemas` in
-[tests/mcp_integration_test.rs](https://github.com/rust-works/omni-dev/blob/main/tests/mcp_integration_test.rs): it fails if
-*any* advertised tool or top-level parameter ships without a description, so a
-new tool cannot silently regress the surface. The prose-quality items (2–5,
-7–10) still need review — the test guarantees the strings exist, not that they
-are good.
+Only the tool-level floor of this checklist is enforced mechanically:
+`list_tools_advertises_exactly_the_gmail_and_drive_tools` in
+[tests/mcp_test.rs](../tests/mcp_test.rs) fails if any advertised tool has an empty
+description. Nothing checks that every top-level parameter has a description (item 6's
+floor) or any of the prose-quality items, so those need review.
 
 ### Motivation
 
 An agent's success rate is bounded by how unambiguous these strings are. A
-vague description produces wrong-but-silent calls — an inverted `Blocks`
-dependency (#1054), a display name where an `accountId` was required, a body
-update where a parent link was meant — each costing a recovery round-trip or
-quietly corrupting data. #1049 fixed one tool (`jira_link_create`) to this bar;
-this checklist generalises it so the whole `src/mcp/` surface meets the same
-standard rather than drifting tool-by-tool.
+vague description produces wrong-but-silent calls — a search and replacement
+swapped, a Gmail query where a Drive query was required, an append where a
+replace was meant — each costing a recovery round-trip or quietly corrupting
+data. This checklist holds the whole `src/mcp/` surface to one standard rather
+than letting it drift tool-by-tool.
 
 ---
 
@@ -1664,20 +1670,22 @@ presence-only status flag). Never pass it to `EnvSource::var`, `var_any`,
 `non_empty_var`, `Settings::get_env_var` or `std::env::var`.
 
 ```rust
-// Good: accepts DATADOG_API_KEY or DATADOG_API_KEY_FILE, returns a Secret.
-let api_key = secret_var(env, DATADOG_API_KEY)?.ok_or(DatadogError::CredentialsNotFound)?;
+// Good: accepts DRIVE_REFRESH_TOKEN or DRIVE_REFRESH_TOKEN_FILE, returns a Secret.
+let token = secret_var(env, DRIVE_REFRESH_TOKEN)?.ok_or(DriveError::CredentialsNotFound)?;
 
 // Bad: no _FILE support, and a plain String.
-let api_key = env.var(DATADOG_API_KEY).ok_or(DatadogError::CredentialsNotFound)?;
+let token = env.var(DRIVE_REFRESH_TOKEN).ok_or(DriveError::CredentialsNotFound)?;
 ```
 
 The resolver gives every secret a `<NAME>_FILE` companion with one set of rules
 (absolute path, yours and owner-only or root's and read-only to others, one trailing newline
 trimmed, two-set is an error per layer) — see
-[ADR-0089](https://github.com/rust-works/omni-dev/blob/main/docs/adrs/adr-0089.md) — and a `<NAME>_COMMAND` companion that runs a
-helper program and reads its output ([ADR-0090](https://github.com/rust-works/omni-dev/blob/main/docs/adrs/adr-0090.md),
-[secret-commands.md](https://github.com/rust-works/omni-dev/blob/main/docs/secret-commands.md)). Only the resolver, the settings
-writers and the `claude-cli` scrub may spell either companion. Document
+[ADR-0089](https://github.com/rust-works/omni-dev/blob/main/docs/adrs/adr-0089.md) — and a
+`<NAME>_COMMAND` companion that runs a helper program and reads its output
+([ADR-0090](https://github.com/rust-works/omni-dev/blob/main/docs/adrs/adr-0090.md),
+[secret-commands.md](https://github.com/rust-works/omni-dev/blob/main/docs/secret-commands.md));
+both ADRs stay in omni-dev, see the [ADR inventory](adrs/README.md). Only the resolver and
+the settings writers may spell either companion. Document
 `<NAME>_FILE` and `<NAME>_COMMAND` next to the variable in its operator guide. A secret-shaped name that genuinely must not accept `_FILE`
 goes in `EXEMPT_SECRET_ENV_VARS` with its reason. Test the call site's `_FILE`
 path with `MapEnv` and `test_support::env::secret_file` (STYLE-0028).
@@ -1693,7 +1701,7 @@ never `.clone()` the plain field into a credential.
 A secret in an environment variable leaks into `env` listings,
 `/proc/<pid>/environ`, shell history and child processes; `_FILE` is the
 Docker/Kubernetes way out. Implemented per call site it would drift into
-sixteen subtly different readers. The grep guards in `secret_env.rs` fail the
+subtly different readers. The grep guards in `secret_env.rs` fail the
 build when a new secret-shaped literal is unregistered, when a registered one is
 read through a plain accessor, or when a `<NAME>_FILE` would collide with an
 existing variable.
