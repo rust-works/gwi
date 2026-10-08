@@ -289,7 +289,7 @@ fn drain_appended<W: Write>(
 /// What one raw log line turned out to be.
 #[derive(Debug, PartialEq, Eq)]
 enum Line {
-    /// Empty (or only a line ending).
+    /// Empty or only whitespace: not a damaged record, so not counted.
     Blank,
     /// Not a log record.
     Malformed,
@@ -302,7 +302,7 @@ enum Line {
 /// Parses one raw line and renders it when it matches the filter.
 fn parse_line(line: &str, filter: &Filter, format: Format) -> Line {
     let raw = line.trim_end_matches(['\n', '\r']);
-    if raw.is_empty() {
+    if raw.trim().is_empty() {
         return Line::Blank;
     }
     let Ok(rec) = serde_json::from_str::<LogRecord>(raw) else {
@@ -620,7 +620,7 @@ mod tests {
             }
         );
 
-        let blanks = format!("\n{GOOD}\n\r\n\n");
+        let blanks = format!("\n{GOOD}\n\r\n  \t\n\n");
         let (_, result) = scan(blanks.as_bytes(), &empty_filter(), None);
         assert_eq!(
             result,
