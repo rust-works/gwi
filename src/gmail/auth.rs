@@ -9,7 +9,6 @@
 
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::Path;
-use std::process::{Command, Stdio};
 use std::time::Duration;
 
 use anyhow::{Context, Result};
@@ -26,6 +25,7 @@ use crate::gmail::chrome_profile;
 use crate::gmail::error::{GmailError, GrantContext};
 use crate::request_log;
 use crate::utils::browser_command::split_browser_command;
+use crate::utils::browser_launch::launch_detached;
 use crate::utils::env::SystemEnv;
 use crate::utils::secret::Secret;
 use crate::utils::secret_env::{secret_var, secret_var_is_set};
@@ -641,24 +641,14 @@ fn open_browser(launch: &BrowserLaunch, url: &str) -> Result<()> {
             Ok(())
         }
         BrowserLaunch::Command(args) => {
-            let mut parts = args.iter();
-            let program = parts
-                .next()
+            let (program, rest) = args
+                .split_first()
                 .ok_or_else(|| GmailError::InvalidBrowserCommand("empty browser command".into()))?;
-            let mut command = Command::new(program);
-            let mut placed = false;
-            for arg in parts {
-                if arg.contains("{url}") {
-                    command.arg(arg.replace("{url}", url));
-                    placed = true;
-                } else {
-                    command.arg(arg);
-                }
+            let mut argv: Vec<String> = rest.iter().map(|arg| arg.replace("{url}", url)).collect();
+            if !rest.iter().any(|arg| arg.contains("{url}")) {
+                argv.push(url.to_string());
             }
-            if !placed {
-                command.arg(url);
-            }
-            spawn_detached(command)
+            launch_detached(program, &argv)
         }
         BrowserLaunch::Auto => {
             let program = if cfg!(target_os = "macos") {
@@ -668,22 +658,9 @@ fn open_browser(launch: &BrowserLaunch, url: &str) -> Result<()> {
             } else {
                 "xdg-open"
             };
-            let mut command = Command::new(program);
-            command.arg(url);
-            spawn_detached(command)
+            launch_detached(program, &[url.to_string()])
         }
     }
-}
-
-/// Spawns a browser command detached from this process's stdio.
-fn spawn_detached(mut command: Command) -> Result<()> {
-    command
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()
-        .map(|_| ())
-        .context("Failed to launch the browser")
 }
 
 // ── PKCE + state ────────────────────────────────────────────────────────
@@ -1206,6 +1183,7 @@ mod tests {
     use std::sync::Arc;
 
     use super::*;
+    use crate::utils::browser_launch::testing::{Launch, LaunchGuard};
 
     // ── Pure helpers ─────────────────────────────────────────────────
 
@@ -1336,21 +1314,36 @@ mod tests {
         assert_eq!(result.state.as_deref(), Some("xyz"));
     }
 
-    #[test]
-    fn open_browser_manual_logs_and_succeeds() {
-        assert!(open_browser(&BrowserLaunch::Manual, "https://example/auth").is_ok());
+    fn recorded_launch(launch: &BrowserLaunch) -> Launch {
+        let guard = LaunchGuard::install();
+        open_browser(launch, "https://example/auth").unwrap();
+        let mut calls = guard.launches().calls();
+        assert_eq!(calls.len(), 1, "one browser launch expected: {calls:?}");
+        calls.remove(0)
     }
 
     #[test]
     fn open_browser_command_substitutes_url_placeholder() {
-        let launch = BrowserLaunch::Command(vec!["true".to_string(), "--url={url}".to_string()]);
-        assert!(open_browser(&launch, "https://example/auth").is_ok());
+        let launch = BrowserLaunch::Command(vec!["chrome".to_string(), "--url={url}".to_string()]);
+        assert_eq!(
+            recorded_launch(&launch),
+            Launch {
+                program: "chrome".to_string(),
+                args: vec!["--url=https://example/auth".to_string()],
+            }
+        );
     }
 
     #[test]
     fn open_browser_command_appends_url_when_no_placeholder() {
-        let launch = BrowserLaunch::Command(vec!["true".to_string()]);
-        assert!(open_browser(&launch, "https://example/auth").is_ok());
+        let launch = BrowserLaunch::Command(vec!["chrome".to_string()]);
+        assert_eq!(
+            recorded_launch(&launch),
+            Launch {
+                program: "chrome".to_string(),
+                args: vec!["https://example/auth".to_string()],
+            }
+        );
     }
 
     #[test]
@@ -1358,8 +1351,35 @@ mod tests {
         // A trailing flag with no `{url}` substring (e.g. `--verbose`) is
         // passed to the command unmodified, and the URL is still appended
         // since no arg claimed the placeholder.
-        let launch = BrowserLaunch::Command(vec!["true".to_string(), "--verbose".to_string()]);
-        assert!(open_browser(&launch, "https://example/auth").is_ok());
+        let launch = BrowserLaunch::Command(vec!["chrome".to_string(), "--verbose".to_string()]);
+        assert_eq!(
+            recorded_launch(&launch),
+            Launch {
+                program: "chrome".to_string(),
+                args: vec!["--verbose".to_string(), "https://example/auth".to_string()],
+            }
+        );
+    }
+
+    #[test]
+    fn open_browser_auto_launches_the_platform_opener_with_the_url() {
+        let launch = recorded_launch(&BrowserLaunch::Auto);
+
+        let opener = if cfg!(target_os = "macos") {
+            "open"
+        } else if cfg!(target_os = "windows") {
+            "explorer"
+        } else {
+            "xdg-open"
+        };
+        assert_eq!(launch.program, opener);
+        assert_eq!(launch.args, vec!["https://example/auth".to_string()]);
+    }
+
+    #[test]
+    fn open_browser_manual_launches_nothing() {
+        // No recorder installed: a launch would panic.
+        open_browser(&BrowserLaunch::Manual, "https://example/auth").unwrap();
     }
 
     #[test]
@@ -1712,20 +1732,6 @@ mod tests {
         }
     }
 
-    /// Polls `path` until it holds non-empty content, then returns it —
-    /// used to read back the authorization URL that `open_browser`'s
-    /// captured shell command writes asynchronously.
-    async fn wait_for_captured_url(path: &Path) -> String {
-        loop {
-            if let Ok(contents) = std::fs::read_to_string(path) {
-                if !contents.is_empty() {
-                    return contents;
-                }
-            }
-            tokio::time::sleep(Duration::from_millis(2)).await;
-        }
-    }
-
     #[tokio::test]
     async fn login_to_refuses_before_the_browser_flow_when_the_token_is_command_fetched() {
         let temp_dir = tempfile::TempDir::new().unwrap();
@@ -1887,24 +1893,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn wait_for_captured_url_polls_until_content_is_written() {
-        std::fs::create_dir_all("tmp").ok();
-        let temp_dir = tempfile::TempDir::new_in("tmp").unwrap();
-        let path = temp_dir.path().join("captured-url.txt");
-
-        let write_path = path.clone();
-        tokio::spawn(async move {
-            tokio::time::sleep(Duration::from_millis(10)).await;
-            std::fs::write(&write_path, "").unwrap();
-            tokio::time::sleep(Duration::from_millis(10)).await;
-            std::fs::write(&write_path, "https://example.com/authorize").unwrap();
-        });
-
-        let contents = wait_for_captured_url(&path).await;
-        assert_eq!(contents, "https://example.com/authorize");
-    }
-
-    #[tokio::test]
     async fn login_to_rejects_a_callback_with_mismatched_state() {
         let err =
             run_login_to_expect_err(b"GET /?code=abc&state=the-wrong-state HTTP/1.1\r\n\r\n").await;
@@ -1943,17 +1931,15 @@ mod tests {
 
     #[tokio::test]
     async fn login_to_completes_full_success_flow_and_persists_credentials() {
-        // Captures the real authorization URL `login_to` generates (with its
-        // randomly-generated CSRF `state`) by pointing the browser launch at
-        // a shell command instead of an actual browser: `open_browser`
-        // substitutes `{url}` into the command's args and spawns it, so a
-        // tiny `/bin/sh` one-liner writes the URL to a file we can read back
-        // — letting this test drive the full success path (state echoed
-        // correctly, token exchange, credential persistence) without ever
-        // opening a real browser or needing to predict the CSRF nonce.
+        // Reads the real authorization URL `login_to` generates (with its
+        // randomly-generated CSRF `state`) from the launch recorder rather
+        // than from a browser: `open_browser` hands `{url}`-substituted args
+        // to the launch seam, so the test drives the full success path
+        // (state echoed correctly, token exchange, credential persistence)
+        // without opening a browser or predicting the CSRF nonce.
         std::fs::create_dir_all("tmp").ok();
         let temp_dir = tempfile::TempDir::new_in("tmp").unwrap();
-        let capture_path = temp_dir.path().join("captured-url.txt");
+        let launch_guard = LaunchGuard::install();
         let settings_path = temp_dir.path().join("settings.json");
 
         let server = wiremock::MockServer::start().await;
@@ -1972,15 +1958,13 @@ mod tests {
             .await;
 
         let status = run_with_port_retry(|port| {
-            let capture_path = capture_path.clone();
+            let launches = launch_guard.launches();
             let settings_path = settings_path.clone();
             let token_endpoint = format!("{}/token", server.uri());
             async move {
                 let browser = BrowserConfig {
                     launch: BrowserLaunch::Command(vec![
-                        "/bin/sh".to_string(),
-                        "-c".to_string(),
-                        format!("printf '%s' \"$0\" > '{}'", capture_path.display()),
+                        "browser-stub".to_string(),
                         "{url}".to_string(),
                     ]),
                     callback_addr: IpAddr::V4(Ipv4Addr::LOCALHOST),
@@ -1988,7 +1972,7 @@ mod tests {
                 };
 
                 let connector = tokio::spawn(async move {
-                    let auth_url = wait_for_captured_url(&capture_path).await;
+                    let auth_url = launches.wait_for_first().await.args.remove(0);
                     let parsed = Url::parse(&auth_url).unwrap();
                     let state = parsed
                         .query_pairs()
@@ -2031,7 +2015,7 @@ mod tests {
     }
 
     /// Full mocked login round trip (real state nonce echoed back via the
-    /// captured-authorization-URL trick, like
+    /// recorded-authorization-URL trick, like
     /// `login_to_completes_full_success_flow_and_persists_credentials`
     /// above), with an injectable token-response body — the seam the
     /// scope-validation tests below use to simulate Google granting no
@@ -2041,7 +2025,7 @@ mod tests {
     ) -> (Result<GmailAuthStatus>, std::path::PathBuf) {
         std::fs::create_dir_all("tmp").ok();
         let temp_dir = tempfile::TempDir::new_in("tmp").unwrap();
-        let capture_path = temp_dir.path().join("captured-url.txt");
+        let launch_guard = LaunchGuard::install();
         let settings_path = temp_dir.path().join("settings.json");
 
         let server = wiremock::MockServer::start().await;
@@ -2053,15 +2037,13 @@ mod tests {
             .await;
 
         let result = run_with_port_retry(|port| {
-            let capture_path = capture_path.clone();
+            let launches = launch_guard.launches();
             let settings_path = settings_path.clone();
             let token_endpoint = format!("{}/token", server.uri());
             async move {
                 let browser = BrowserConfig {
                     launch: BrowserLaunch::Command(vec![
-                        "/bin/sh".to_string(),
-                        "-c".to_string(),
-                        format!("printf '%s' \"$0\" > '{}'", capture_path.display()),
+                        "browser-stub".to_string(),
                         "{url}".to_string(),
                     ]),
                     callback_addr: IpAddr::V4(Ipv4Addr::LOCALHOST),
@@ -2069,7 +2051,7 @@ mod tests {
                 };
 
                 let connector = tokio::spawn(async move {
-                    let auth_url = wait_for_captured_url(&capture_path).await;
+                    let auth_url = launches.wait_for_first().await.args.remove(0);
                     let parsed = Url::parse(&auth_url).unwrap();
                     let state = parsed
                         .query_pairs()
