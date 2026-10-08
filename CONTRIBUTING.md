@@ -15,7 +15,11 @@ now is to comment on the design in
 4. Add a changelog fragment, `changelog.d/<issue>.<type>.md`, instead of editing
    [CHANGELOG.md](CHANGELOG.md) (see [changelog.d/README.md](changelog.d/README.md)). A change
    with no user-visible effect puts `[no changelog]` in the PR body instead.
-5. Open a pull request. It merges with a merge commit through a merge queue.
+5. If you touch documentation or a doc comment, run `python3 scripts/check_doc_links.py`. It
+   fails on a dead relative link, a dead `#anchor` and a dead `adr-NNNN*.md` name, as CI's
+   `Doc links` job does. `scripts/doc-links-allowlist.txt` lists the known-dead links; do not
+   add to it.
+6. Open a pull request. It merges with a merge commit through a merge queue.
 
 ## Running the tests in a sandbox
 
