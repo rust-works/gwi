@@ -40,6 +40,20 @@ fn help_all_golden() {
     insta::assert_snapshot!("help_all_output", help);
 }
 
+/// Help is read in a terminal, where a markdown link such as
+/// `[ADR-0066](../../docs/adrs/adr-0066.md)` is unreadable and cannot resolve:
+/// doc comments that clap turns into help name ADRs in plain text.
+#[test]
+fn help_has_no_markdown_links() {
+    let mut root = Cli::command();
+    root.build();
+    let mut help = String::new();
+    render_all(&mut root, &mut help);
+
+    let links: Vec<&str> = help.lines().filter(|line| line.contains("](")).collect();
+    assert!(links.is_empty(), "markdown links in help: {links:#?}");
+}
+
 /// Runs the real `gwi` binary hermetically in `home`.
 fn gwi(home: &Path, args: &[&str]) -> Output {
     let mut command = Command::new(env!("CARGO_BIN_EXE_gwi"));

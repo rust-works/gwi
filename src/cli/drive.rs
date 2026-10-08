@@ -36,10 +36,9 @@ pub struct DriveCommand {
     /// `--profile`) for this invocation.
     ///
     /// Orthogonal to `--profile`: switching the Drive account never changes
-    /// which profile is active, and vice versa (see
-    /// ADR-0066, ADR-0069). Overrides
-    /// `GWI_DRIVE_ACCOUNT`. Scoped to the `drive` subtree — not usable
-    /// before the `drive` subcommand name, only after it, so it can't
+    /// which profile is active, and vice versa (see ADR-0066, ADR-0069).
+    /// Overrides `GWI_DRIVE_ACCOUNT`. Scoped to the `drive` subtree — not
+    /// usable before the `drive` subcommand name, only after it, so it can't
     /// collide with an unrelated subcommand's own `--account` flag.
     #[arg(long, global = true, value_name = "NAME")]
     pub account: Option<String>,
