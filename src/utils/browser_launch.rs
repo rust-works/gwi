@@ -5,7 +5,7 @@
 //! the launch and a test that reaches one it did not expect fails.
 //!
 //! Under `cfg(test)` the call is routed to a launcher the test installs with
-//! [`testing::LaunchGuard::install`], and **panics when none is installed**. That
+//! `testing::LaunchGuard::install` (a `cfg(test)` item, so not linkable), and **panics when none is installed**. That
 //! fails the test on every platform, whatever the opener would have done: the sandbox
 //! in `scripts/sandbox-test.sh` can only block an opener it knows the name of, and the
 //! real launch discards the opener's exit status, so neither could be relied on.
