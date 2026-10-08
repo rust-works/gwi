@@ -508,13 +508,6 @@ pub(crate) fn status_with(env: &impl crate::utils::env::EnvSource) -> DriveAuthS
 /// is its sole consumer; the CLI's `drive auth status` goes through
 /// [`load_credentials_for`] instead.
 #[cfg(feature = "mcp")]
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "its caller, the Drive MCP tools, is wired in a later step of gwi#15"
-    )
-)]
 pub(crate) fn status_for(explicit: Option<&str>) -> Result<DriveAuthStatus> {
     let settings = Settings::load_or_warn_default();
     match resolve(&settings.drive, explicit)? {
@@ -534,13 +527,6 @@ pub(crate) fn status_for(explicit: Option<&str>) -> Result<DriveAuthStatus> {
 /// Only compiled with the `mcp` feature — see [`status_for`], its sole
 /// caller.
 #[cfg(feature = "mcp")]
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "its caller, the Drive MCP tools, is wired in a later step of gwi#15"
-    )
-)]
 fn status_from_named(drive: &DriveSettings, name: &str) -> DriveAuthStatus {
     let account = drive.accounts.get(name);
     DriveAuthStatus {

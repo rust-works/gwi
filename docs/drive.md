@@ -4868,6 +4868,6 @@ Only Docs/Sheets/Slides have a safe default export MIME type (see
 - [ADR-0066](adrs/adr-0066.md) — the named-account store behind
   [Multiple accounts](#multiple-accounts), and why it's orthogonal to
   `--profile`.
-- MCP tools — planned, not yet available; tracked by
-  [issue #1525](https://github.com/rust-works/omni-dev/issues/1525).
+- MCP tools — the 15 `drive_*` tools served by `gwi-mcp`; see the
+  [MCP server](../README.md#mcp-server) section of the README.
 - [Drive API documentation](https://developers.google.com/workspace/drive/api/reference/rest/v3) — upstream reference.

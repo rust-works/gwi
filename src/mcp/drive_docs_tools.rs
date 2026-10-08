@@ -35,9 +35,9 @@ use crate::drive::files_api::FilesApi;
 use crate::mcp::drive_tools::account_param_doc;
 
 use super::error::tool_error;
-use super::git_tools::build_truncated_result;
 use super::output_file;
-use super::server::OmniDevServer;
+use super::server::GwiServer;
+use super::truncate::build_truncated_result;
 
 // ── Parameter structs ───────────────────────────────────────────────
 
@@ -85,7 +85,7 @@ pub struct DriveDocsReadParams {
 
 #[allow(missing_docs)] // #[tool_router] generates a pub `drive_docs_tool_router` fn.
 #[tool_router(router = drive_docs_tool_router, vis = "pub")]
-impl OmniDevServer {
+impl GwiServer {
     /// Tool: show a document's title, revision id and structural outline.
     #[tool(
         description = "Show a document's title, revision id and structural outline: named \
@@ -96,18 +96,20 @@ impl OmniDevServer {
                        underneath it is refused rather than misapplied; it is absent when the \
                        caller lacks edit access. Use `drive_docs_read` for the full element list \
                        with every index. \
-                       Read-only. Mirrors `omni-dev drive docs info`. Output is YAML."
+                       Read-only. Mirrors `gwi drive docs info`. Output is YAML."
     )]
     pub async fn drive_docs_info(
         &self,
         Parameters(params): Parameters<DriveDocsInfoParams>,
     ) -> Result<CallToolResult, McpError> {
         let client = create_client_for(params.account.as_deref()).map_err(tool_error)?;
+        // patchcov: coverage ignore reason="handler glue after create_client_for: the OAuth token endpoint is not overridable, so no in-process test can get a client to this line; the run_* function it calls is covered against wiremock"
         let docs = DocsClient::from_drive_client(&client).map_err(tool_error)?;
         let yaml = run_docs_info(&client, &docs, &params)
             .await
             .map_err(tool_error)?;
         Ok(build_truncated_result(yaml))
+        // patchcov: coverage end
     }
 
     /// Tool: read a document's structural elements with their index ranges.
@@ -125,13 +127,14 @@ impl OmniDevServer {
                        document. \
                        Read-only — no write gate, lease or dry-run applies (unlike `docs \
                        replace`/`append`, exposed by separate gated write tools). \
-                       Mirrors `omni-dev drive docs read`. Output is YAML."
+                       Mirrors `gwi drive docs read`. Output is YAML."
     )]
     pub async fn drive_docs_read(
         &self,
         Parameters(params): Parameters<DriveDocsReadParams>,
     ) -> Result<CallToolResult, McpError> {
         let client = create_client_for(params.account.as_deref()).map_err(tool_error)?;
+        // patchcov: coverage ignore reason="handler glue after create_client_for: the OAuth token endpoint is not overridable, so no in-process test can get a client to this line; the run_* function it calls is covered against wiremock"
         let docs = DocsClient::from_drive_client(&client).map_err(tool_error)?;
         let wrote_to_file = params.output_file.is_some();
         let text = run_docs_read(&client, &docs, &params)
@@ -141,6 +144,7 @@ impl OmniDevServer {
             Ok(CallToolResult::success(vec![Content::text(text)]))
         } else {
             Ok(build_truncated_result(text))
+            // patchcov: coverage end
         }
     }
 }
@@ -570,7 +574,7 @@ mod tests {
         let guard = EnvGuard::take();
         let _dir = guard.clear_credentials();
 
-        let server = OmniDevServer::new();
+        let server = GwiServer::new();
         let err = server
             .drive_docs_info(Parameters(DriveDocsInfoParams {
                 document_id: "d1".to_string(),
@@ -586,7 +590,7 @@ mod tests {
         let guard = EnvGuard::take();
         let _dir = guard.clear_credentials();
 
-        let server = OmniDevServer::new();
+        let server = GwiServer::new();
         let err = server
             .drive_docs_read(Parameters(read_params(None)))
             .await

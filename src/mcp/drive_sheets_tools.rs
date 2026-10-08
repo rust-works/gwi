@@ -29,9 +29,9 @@ use crate::drive::sheets::read::{read, ReadOptions};
 use crate::mcp::drive_tools::account_param_doc;
 
 use super::error::tool_error;
-use super::git_tools::build_truncated_result;
 use super::output_file;
-use super::server::OmniDevServer;
+use super::server::GwiServer;
+use super::truncate::build_truncated_result;
 
 // ── Parameter structs ───────────────────────────────────────────────
 
@@ -80,7 +80,7 @@ pub struct DriveSheetsReadParams {
 
 #[allow(missing_docs)] // #[tool_router] generates a pub `drive_sheets_tool_router` fn.
 #[tool_router(router = drive_sheets_tool_router, vis = "pub")]
-impl OmniDevServer {
+impl GwiServer {
     /// Tool: show a spreadsheet's title and the sheets (tabs) it contains.
     #[tool(
         description = "Show a spreadsheet's title and the sheets (tabs) it contains — dimensions \
@@ -88,18 +88,20 @@ impl OmniDevServer {
                        call requests a fields mask that excludes cell values, so this stays cheap \
                        regardless of workbook size). Use `drive_sheets_read` for actual cell \
                        values. \
-                       Read-only. Mirrors `omni-dev drive sheets info`. Output is YAML."
+                       Read-only. Mirrors `gwi drive sheets info`. Output is YAML."
     )]
     pub async fn drive_sheets_info(
         &self,
         Parameters(params): Parameters<DriveSheetsInfoParams>,
     ) -> Result<CallToolResult, McpError> {
         let client = create_client_for(params.account.as_deref()).map_err(tool_error)?;
+        // patchcov: coverage ignore reason="handler glue after create_client_for: the OAuth token endpoint is not overridable, so no in-process test can get a client to this line; the run_* function it calls is covered against wiremock"
         let sheets = SheetsClient::from_drive_client(&client).map_err(tool_error)?;
         let yaml = run_sheets_info(&sheets, &params)
             .await
             .map_err(tool_error)?;
         Ok(build_truncated_result(yaml))
+        // patchcov: coverage end
     }
 
     /// Tool: read cell values from a spreadsheet.
@@ -116,13 +118,14 @@ impl OmniDevServer {
                        whole-workbook read. \
                        Read-only — no write gate or dry-run applies (unlike `sheets \
                        write`/`append`/`clear`, whose MCP handlers live in `drive_write_tools`). \
-                       Mirrors `omni-dev drive sheets read`. Output is YAML."
+                       Mirrors `gwi drive sheets read`. Output is YAML."
     )]
     pub async fn drive_sheets_read(
         &self,
         Parameters(params): Parameters<DriveSheetsReadParams>,
     ) -> Result<CallToolResult, McpError> {
         let client = create_client_for(params.account.as_deref()).map_err(tool_error)?;
+        // patchcov: coverage ignore reason="handler glue after create_client_for: the OAuth token endpoint is not overridable, so no in-process test can get a client to this line; the run_* function it calls is covered against wiremock"
         let sheets = SheetsClient::from_drive_client(&client).map_err(tool_error)?;
         let wrote_to_file = params.output_file.is_some();
         let text = run_sheets_read(&sheets, &params)
@@ -132,6 +135,7 @@ impl OmniDevServer {
             Ok(CallToolResult::success(vec![Content::text(text)]))
         } else {
             Ok(build_truncated_result(text))
+            // patchcov: coverage end
         }
     }
 }
@@ -428,7 +432,7 @@ mod tests {
         let guard = EnvGuard::take();
         let _dir = guard.clear_credentials();
 
-        let server = OmniDevServer::new();
+        let server = GwiServer::new();
         let err = server
             .drive_sheets_info(Parameters(DriveSheetsInfoParams {
                 spreadsheet_id: "s1".to_string(),
@@ -444,7 +448,7 @@ mod tests {
         let guard = EnvGuard::take();
         let _dir = guard.clear_credentials();
 
-        let server = OmniDevServer::new();
+        let server = GwiServer::new();
         let err = server
             .drive_sheets_read(Parameters(read_params(Some("A1"), None)))
             .await

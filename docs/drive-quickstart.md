@@ -137,8 +137,8 @@ handling — is in [drive.md#read](drive.md#read).
 - **Multiple accounts** — a second Drive account (personal + work, say)
   doesn't need a second `--profile`: see
   [drive.md#multiple-accounts](drive.md#multiple-accounts).
-- **MCP tools** — planned but not yet available; tracked by
-  [issue #1525](https://github.com/rust-works/omni-dev/issues/1525).
+- **MCP tools** — `gwi-mcp` serves 15 `drive_*` tools; see the
+  [MCP server](../README.md#mcp-server) section of the README.
 
 ## Troubleshooting quick links
 
