@@ -1441,7 +1441,7 @@ pub struct DriveMutationOutcome {
     /// `None` for every non-validation verb.
     pub validation_type: Option<String>,
     /// The stable numeric id of a protected range a protection verb acted
-    /// on (issue #1643, [ADR-0077](../docs/adrs/adr-0077.md)). Set by
+    /// on (issue #1643, [ADR-0077](../docs/adrs/adr-0077-sheets-deletion-via-batchupdate.md)). Set by
     /// `protect-range` from the `addProtectedRange` reply (the id is
     /// server-assigned, like [`Self::sheet_id`] for `add-sheet`) and by
     /// `update-protection`/`unprotect-range` from the range they resolved

@@ -37,7 +37,7 @@
 //! - **Typed verbs, no raw request passthrough.** Every verb builds its own
 //!   [`BatchUpdateRequestItem`], so the gate and `--dry-run` can describe the
 //!   exact effect. There is no `--requests file.json` and deliberately no
-//!   escape hatch, following [ADR-0061](../../../docs/adrs/adr-0061.md)'s
+//!   escape hatch, following [ADR-0061](https://github.com/rust-works/omni-dev/blob/main/docs/adrs/adr-0061.md)'s
 //!   handling of force-push: the dangerous form must be unreachable, not
 //!   merely discouraged. This still holds for the destructive verbs added by
 //!   ADR-0077 — they gained typed variants, not a passthrough.

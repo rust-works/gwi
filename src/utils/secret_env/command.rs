@@ -1,5 +1,5 @@
 //! Running a `<NAME>_COMMAND` secret helper (issue #2011,
-//! [ADR-0090](../../../docs/adrs/adr-0090.md)).
+//! [ADR-0090](https://github.com/rust-works/omni-dev/blob/main/docs/adrs/adr-0090.md)).
 //!
 //! A `<NAME>_COMMAND` value names a program whose standard output is the
 //! secret, in the style of git credential helpers and AWS `credential_process`.

@@ -1,5 +1,5 @@
 //! Data validation via `spreadsheets.batchUpdate` (issue #1643,
-//! [ADR-0077](../../../docs/adrs/adr-0077.md)).
+//! [ADR-0077](../../../docs/adrs/adr-0077-sheets-deletion-via-batchupdate.md)).
 //!
 //! Two verbs, gated by [`DriveOperation::SheetsStructure`] — neither
 //! destroys data. `clear-data-validation` removes a constraint, not a

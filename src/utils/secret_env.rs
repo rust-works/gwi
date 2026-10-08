@@ -1,8 +1,8 @@
 //! The one resolver for secret environment variables and their companions.
 //!
 //! Covers `_FILE` and `_COMMAND` (issues #2006 and #2011,
-//! [ADR-0089](../../docs/adrs/adr-0089.md),
-//! [ADR-0090](../../docs/adrs/adr-0090.md),
+//! [ADR-0089](https://github.com/rust-works/omni-dev/blob/main/docs/adrs/adr-0089.md),
+//! [ADR-0090](https://github.com/rust-works/omni-dev/blob/main/docs/adrs/adr-0090.md),
 //! [STYLE-0030](../../docs/STYLE_GUIDE.md)).
 //!
 //! Every secret gwi reads from the environment (or the settings.json
