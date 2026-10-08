@@ -139,7 +139,8 @@ fn lock_source(source: &Path, max_wait: Duration) -> Result<(Option<FileLock>, O
 ///
 /// A missing source is not an error: most omni-dev users never leased a Drive write.
 /// Returns an error when the source is unusable, or when conflicts were left unresolved
-/// (after importing everything that could be imported safely).
+/// (after importing everything that could be imported safely). A dry run reports its
+/// conflicts but does not fail on them: they are part of the preview.
 pub(super) fn run_ledger_import(
     source: &Path,
     target: &Path,
@@ -260,7 +261,9 @@ fn run_ledger_import_waiting(
     if !dry_run && count(Status::Added) + count(Status::Overwritten) > 0 {
         target_ledger.save(target)?;
     }
-    if conflicts > 0 {
+    if conflicts > 0 && dry_run {
+        writeln!(out, "{}", super::DRY_RUN_CONFLICT_NOTE)?;
+    } else if conflicts > 0 {
         return Err(anyhow!(
             "{conflicts} lease(s) were not imported because gwi already has a different row for \
              the token; re-run with --force to overwrite them"
@@ -401,6 +404,27 @@ mod tests {
         let merged = LeaseLedger::load(&target).unwrap();
         assert_eq!(merged.get("live"), Some(&changed), "gwi's row must survive");
         assert!(merged.get("expired").is_some() && merged.get("released").is_some());
+    }
+
+    #[test]
+    fn a_dry_run_reports_a_conflict_without_failing() {
+        let (_dir, source, target) = setup();
+        let mut changed = record("live", 10);
+        changed.version = "9".to_string();
+        ledger_of(vec![changed]).save(&target).unwrap();
+        let before = std::fs::read(&target).unwrap();
+
+        let (result, report) = import(&source, &target, true, false);
+
+        result.unwrap();
+        assert!(report.contains("conflict    lease live"), "{report}");
+        assert!(report.contains("1 conflict(s)."), "{report}");
+        assert!(
+            report.contains(super::super::DRY_RUN_CONFLICT_NOTE),
+            "{report}"
+        );
+        assert_eq!(std::fs::read(&target).unwrap(), before);
+        assert!(import(&source, &target, false, false).0.is_err());
     }
 
     #[test]

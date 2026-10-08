@@ -48,6 +48,11 @@ const RENAMED_ENV_PREFIXES: &[(&str, &str)] = &[
     ("OMNI_DEV_DRIVE_", "GWI_DRIVE_"),
 ];
 
+/// Printed after a dry run's summary when it found conflicts, since it still exits 0.
+const DRY_RUN_CONFLICT_NOTE: &str =
+    "Conflicts are part of the preview, so this dry run succeeds; a real run would exit 1 \
+     and leave them alone unless --force is given.";
+
 /// Import Google Workspace settings and the Drive lease ledger from omni-dev.
 #[derive(Parser)]
 pub struct ImportCommand {
@@ -65,6 +70,9 @@ pub struct ImportCommand {
     pub source_ledger: Option<PathBuf>,
 
     /// Show what would be imported and write nothing.
+    ///
+    /// Conflicts are reported as part of the preview and do not make a dry run fail: it
+    /// exits 0 unless the source cannot be read. A real run exits 1 on a conflict.
     #[arg(long)]
     pub dry_run: bool,
 
@@ -80,6 +88,7 @@ impl ImportCommand {
     ///
     /// The settings and the ledger are independent: once the paths are resolved both
     /// always run, and the command fails if either one reports a conflict or an error.
+    /// A dry run fails only on an error: its conflicts are part of the preview.
     pub fn execute(self) -> Result<()> {
         let source = match self.source {
             Some(path) => path,
@@ -393,7 +402,8 @@ fn reference_warnings(item: &Item, source_dir: Option<&Path>) -> Vec<String> {
 /// Imports from `source` into `target`, writing the report to `out`.
 ///
 /// Returns an error when the source is unusable, or when conflicts were left
-/// unresolved (after importing everything that could be imported safely).
+/// unresolved (after importing everything that could be imported safely). A dry run
+/// reports its conflicts but does not fail on them: they are part of the preview.
 fn run_import(
     source: &Path,
     target: &Path,
@@ -461,7 +471,9 @@ fn run_import(
     if !dry_run && merged.changed() {
         write_settings_value(target, &merged.value)?;
     }
-    if conflicts > 0 {
+    if conflicts > 0 && dry_run {
+        writeln!(out, "{DRY_RUN_CONFLICT_NOTE}")?;
+    } else if conflicts > 0 {
         return Err(anyhow!(
             "{conflicts} item(s) were not imported because gwi already has a different value; \
              re-run with --force to overwrite them"
@@ -700,6 +712,25 @@ mod tests {
             "different"
         );
         assert_eq!(written["drive"]["accounts"]["work"]["client_id"], "id");
+    }
+
+    #[test]
+    fn a_dry_run_reports_a_conflict_without_failing() {
+        let (_dir, source, target) = setup();
+        let conflicting = json!({"gmail": {"accounts": {"work": {"client_id": "different"}}}});
+        write_json(&target, &conflicting);
+
+        let (result, report) = import(&source, &target, true, false);
+
+        result.unwrap();
+        assert!(
+            report.contains("conflict    gmail.accounts.work"),
+            "{report}"
+        );
+        assert!(report.contains("1 conflict(s)."), "{report}");
+        assert!(report.contains(DRY_RUN_CONFLICT_NOTE), "{report}");
+        assert_eq!(read_json(&target), conflicting, "a dry run writes nothing");
+        assert!(import(&source, &target, false, false).0.is_err());
     }
 
     #[test]
