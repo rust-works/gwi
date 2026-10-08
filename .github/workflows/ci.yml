@@ -63,6 +63,12 @@ jobs:
     - uses: dtolnay/rust-toolchain@stable
     - uses: Swatinem/rust-cache@v2
     - run: cargo build --release --features mcp
+    # Compile (and link) the tests without running them, so a test that does not build on
+    # Windows (a `std::os::unix` import, a helper defined only under `cfg(unix)`) turns CI red
+    # (#60). They are not run: many exercise Unix behaviour and are `cfg(unix)`-gated; see
+    # "Tests on Windows" in CONTRIBUTING.md. Two steps, as in `Test`, to cover both feature sets.
+    - run: cargo test --no-run --verbose
+    - run: cargo test --no-run --features mcp --verbose
 
   fmt:
     name: Rustfmt
