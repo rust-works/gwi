@@ -1397,18 +1397,11 @@ mod tests {
         assert!(!f.matches(&rec, "{}"));
         let warnings = f.unknown_field_warnings(false);
         assert_eq!(warnings.len(), 1, "{warnings:?}");
-        assert!(warnings[0].contains("`servce`"), "{}", warnings[0]);
-        assert!(
-            warnings[0].contains("Did you mean `service`?"),
-            "{}",
-            warnings[0]
-        );
-        assert!(
-            warnings[0].contains("the 1 record scanned"),
-            "{}",
-            warnings[0]
-        );
-        assert!(warnings[0].contains("\"servce:drive\""), "{}", warnings[0]);
+        let w = &warnings[0];
+        assert!(w.contains("`servce`"), "{w}");
+        assert!(w.contains("Did you mean `service`?"), "{w}");
+        assert!(w.contains("the 1 record scanned"), "{w}");
+        assert!(w.contains("\"servce:drive\""), "{w}");
     }
 
     #[test]
