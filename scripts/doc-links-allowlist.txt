@@ -1,0 +1,24 @@
+# Dead documentation links known today, one `<file>: <link as written>` per line, which
+# scripts/check_doc_links.py tolerates. All are omni-dev links in files seeded from omni-dev
+# that the pruning issue (#54) removes. Remove an entry when its link goes: an entry that
+# matches no dead link fails the check, so this list can only shrink. Do not add to it; fix
+# the link instead.
+CODE_OF_CONDUCT.md: docs/DEVELOPER_GUIDE.md
+CODE_OF_CONDUCT.md: docs/USER_GUIDE.md
+docs/STYLE_GUIDE.md: ../.claude/hooks/check-commit-messages.sh
+docs/STYLE_GUIDE.md: ../.claude/skills/update-snapshots/SKILL.md
+docs/STYLE_GUIDE.md: ../src/claude/prompts.rs
+docs/STYLE_GUIDE.md: ../src/cli/atlassian/helpers.rs
+docs/STYLE_GUIDE.md: ../src/cli/atlassian/jira/link.rs
+docs/STYLE_GUIDE.md: ../src/datadog/client.rs
+docs/STYLE_GUIDE.md: ../src/mcp/git_tools.rs
+docs/STYLE_GUIDE.md: ../src/mcp/jira_tools.rs
+docs/STYLE_GUIDE.md: ../src/mcp/resources.rs
+docs/STYLE_GUIDE.md: ../tests/commit_guidelines_scopes_test.rs
+docs/STYLE_GUIDE.md: ../tests/integration_test.rs
+docs/STYLE_GUIDE.md: ../tests/mcp_integration_test.rs
+docs/STYLE_GUIDE.md: adrs/adr-0089.md
+docs/STYLE_GUIDE.md: adrs/adr-0090.md
+docs/STYLE_GUIDE.md: mcp.md
+docs/STYLE_GUIDE.md: omni-dev-directory.md#commit-guidelinesmd
+docs/STYLE_GUIDE.md: secret-commands.md
