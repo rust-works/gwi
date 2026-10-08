@@ -1,6 +1,10 @@
 # Drive Integration
 
-omni-dev exposes access to the Google Drive v3 API through the `omni-dev
+> Issue numbers such as `#1643` and `#2008` in this document are
+> [omni-dev](https://github.com/rust-works/omni-dev/issues) issues, where the Drive code was
+> written; gwi's own issues are linked with `rust-works/gwi`.
+
+gwi exposes access to the Google Drive v3 API through the `gwi
 drive` command tree — search, read a file's metadata or content, find
 duplicates, rename a file, move it between folders, and create/upload/edit
 file content, trash individual files, and restore them. `drive.readonly`
@@ -24,23 +28,24 @@ visibility **by default**; three independent `--allow-*` flags opt in. See
 **Create/upload/edit/trash/untrash are gated by a second, independent, local
 permission system.** Google's OAuth scopes are all-or-nothing across your
 *entire* Drive — there's no way to grant "write access to just this
-folder." `write_permissions` rules in `settings.json` are omni-dev's own
+folder." `write_permissions` rules in `settings.json` are gwi's own
 policy layer filling that gap: read defaults open, every write defaults
 **refused everywhere** until a rule explicitly grants it for that folder.
 Both the OAuth scope and the local gate must allow an operation — neither
 alone is sufficient. See [Write permissions](#write-permissions) and
 [ADR-0071](adrs/adr-0071.md) for the full design.
 
-The [MCP tool surface](mcp.md#drive-15-tools) includes file, Docs and Sheets
-reads, Docs replace/append, Sheets write/append/clear, and `drive_lease_acquire`.
-The content write tools use the same operator rules, leases, freshness checks
+`gwi-mcp` serves the Drive tools; see the [MCP section of the README](../README.md#mcp-server)
+for the server. The 15 tools are file, Docs and Sheets reads, Docs replace/append, Sheets
+write/append/clear, and `drive_lease_acquire`. The content write tools use the same operator rules, leases, freshness checks
 and audit paths as the CLI. Per-call `account` selects credentials, rules and
 native backup folder together. Preview first (`dry_run: true`), acquire a backup
 lease through the device-owner prompt, then supply the token to the write.
 Operator headless/biometrics policy applies unchanged; no tool can set it.
 Plain Drive writes, Docs/Sheets create and typed structure/format/delete/protection
-operations, and lease restore/release/prune remain CLI-only. The MCP reference
-explains refusal statuses, stale-lease renewal and token recovery after a timeout.
+operations, and lease restore/release/prune remain CLI-only. Refusal statuses, stale-lease
+renewal and token recovery after a timeout are explained in omni-dev's
+[MCP reference](https://github.com/rust-works/omni-dev/blob/main/docs/mcp.md#drive-15-tools).
 
 New to this integration? Follow the
 [Drive Quickstart](drive-quickstart.md) for a linear, zero-to-first-search
@@ -67,15 +72,17 @@ walkthrough — this page is the topic-by-topic reference.
 17. [Sheets](#sheets)
 18. [Docs](#docs)
 19. [Slides](#slides)
-20. [Rate limits and retry behaviour](#rate-limits-and-retry-behaviour)
-21. [Troubleshooting](#troubleshooting)
-22. [See also](#see-also)
+20. [Request and audit logs](#request-and-audit-logs)
+21. [Rate limits and retry behaviour](#rate-limits-and-retry-behaviour)
+22. [Troubleshooting](#troubleshooting)
+23. [Coming from omni-dev](#coming-from-omni-dev)
+24. [See also](#see-also)
 
 ## Prerequisites
 
 `drive.readonly` is a Google **restricted scope** — an application
 distributed to third parties that requests it must pass a Google CASA
-security assessment with annual recertification. omni-dev doesn't carry
+security assessment with annual recertification. gwi doesn't carry
 that burden, so **each user creates their own Google Cloud OAuth2 client**
 — the same model as [Gmail](gmail.md#prerequisites):
 
@@ -94,7 +101,7 @@ that burden, so **each user creates their own Google Cloud OAuth2 client**
 
 **Prominent callout:** a freshly created OAuth2 client's consent screen
 defaults to **Testing** publishing status. In that status, Google expires
-issued refresh tokens after **7 days**, so `omni-dev drive auth login` will
+issued refresh tokens after **7 days**, so `gwi drive auth login` will
 need to be re-run weekly until you push the project to **In production**
 (no Google verification review is required below 100 test users for a
 self-scoped read-only request). See [Troubleshooting](#invalid_grant) for
@@ -118,7 +125,7 @@ A second, Drive-only OAuth2 client/consent screen is perfectly fine — the
 [Multiple accounts](#multiple-accounts) and [ADR-0069](adrs/adr-0069.md)).
 Reusing the *same* Google Cloud project with both the Gmail and Drive APIs
 enabled on one OAuth client is equally valid. It's your choice either way —
-omni-dev doesn't impose either shape.
+gwi doesn't impose either shape.
 
 [Google Cloud console]: https://console.cloud.google.com/
 
@@ -137,7 +144,7 @@ omni-dev doesn't impose either shape.
 Unlike Gmail, there is **no `drive auth import`** — no
 `client_secret.json`-import path exists for Drive. `DRIVE_CLIENT_ID`/
 `DRIVE_CLIENT_SECRET` can only reach `drive auth login` two ways: set them
-by hand (in your shell profile, or in `~/.omni-dev/settings.json`'s `env`
+by hand (in your shell profile, or in `~/.gwi/settings.json`'s `env`
 map), or leave them unset and `drive auth login` prompts for them
 interactively — the client id echoes normally, the secret does not.
 
@@ -145,44 +152,44 @@ interactively — the client id echoes normally, the secret does not.
 companions (`DRIVE_CLIENT_SECRET_FILE`, `DRIVE_REFRESH_TOKEN_FILE`) naming
 an absolute path to a file holding the secret, instead of the value itself —
 the Docker/Kubernetes secrets convention. The file must be a regular file that is either yours and owner-only (`chmod 600`), or owned by root and not writable by others (the shape Kubernetes and Docker secrets take), and setting both `NAME`
-and `NAME_FILE` in the same place (both exported, or both in the same settings.json map) is an error. See [ADR-0089](adrs/adr-0089.md).
+and `NAME_FILE` in the same place (both exported, or both in the same settings.json map) is an error. See [omni-dev ADR-0089](https://github.com/rust-works/omni-dev/blob/main/docs/adrs/adr-0089.md).
 Unlike Gmail, there is no other meaning for `DRIVE_CLIENT_SECRET_FILE` to
 collide with.
 
 Both also accept a `_COMMAND` companion that fetches the secret on demand from
-a password manager or keychain; see [secret-commands.md](secret-commands.md).
+a password manager or keychain; see [secret-commands.md](https://github.com/rust-works/omni-dev/blob/main/docs/secret-commands.md).
 `drive auth login` refuses, before opening a browser, when the map it would write
 to holds one for the secret it would replace.
 
 ### Interactive setup
 
 ```bash
-$ omni-dev drive auth login
+$ gwi drive auth login
 DRIVE_CLIENT_ID is not set. Create an OAuth2 client id in Google Cloud Console (see docs/adrs/adr-0069.md) and set DRIVE_CLIENT_ID, or paste it here.
 Client id: 123456789-abc.apps.googleusercontent.com
 Client secret: 
 
-Credentials saved to ~/.omni-dev/settings.json
+Credentials saved to ~/.gwi/settings.json
   Granted scope: https://www.googleapis.com/auth/drive.readonly
 
-Run `omni-dev drive auth status` to verify.
+Run `gwi drive auth status` to verify.
 ```
 
 This opens a browser to Google's consent screen via a loopback OAuth2
 authorization-code + PKCE flow (see [ADR-0063](adrs/adr-0063.md), inherited
 unchanged by [ADR-0069](adrs/adr-0069.md)); once you approve, the refresh
-token is written to `~/.omni-dev/settings.json`. By default this requests
+token is written to `~/.gwi/settings.json`. By default this requests
 only `drive.readonly`. Three independent flags request more, combinable
 freely in one call:
 
-| Flag           | Scope requested        | Needed for                                                                                           |
-|----------------|------------------------|------------------------------------------------------------------------------------------------------|
-| `--write`      | `drive.metadata`       | `drive rename`/`drive move`                                                                          |
-| `--write-file` | `drive.file`           | `drive create`/`drive upload`, and `drive edit` on files `omni-dev` itself created                   |
-| `--write-full` | `drive` (unrestricted) | `drive edit` on any pre-existing file — the largest privilege grant this integration ever requests   |
+| Flag           | Scope requested        | Needed for                                                                                         |
+|----------------|------------------------|----------------------------------------------------------------------------------------------------|
+| `--write`      | `drive.metadata`       | `drive rename`/`drive move`                                                                        |
+| `--write-file` | `drive.file`           | `drive create`/`drive upload`, and `drive edit` on files `gwi` itself created                      |
+| `--write-full` | `drive` (unrestricted) | `drive edit` on any pre-existing file — the largest privilege grant this integration ever requests |
 
 ```bash
-$ omni-dev drive auth login --write --write-file --write-full
+$ gwi drive auth login --write --write-file --write-full
 ```
 
 Every flag requests its scope *alongside* `drive.readonly`, never as a
@@ -194,7 +201,7 @@ any time to upgrade an existing login — Google's `prompt=consent` re-issues
 a fresh refresh token with the broader grant.
 
 `--write-file` alone cannot edit a file that already existed in your Drive
-before `omni-dev` touched it — Google restricts `drive.file` to files this
+before `gwi` touched it — Google restricts `drive.file` to files this
 app itself created via that scope. `drive edit` on any pre-existing file
 needs `--write-full`, the only scope that can. Requesting `--write-full` is
 a significant privilege escalation (unrestricted read/write over your
@@ -204,7 +211,7 @@ what bounds it to specific folders in practice.
 ### Verifying credentials
 
 ```bash
-$ omni-dev drive auth status
+$ gwi drive auth status
 Checking Drive authentication...
 Authenticated as: user@example.com
 Granted scope: drive.readonly
@@ -220,7 +227,7 @@ Pass `--all` to report every configured named account (see
 resolved one:
 
 ```bash
-$ omni-dev drive auth status --all
+$ gwi drive auth status --all
 
 == work ==
 Checking Drive authentication...
@@ -243,8 +250,8 @@ previous check backfilled it, is never overwritten.
 ### Removing credentials
 
 ```bash
-$ omni-dev drive auth logout
-Drive credentials removed from ~/.omni-dev/settings.json
+$ gwi drive auth logout
+Drive credentials removed from ~/.gwi/settings.json
 ```
 
 Idempotent: if no credentials are configured, it prints
@@ -254,18 +261,18 @@ pass `--account NAME` to target a specific named account.
 
 ## Multiple accounts
 
-`--profile` (see [Prerequisites](#prerequisites) and
-[ADR-0045](adrs/adr-0045.md)) selects a whole credential bundle — Atlassian,
-Datadog, the Claude API key, Gmail, *and* Drive all at once. That's the
+`--profile` (the top-level flag; see
+[omni-dev ADR-0045](https://github.com/rust-works/omni-dev/blob/main/docs/adrs/adr-0045.md)) selects a whole credential bundle — Gmail
+*and* Drive all at once. That's the
 wrong tool for "I just want a second Drive account while everything else
 about my environment stays the same," so Drive accounts are a second,
 independent axis: named entries in a `drive` block of
-`~/.omni-dev/settings.json`, selected per invocation via an `--account
-NAME` flag or the `OMNI_DEV_DRIVE_ACCOUNT` environment variable (AWS-CLI
+`~/.gwi/settings.json`, selected per invocation via an `--account
+NAME` flag or the `GWI_DRIVE_ACCOUNT` environment variable (AWS-CLI
 style, mirroring `--profile`). `--account` is scoped to the `drive`
 command tree — usable after the `drive` subcommand name, but not before it,
 since it isn't a CLI-wide flag (this also keeps it from colliding with
-Snowflake's own unrelated `snowflake ... --account`). See
+another subcommand's own `--account`, such as `gwi gmail`'s). See
 [ADR-0069](adrs/adr-0069.md) for the full design rationale, and
 [ADR-0066](adrs/adr-0066.md) for the Gmail precedent it applies unchanged.
 
@@ -281,7 +288,7 @@ Create a second (or subsequent) account the same way you configured the
 first, adding `--account NAME`:
 
 ```bash
-$ omni-dev drive auth login --account personal
+$ gwi drive auth login --account personal
 ```
 
 `--account` need not already exist — `auth login` is how an account comes
@@ -293,18 +300,18 @@ parameter.
 ### Managing accounts
 
 ```bash
-$ omni-dev drive account list
+$ gwi drive account list
 NAME      EMAIL              SCOPE                                              DEFAULT
 personal  alice@gmail.com    https://www.googleapis.com/auth/drive.readonly
 work      alice@work.com     https://www.googleapis.com/auth/drive.readonly     *
 
-$ omni-dev drive account set-default work
+$ gwi drive account set-default work
 Default Drive account set to 'work'.
 ```
 
 `drive account list` reads only `settings.json` — no network call, no
 secret ever rendered. With no accounts configured, it prints
-`No named Drive accounts configured. Run \`omni-dev drive auth login
+`No named Drive accounts configured. Run \`gwi drive auth login
 --account <name>\` to create one.`
 
 ### Resolution order
@@ -315,7 +322,7 @@ When a command runs, the account it uses is resolved in this order:
    set directly in the process environment bypasses account resolution
    entirely — a scripting/CI convenience, not a migration path (there's
    nothing to migrate).
-2. `--account NAME` / `OMNI_DEV_DRIVE_ACCOUNT`, if set, selects that named
+2. `--account NAME` / `GWI_DRIVE_ACCOUNT`, if set, selects that named
    account. An unknown name is a hard error listing the accounts that
    *are* configured — never a silent fallback to the wrong account.
 3. No explicit account, with one or more named accounts configured: the
@@ -347,7 +354,7 @@ secret ([#2008](https://github.com/rust-works/omni-dev/issues/2008)):
 ```
 
 The file rules are the ones `DRIVE_REFRESH_TOKEN_FILE` uses
-([ADR-0089](adrs/adr-0089.md)). The path must be absolute. The file must be
+([omni-dev ADR-0089](https://github.com/rust-works/omni-dev/blob/main/docs/adrs/adr-0089.md)). The path must be absolute. The file must be
 a regular file, and either yours and owner-only (`chmod 600`) or owned by
 root and not writable by others. One trailing newline is ignored. Setting a
 field and its `_file` on the same account is an error that names both keys.
@@ -440,7 +447,7 @@ Every subcommand that renders a list or record (`search`, `read`, `dedupe`,
 `rename`, `move`, `create`, `upload`, `edit`, `account list`,
 `permissions show`/`check`, `sheets info`, `sheets read`) accepts
 `-o <format>` (`table` / `json` / `yaml` / `yamls` / `jsonl`, default `table`) — the same convention as every
-other `omni-dev` domain (see [ADR-0046](adrs/adr-0046.md)). `auth login`/
+other domain gwi inherited from omni-dev (see [omni-dev ADR-0046](https://github.com/rust-works/omni-dev/blob/main/docs/adrs/adr-0046.md)). `auth login`/
 `auth logout`/`auth status`/`account set-default` print a fixed
 human-readable status line instead and have no `-o` flag. `--out-file`
 exists only on `drive read --content` — metadata always renders via
@@ -451,12 +458,12 @@ renders CSV for it, since a grid of cells is what a spreadsheet range *is*
 ## Search
 
 ```bash
-$ omni-dev drive search "name contains 'report'"
-$ omni-dev drive search "mimeType = 'application/vnd.google-apps.folder'" --limit 20
-$ omni-dev drive search "'1AbCdEfGhIjKlMnOpQrStUvWxYz' in parents"
+$ gwi drive search "name contains 'report'"
+$ gwi drive search "mimeType = 'application/vnd.google-apps.folder'" --limit 20
+$ gwi drive search "'1AbCdEfGhIjKlMnOpQrStUvWxYz' in parents"
 ```
 
-The query is passed **verbatim** to `files.list`'s `q` parameter — omni-dev
+The query is passed **verbatim** to `files.list`'s `q` parameter — gwi
 does not reinterpret it. It's [Drive's own query language], not Gmail's
 search syntax: `name contains 'report'`, `'<folder-id>' in parents`
 (browsing a folder's contents is just a query, not a separate subcommand),
@@ -478,12 +485,12 @@ no flag to control this because there's no reason to turn it off.
 ## Read
 
 ```bash
-$ omni-dev drive read 1AbCdEfGhIjKlMnOpQrStUvWxYz
-$ omni-dev drive read 1AbCdEfGhIjKlMnOpQrStUvWxYz --content
-$ omni-dev drive read 1AbCdEfGhIjKlMnOpQrStUvWxYz --content --out-file report.pdf
-$ omni-dev drive read 1AbCdEfGhIjKlMnOpQrStUvWxYz --content --verify --out-file report.pdf
-$ omni-dev drive read <google-doc-id> --content
-$ omni-dev drive read <google-sheet-id> --content --export-mime-type text/csv
+$ gwi drive read 1AbCdEfGhIjKlMnOpQrStUvWxYz
+$ gwi drive read 1AbCdEfGhIjKlMnOpQrStUvWxYz --content
+$ gwi drive read 1AbCdEfGhIjKlMnOpQrStUvWxYz --content --out-file report.pdf
+$ gwi drive read 1AbCdEfGhIjKlMnOpQrStUvWxYz --content --verify --out-file report.pdf
+$ gwi drive read <google-doc-id> --content
+$ gwi drive read <google-sheet-id> --content --export-mime-type text/csv
 ```
 
 Without `--content`, `drive read` returns metadata only:
@@ -542,8 +549,8 @@ exporting first.
 ## Duplicate detection
 
 ```bash
-$ omni-dev drive dedupe "'1AbCdEfGhIjKlMnOpQrStUvWxYz' in parents"
-$ omni-dev drive dedupe "name contains 'invoice'" --limit 0 -o json
+$ gwi drive dedupe "'1AbCdEfGhIjKlMnOpQrStUvWxYz' in parents"
+$ gwi drive dedupe "name contains 'invoice'" --limit 0 -o json
 ```
 
 `drive dedupe` reuses the same bulk-search path as `drive search` —
@@ -565,10 +572,10 @@ choose `sha1Checksum`/`sha256Checksum` instead.
 ## Sync
 
 ```bash
-omni-dev drive sync FOLDER_ID --dest ./reference-docs
-omni-dev drive sync FOLDER_ID --dest ./reference-docs --dry-run -o json
-omni-dev drive sync FOLDER_ID --dest ./reference-docs --verify
-omni-dev drive sync FOLDER_ID --dest ./pdf-copies --export-mime-type application/pdf
+gwi drive sync FOLDER_ID --dest ./reference-docs
+gwi drive sync FOLDER_ID --dest ./reference-docs --dry-run -o json
+gwi drive sync FOLDER_ID --dest ./reference-docs --verify
+gwi drive sync FOLDER_ID --dest ./pdf-copies --export-mime-type application/pdf
 ```
 
 `sync` recursively mirrors one Drive folder's children into a local directory.
@@ -637,10 +644,10 @@ Query mode, pruning, concurrent downloads and an MCP sync tool are follow-ups.
 ## Rename
 
 ```bash
-$ omni-dev drive rename 1AbCdEfGhIjKlMnOpQrStUvWxYz "Q3 Report (final)"
+$ gwi drive rename 1AbCdEfGhIjKlMnOpQrStUvWxYz "Q3 Report (final)"
 Renamed: Q3 Report -> Q3 Report (final) (1AbCdEfGhIjKlMnOpQrStUvWxYz)
 
-$ omni-dev drive rename 1AbCdEfGhIjKlMnOpQrStUvWxYz "Q3 Report (final)" --dry-run
+$ gwi drive rename 1AbCdEfGhIjKlMnOpQrStUvWxYz "Q3 Report (final)" --dry-run
 Would rename: Q3 Report -> Q3 Report (final) (1AbCdEfGhIjKlMnOpQrStUvWxYz)
 ```
 
@@ -670,11 +677,11 @@ it, the rename fails with an actionable hint:
 
 ```
 Error: Drive API request failed: HTTP 403: Insufficient Permission (reason: insufficientPermissions)
-  Run `omni-dev drive auth login --write` to grant the drive.metadata scope needed for rename/move
+  Run `gwi drive auth login --write` to grant the drive.metadata scope needed for rename/move
 ```
 
 Every rename attempt — success or failure — is written to the
-[request log](log.md) as a `kind: "drivemutation"` record, tagged
+[request log](#request-and-audit-logs) as a `kind: "drivemutation"` record, tagged
 `service: "drive"`, carrying the file id, name, and outcome status. This is
 a hard invariant, not a best-effort convenience: logging happens inside the
 rename engine itself, not the CLI layer, so it holds for every current and
@@ -683,11 +690,11 @@ future caller.
 ## Move
 
 ```bash
-$ omni-dev drive move 1AbCdEfGhIjKlMnOpQrStUvWxYz --to 1FolderIdGoesHere
+$ gwi drive move 1AbCdEfGhIjKlMnOpQrStUvWxYz --to 1FolderIdGoesHere
 STATUS NAME                           DETAIL
 moved  Q3 Report (final)
 
-$ omni-dev drive move 1AbCd... 1Efgh... --to 1FolderId --dry-run
+$ gwi drive move 1AbCd... 1Efgh... --to 1FolderId --dry-run
 STATUS     NAME                           DETAIL
 would-move Q3 Report (final)
 blocked    Confidential Salary Data       visibility increase (--allow-visibility-increase); adds user:external@partner.com
@@ -746,13 +753,13 @@ entry](#insufficientpermissions-on-rename-or-move) for the actionable hint
 on a 403.
 
 Every move attempt — moved, blocked, already-in-folder, or failed — is
-written to the [request log](log.md) as a `kind: "drivemutation"` record.
+written to the [request log](#request-and-audit-logs) as a `kind: "drivemutation"` record.
 A `blocked` record carries the specific `added_principals`/
 `removed_principals` that triggered it, so a refusal is fully auditable
 even though no API call was made:
 
 ```bash
-$ omni-dev log --query 'kind:drivemutation status:blocked'
+$ gwi log --query 'kind:drivemutation status:blocked'
 ```
 
 **Known limitation — shadowed grants.** Drive's API doesn't expose whether
@@ -774,7 +781,7 @@ write`/`append`/`clear`/`create`/`add-sheet`/`rename-sheet`/`insert-rows`/
 `insert-columns`/`insert-range`/`move-rows`/`move-columns` (below), need a much broader OAuth grant
 than rename/move — `--write-file`/`--write-full` — but Google's
 scopes are all-or-nothing across your whole Drive. There's no way to tell
-Google "only let this credential write inside folder X." So `omni-dev` adds
+Google "only let this credential write inside folder X." So `gwi` adds
 its own, independent, local policy layer on top: an allow/deny rule list
 in `settings.json` — scoped to a folder, or to a single file — evaluated
 **before** any mutating API call is attempted, regardless of what the OAuth
@@ -1021,7 +1028,7 @@ useful for authoring and debugging rules before relying on them.
 #### `drive permissions show`
 
 ```bash
-$ omni-dev drive permissions show
+$ gwi drive permissions show
 SCOPE   TARGET_ID                RECURSIVE  LEASE  ALLOW                DENY
 folder  1AbC...AiWorkspace       true       true   create,edit,upload   -
 folder  1XyZ...DropZone          false      false  create               -
@@ -1040,7 +1047,7 @@ explains that every write is refused everywhere and points at the
 #### `drive permissions lookup-folder`
 
 ```bash
-$ omni-dev drive permissions lookup-folder "Workspace"
+$ gwi drive permissions lookup-folder "Workspace"
 ID                    NAME       PATH
 1AbC...AiWorkspace     Workspace  My Drive/Team/Workspace
 ```
@@ -1053,19 +1060,19 @@ config.
 #### `drive permissions check`
 
 ```bash
-$ omni-dev drive permissions check 1AbC...AiWorkspace --operation create
+$ gwi drive permissions check 1AbC...AiWorkspace --operation create
 target:     1AbC...AiWorkspace
 operation:  create
 verdict:    allow
 decided by: rule on folder 1AbC...AiWorkspace (depth 0)
 
-$ omni-dev drive permissions check 1Sh4r3d...QuarterlyPlan --operation sheets-write
+$ gwi drive permissions check 1Sh4r3d...QuarterlyPlan --operation sheets-write
 target:     1Sh4r3d...QuarterlyPlan
 operation:  sheets-write
 verdict:    allow
 decided by: rule on file 1Sh4r3d...QuarterlyPlan
 
-$ omni-dev drive permissions check 1Unknown...Shared --operation sheets-write
+$ gwi drive permissions check 1Unknown...Shared --operation sheets-write
 target:     1Unknown...Shared
 operation:  sheets-write
 verdict:    deny
@@ -1095,13 +1102,13 @@ a file id never appears in the folder field.
 ## Create
 
 ```bash
-$ omni-dev drive create --name "Notes.txt" --parent 1AbC...AiWorkspace
+$ gwi drive create --name "Notes.txt" --parent 1AbC...AiWorkspace
 Created: Notes.txt (1NewFileIdHere) in 1AbC...AiWorkspace
 
-$ omni-dev drive create --name "Notes.txt" --parent 1AbC...AiWorkspace --dry-run
+$ gwi drive create --name "Notes.txt" --parent 1AbC...AiWorkspace --dry-run
 Would create: Notes.txt in 1AbC...AiWorkspace
 
-$ omni-dev drive create --name "Reports" --parent 1AbC...AiWorkspace --folder
+$ gwi drive create --name "Reports" --parent 1AbC...AiWorkspace --folder
 Created: Reports (1NewFolderIdHere) in 1AbC...AiWorkspace
 ```
 
@@ -1117,7 +1124,7 @@ refused before any `files.create` call if no rule allows `create` there.
 without ever calling `files.create`:
 
 ```bash
-$ omni-dev drive create --name "x" --parent 1Sen...Confidential --dry-run
+$ gwi drive create --name "x" --parent 1Sen...Confidential --dry-run
 Blocked: x in 1Sen...Confidential
   refused by default policy (no matching rule)
 ```
@@ -1125,17 +1132,17 @@ Blocked: x in 1Sen...Confidential
 Requires the `drive.file` or `drive` scope (`drive auth login --write-file`
 or `--write-full`); without either, the call fails with an actionable hint
 naming both flags. Every real attempt — created, blocked, or failed — is
-written to the [request log](log.md#what-gets-recorded) as a `kind:
+written to the [request log](#what-gets-recorded) as a `kind:
 "drivemutation"` record, even when the gate refused before any API call
 was made; `--dry-run` previews are never logged.
 
 ## Upload
 
 ```bash
-$ omni-dev drive upload ./report.pdf --parent 1AbC...AiWorkspace
+$ gwi drive upload ./report.pdf --parent 1AbC...AiWorkspace
 Uploaded: report.pdf (1NewFileIdHere) in 1AbC...AiWorkspace
 
-$ omni-dev drive upload ./report.pdf --parent 1AbC...AiWorkspace --name "Q3 Report.pdf" --dry-run
+$ gwi drive upload ./report.pdf --parent 1AbC...AiWorkspace --name "Q3 Report.pdf" --dry-run
 Would upload: Q3 Report.pdf in 1AbC...AiWorkspace
 ```
 
@@ -1149,7 +1156,7 @@ file is stat'd and refused *before* it's ever read into memory if it's too
 large, so this fires identically whether or not `--dry-run` is set:
 
 ```bash
-$ omni-dev drive upload ./huge-video.mp4 --parent 1AbC...AiWorkspace
+$ gwi drive upload ./huge-video.mp4 --parent 1AbC...AiWorkspace
 Error: refusing to upload 83886080 bytes (limit: 5242880 bytes); Drive's simple upload endpoint caps requests at 5 MB — larger content needs resumable upload, not supported by `drive upload`/`drive edit` yet
 ```
 
@@ -1162,17 +1169,17 @@ Same gate, scope requirement, and logging behavior as [Create](#create).
 ## Edit
 
 ```bash
-$ omni-dev drive lease acquire 1ExistingFileId
+$ gwi drive lease acquire 1ExistingFileId
 lease-abc123...
-Backed up to /home/user/.local/state/omni-dev/drive-backups/20260911T000000Z-1ExistingFileId-report.pdf (expires 2026-09-11 00:30:00 UTC)
+Backed up to /home/user/.local/state/gwi/drive-backups/20260911T000000Z-1ExistingFileId-report.pdf (expires 2026-09-11 00:30:00 UTC)
 
-$ omni-dev drive edit 1ExistingFileId --content ./new-report.pdf --lease lease-abc123...
+$ gwi drive edit 1ExistingFileId --content ./new-report.pdf --lease lease-abc123...
 Edited: 1ExistingFileId
 
-$ cat ./new-report.pdf | omni-dev drive edit 1ExistingFileId --content - --lease lease-abc123...
+$ cat ./new-report.pdf | gwi drive edit 1ExistingFileId --content - --lease lease-abc123...
 Edited: 1ExistingFileId
 
-$ omni-dev drive edit 1ExistingFileId --content ./new-report.pdf --dry-run
+$ gwi drive edit 1ExistingFileId --content ./new-report.pdf --dry-run
 Would edit: 1ExistingFileId
 ```
 
@@ -1195,7 +1202,7 @@ falls straight to the default policy (refused).
 runs:**
 
 ```bash
-$ omni-dev drive edit 1SomeGoogleDocId --content ./file.txt
+$ gwi drive edit 1SomeGoogleDocId --content ./file.txt
 Refused: 1SomeGoogleDocId is a Google-native document (Docs/Sheets/Slides/...) — no raw content to replace
 ```
 
@@ -1205,14 +1212,14 @@ replace — editing one is a Docs-API/Sheets-API problem, out of scope here
 export).
 
 **Scope depends on the file's origin.** `--write-file` (`drive.file`) is
-enough only if `omni-dev` itself created the target via `drive
+enough only if `gwi` itself created the target via `drive
 create`/`drive upload`; any other pre-existing file needs the unrestricted
 `--write-full`. A 403 names both flags, since the client has no cheap way
 to tell which a given file id needs:
 
 ```
 Error: Drive API request failed: HTTP 403: Insufficient Permission (reason: insufficientPermissions)
-  Run `omni-dev drive auth login --write-file` if this file was created by omni-dev, or `--write-full` to edit any pre-existing file's content, then retry
+  Run `gwi drive auth login --write-file` if this file was created by gwi, or `--write-full` to edit any pre-existing file's content, then retry
 ```
 
 Same request-log behavior as [Create](#create)/[Upload](#upload).
@@ -1222,9 +1229,9 @@ Same request-log behavior as [Create](#create)/[Upload](#upload).
 Trash an individual file, or restore it before Drive purges it:
 
 ```bash
-omni-dev drive trash FILE_ID --dry-run
-omni-dev drive trash FILE_ID -o json
-omni-dev drive untrash FILE_ID
+gwi drive trash FILE_ID --dry-run
+gwi drive trash FILE_ID -o json
+gwi drive untrash FILE_ID
 ```
 
 Both commands require metadata write access (`drive auth login --write`) and
@@ -1267,9 +1274,9 @@ authorize automatic rollback.
 ## Lease
 
 ```bash
-$ omni-dev drive lease acquire 1ExistingFileId
+$ gwi drive lease acquire 1ExistingFileId
 lease-abc123...
-Backed up to /home/user/.local/state/omni-dev/drive-backups/20260911T000000Z-1ExistingFileId-report.pdf (expires 2026-09-11 00:30:00 UTC)
+Backed up to /home/user/.local/state/gwi/drive-backups/20260911T000000Z-1ExistingFileId-report.pdf (expires 2026-09-11 00:30:00 UTC)
 ```
 
 Before `drive edit` can write, it needs a **lease**: a token bound to a
@@ -1301,7 +1308,7 @@ content-mutating write verb: `drive edit`; `drive sheets`
 **The backup fidelity splits by file type** ([ADR-0080](adrs/adr-0080.md)
 §3). A binary file backs up as **bytes on this machine**, named
 `<YYYYMMDDTHHMMSSZ>-<fileId>-<name>` under `--backup-dir` (default
-`<state dir>/omni-dev/drive-backups`) — UTC, seconds precision, the file id
+`<state dir>/gwi/drive-backups`) — UTC, seconds precision, the file id
 first since Drive names collide and may contain `/`. A Google-native
 document (Docs/Sheets/Slides) has no bytes to back up this way, so it
 backs up instead as a **lossless Drive-side copy** (`files.copy`) into the
@@ -1316,7 +1323,7 @@ Without it, a native-document target is refused outright, before
 authenticating at all — there is nowhere configured to put the copy:
 
 ```bash
-$ omni-dev drive lease acquire 1SomeGoogleSheetId
+$ gwi drive lease acquire 1SomeGoogleSheetId
 Refused: this is a Google-native document (Doc/Sheet/Slide) and no backup folder is configured for this account — set `lease_backup_folder_id` in settings.json to enable leasing native documents
 ```
 
@@ -1333,7 +1340,7 @@ lease exists — re-run `acquire` once the file is quiet (a native
 document's moved `version` is first retried automatically; see below):
 
 ```bash
-$ omni-dev drive lease acquire 1ExistingFileId
+$ gwi drive lease acquire 1ExistingFileId
 Refused: the file changed while its backup was being taken: Drive reports checksum 9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08 at version 8, but the bytes backed up hash to 2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824. No lease was minted and the backup was discarded — retry.
 ```
 
@@ -1350,7 +1357,7 @@ every attempt sees the `version` move does the acquisition refuse, saying
 so:
 
 ```bash
-$ omni-dev drive lease acquire 1SomeGoogleSheetId
+$ gwi drive lease acquire 1SomeGoogleSheetId
 Refused: the file's version changed across its backup on each of 3 attempts (last: version 12 immediately before, 13 immediately after). A version that keeps moving may be changing for reasons unrelated to edits, so waiting for the file to be quiet may not help. No lease was minted and the backups were discarded.
 ```
 
@@ -1362,7 +1369,7 @@ paste, since a write under it still needs this account's own OAuth
 credentials and folder-permission grant. Present it via `--lease`:
 
 ```bash
-$ omni-dev drive edit 1ExistingFileId --content ./new-report.pdf --lease lease-abc123...
+$ gwi drive edit 1ExistingFileId --content ./new-report.pdf --lease lease-abc123...
 ```
 
 A refusal names what to do next:
@@ -1429,12 +1436,12 @@ Each also has an env var, and every setting resolves in the same order:
 the CLI flag, if given, wins outright; then the env var; then the
 `settings.json` field; then the built-in default.
 
-| Setting          | Flag                | Env var                                | Default                              |
-|------------------|---------------------|----------------------------------------|--------------------------------------|
-| Lease expiry     | `--expiry-minutes`  | `OMNI_DEV_DRIVE_LEASE_EXPIRY_MINUTES`  | 30                                   |
-| Backup directory | `--backup-dir`      | `OMNI_DEV_DRIVE_LEASE_BACKUP_DIR`      | `<state dir>/omni-dev/drive-backups` |
-| Auth policy      | `--biometrics-only` | `OMNI_DEV_DRIVE_LEASE_BIOMETRICS_ONLY` | device-owner                         |
-| Headless opt-out | `--allow-headless`  | `OMNI_DEV_DRIVE_LEASE_ALLOW_HEADLESS`  | off (fails closed)                   |
+| Setting          | Flag                | Env var                           | Default                         |
+|------------------|---------------------|-----------------------------------|---------------------------------|
+| Lease expiry     | `--expiry-minutes`  | `GWI_DRIVE_LEASE_EXPIRY_MINUTES`  | 30                              |
+| Backup directory | `--backup-dir`      | `GWI_DRIVE_LEASE_BACKUP_DIR`      | `<state dir>/gwi/drive-backups` |
+| Auth policy      | `--biometrics-only` | `GWI_DRIVE_LEASE_BIOMETRICS_ONLY` | device-owner                    |
+| Headless opt-out | `--allow-headless`  | `GWI_DRIVE_LEASE_ALLOW_HEADLESS`  | off (fails closed)              |
 
 For `biometrics_only`/`allow_headless`, any layer that opts in wins — there
 is no way to force one back off from a lower layer once it is set.
@@ -1444,7 +1451,7 @@ no authenticator is available, so no lease can ever be acquired there, and
 every gated write refuses in turn. This is deliberate (ADR-0080 §8) — a TTY
 prompt would let a script answer on the human's behalf, defeating the
 point. An operator can explicitly waive this with `--allow-headless`, the
-`OMNI_DEV_DRIVE_LEASE_ALLOW_HEADLESS` env var, or `lease.allow_headless` in
+`GWI_DRIVE_LEASE_ALLOW_HEADLESS` env var, or `lease.allow_headless` in
 `settings.json` — the acquisition then proceeds with no human ever
 prompted, and the resulting lease (and its audit record) is marked as
 having used the waiver, so it stays visible after the fact.
@@ -1469,9 +1476,9 @@ message says the opt-out does not apply. Fix the underlying cause, or drop
 ### Restore
 
 ```bash
-$ omni-dev drive lease restore lease-abc123...
+$ gwi drive lease restore lease-abc123...
 lease-def456...
-Restored. Backed up the pre-restore content to /home/user/.local/state/omni-dev/drive-backups/20260912T000000Z-1ExistingFileId-report.pdf (expires 2026-09-12 00:30:00 UTC)
+Restored. Backed up the pre-restore content to /home/user/.local/state/gwi/drive-backups/20260912T000000Z-1ExistingFileId-report.pdf (expires 2026-09-12 00:30:00 UTC)
 ```
 
 `drive lease restore <TOKEN>` restores a file from the backup a lease
@@ -1514,7 +1521,7 @@ but missing live. It also renames the restored sheet back to its original
 title when that title is currently free:
 
 ```bash
-$ omni-dev drive lease restore lease-native789...
+$ gwi drive lease restore lease-native789...
 lease-def456...
 Restored sheet 'Q3 Numbers' (id 1481923) back into spreadsheet 1SpreadsheetId. Backed up the pre-restore content to Drive copy 1FreshBackupCopyId (expires 2026-09-12 00:30:00 UTC)
 ```
@@ -1528,7 +1535,7 @@ that sheet is still there, before the authentication prompt and before the
 fresh backup copy:
 
 ```bash
-$ omni-dev drive lease restore lease-native789...
+$ gwi drive lease restore lease-native789...
 Refused: this backup's deleted sheet was already restored on 2026-09-12 00:00:00 UTC into spreadsheet 1SpreadsheetId as 'Q3 Numbers' (id 1481923), which is still there — restoring again would only add a second copy. Delete that sheet first if you do want another one. No fresh lease was minted, no Touch ID was spent.
 ```
 
@@ -1543,7 +1550,7 @@ guesses), a Docs/Slides backup, or anything below whole-sheet granularity
 location — restorable today by a human via the Drive UI:
 
 ```bash
-$ omni-dev drive lease restore lease-native789...
+$ gwi drive lease restore lease-native789...
 No typed restore path exists for this backup yet — it is a Drive copy at 1BackupCopyFileId you can restore from by hand in the Drive UI
 ```
 
@@ -1560,7 +1567,7 @@ network call, so no Touch ID prompt is spent on a restore that could never
 have succeeded:
 
 ```bash
-$ omni-dev drive lease restore lease-large123...
+$ gwi drive lease restore lease-large123...
 Refused: this backup is 83886080 bytes, over Drive's 5 MB simple-upload limit — restoring it is not supported yet (no fresh lease was minted, no Touch ID was spent)
 ```
 
@@ -1577,7 +1584,7 @@ dropped) alongside the fresh lease's new row — both remain findable by
 token in the ledger and in `audit.jsonl`, which records both tokens on a
 restore (`lease_id` the fresh one, `restored_from_lease_id` the backup one
 read from), and the supersede on the internal acquire's own record
-(`superseded_lease_id`) — see [docs/log.md](log.md#audit-log).
+(`superseded_lease_id`) — see [Audit log](#audit-log).
 
 **If the restore write fails after the fresh lease was minted**, that fresh
 token is still printed — it is real and live (Touch ID was answered, a
@@ -1589,14 +1596,14 @@ backup token is refused until it is stood down, which is what
 [`drive lease release`](#release) is for:
 
 ```bash
-$ omni-dev drive lease restore lease-abc123...
+$ gwi drive lease restore lease-abc123...
 lease-def456...
 Failed: the write-permission gate no longer allows this write, re-checked after the fresh lease's authentication prompt
 A fresh lease was minted before the failure and is still live (expires 2026-09-12 00:30:00 UTC) — present it to `--lease` for an ordinary write.
 Do not restore from it: its backup is this file's pre-restore content, which is what you were undoing.
 To retry the restore, stand it down first:
-  omni-dev drive lease release lease-def456...
-  omni-dev drive lease restore <the original backup token>
+  gwi drive lease release lease-def456...
+  gwi drive lease restore <the original backup token>
 ```
 
 A `restore` can otherwise only be refused by a live lease that is *not* the
@@ -1607,8 +1614,8 @@ it to `--lease`, release it, or wait for it to expire.
 ### Release
 
 ```bash
-$ omni-dev drive lease release lease-def456...
-Released lease-def456... (covered file 1ExistingFileId, would have expired 2026-09-12 00:30:00 UTC). Its backup is kept — `omni-dev drive lease restore lease-def456...` still works.
+$ gwi drive lease release lease-def456...
+Released lease-def456... (covered file 1ExistingFileId, would have expired 2026-09-12 00:30:00 UTC). Its backup is kept — `gwi drive lease restore lease-def456...` still works.
 ```
 
 `drive lease release <TOKEN>` ends a lease's write window early, without
@@ -1639,25 +1646,25 @@ An already-expired or already-released token is reported rather than
 silently re-stamped, so an earlier release's timestamp is never overwritten:
 
 ```bash
-$ omni-dev drive lease release lease-def456...
+$ gwi drive lease release lease-def456...
 Nothing to do: lease lease-def456... is not live — it was already released on 2026-09-12 00:05:00 UTC. Its backup is unaffected and still restorable.
 ```
 
 Every attempt writes a best-effort `audit.jsonl` record (`verdict:
 "released"`/`"release-not-live"`/`"release-no-such-token"`/`"failed"`,
-`lease_id` the token presented) — see [docs/log.md](log.md#audit-log).
+`lease_id` the token presented) — see [Audit log](#audit-log).
 
 ### Prune
 
 ```bash
-$ omni-dev drive lease prune --older-than 30d --dry-run
-$ omni-dev drive lease prune --older-than 30d
+$ gwi drive lease prune --older-than 30d --dry-run
+$ gwi drive lease prune --older-than 30d
 ```
 
 `drive lease prune` bounds the ledger's and the backup directory/folder's
 otherwise-unbounded growth ([ADR-0080](adrs/adr-0080.md) Consequences,
 #1678) by dropping expired rows together with the backups they point at.
-It mirrors [`omni-dev log prune`](log.md#omni-dev-log-prune)'s shape:
+It mirrors [`gwi log prune`](#reading-and-pruning)'s shape:
 
 | Flag | Effect |
 |------|--------|
@@ -1727,7 +1734,7 @@ isn't available, the lock falls back to the older create-and-delete
 marker scheme, so a crashed holder there can still leave a stale lock.) A leased write, `drive lease acquire` and `drive lease release`
 each wait for a busy lock rather than failing outright (printing a
 one-line notice while they do), up to
-`OMNI_DEV_LEASE_LOCK_WAIT_SECS` (default: four times the HTTP read
+`GWI_LEASE_LOCK_WAIT_SECS` (default: four times the HTTP read
 timeout, since a held lock can span several sequential Drive calls, e.g.
 `drive lease restore`'s copy-then-edit-then-rename sequence). The lock
 is **ledger-global**, not per-file: a write to one file and a concurrent
@@ -1737,23 +1744,23 @@ it does not wait, and a row whose lock it cannot take is simply left
 for a future prune.
 
 ```bash
-$ omni-dev drive lease prune --older-than 30d
+$ gwi drive lease prune --older-than 30d
 Removed 12 lease(s); kept 4 (3 trashed Drive backup(s), 0 failure(s), freed 8241203 bytes of local backups).
 ```
 
 Every removal attempt — successful or failed — writes its own best-effort
 `audit.jsonl` record (`verdict: "pruned"` or `"prune-failed"`, the latter
 carrying the underlying error), the same fail-open posture `drive lease
-acquire`'s own audit trail uses, so `omni-dev log --audit` can always
+acquire`'s own audit trail uses, so `gwi log --audit` can always
 answer "why is this backup gone" for a specific lease. This is distinct
 from `audit.jsonl` itself being out of scope *as a pruning target*: the
 file is append-only forensic history by design
 ([ADR-0080](adrs/adr-0080.md) §11) and `drive lease prune` never rotates
 or deletes its content, the same exemption it has from
-`OMNI_DEV_LOG_DISABLE` and `omni-dev log prune`'s own rotation — see
-[docs/log.md](log.md#audit-log).
+`GWI_LOG_DISABLE` and `gwi log prune`'s own rotation — see
+[Audit log](#audit-log).
 
-### Coming from omni-dev
+### Importing omni-dev's ledger
 
 gwi keeps its ledger at `<state_dir>/gwi/lease-ledger.jsonl` and never reads
 omni-dev's `<state_dir>/omni-dev/lease-ledger.jsonl`. `gwi import` copies it
@@ -1821,7 +1828,7 @@ name or their payload alone:
   ID was answered, a backup taken, a ledger row written — but exits `1`
   regardless, because the restore write itself did not go through.
 
-A script that only checks the exit code — `omni-dev drive lease acquire
+A script that only checks the exit code — `gwi drive lease acquire
 "$ID" > /tmp/out || exit 1` — can now rely on it; one that also wants the
 lease token or the refusal detail still reads the output as before.
 
@@ -1847,7 +1854,7 @@ can report a third outcome besides `changed` and `failed` (issue #2021):
 Applied, but the reply could not be read: add column chart in 'Budget' — do not retry; check the spreadsheet first (Failed to parse Sheets batchUpdate response: …)
 ```
 
-It means Google answered **2xx**, so the change **was made**, but omni-dev could
+It means Google answered **2xx**, so the change **was made**, but gwi could
 not parse the reply body. It is not a failure: retrying would repeat the change
 (a second chart, a second protected range, another split). Open the spreadsheet
 to confirm, and use the matching `list-*` verb to find any id the reply would
@@ -1866,7 +1873,7 @@ a replacement count, is missing. The exit code is unchanged, as it is for
 `fields_changed` to `summary`. A lease held for the write is refreshed as after
 any successful write, so the next write under it is not refused as stale. A
 non-2xx response, or a transport failure before any status arrives, is still
-`failed`: in that case omni-dev cannot say whether the change was made.
+`failed`: in that case gwi cannot say whether the change was made.
 
 #### `drive sheets info`
 
@@ -1874,7 +1881,7 @@ Shows the workbook title and the sheets (tabs) it contains, with each grid
 sheet's allocated dimensions. Hidden sheets are listed and marked, not omitted.
 
 ```bash
-$ omni-dev drive sheets info 1AbC_dEfGhIjKlMnOpQrStUvWxYz
+$ gwi drive sheets info 1AbC_dEfGhIjKlMnOpQrStUvWxYz
 Id: 1AbC_dEfGhIjKlMnOpQrStUvWxYz
 Title: 2026 Budget
 Sheets: 3
@@ -1889,7 +1896,7 @@ property — the read side of `update-workbook-properties` (issue #1836,
 [ADR-0086](adrs/adr-0086-workbook-properties.md)):
 
 ```bash
-$ omni-dev drive sheets info 1AbC_dEfGhIjKlMnOpQrStUvWxYz
+$ gwi drive sheets info 1AbC_dEfGhIjKlMnOpQrStUvWxYz
 Id: 1AbC_dEfGhIjKlMnOpQrStUvWxYz
 Title: 2026 Budget
 Locale: en_US
@@ -1908,7 +1915,7 @@ With neither `--range` nor `--sheet`, reads **every** sheet: one
 `spreadsheets.get` for the tab list, then `values.batchGet` for the data.
 
 ```bash
-$ omni-dev drive sheets read 1AbC_dEfGhIjKlMnOpQrStUvWxYz
+$ gwi drive sheets read 1AbC_dEfGhIjKlMnOpQrStUvWxYz
 # Q1
 Region,Revenue
 North,1200
@@ -1922,10 +1929,10 @@ North,1310
 Narrow it with `--sheet` (a tab title), `--range` (an A1 range), or both:
 
 ```bash
-omni-dev drive sheets read <ID> --sheet 'Q1'
-omni-dev drive sheets read <ID> --range 'A1:B10'
-omni-dev drive sheets read <ID> --sheet 'My Sheet' --range 'A1:B10'
-omni-dev drive sheets read <ID> --range "'My Sheet'!A:A"
+gwi drive sheets read <ID> --sheet 'Q1'
+gwi drive sheets read <ID> --range 'A1:B10'
+gwi drive sheets read <ID> --sheet 'My Sheet' --range 'A1:B10'
+gwi drive sheets read <ID> --range "'My Sheet'!A:A"
 ```
 
 `--range` may carry its own `Sheet!` prefix. Passing `--sheet` *as well as* a
@@ -1935,7 +1942,7 @@ quoted internally, so titles containing spaces, apostrophes or `!` need no
 special handling — and a sheet literally titled `A1` is unambiguous.
 
 Unbounded and open-ended ranges are passed through untouched (`A:A`, `1:2`,
-`A5:A`, a bare sheet name, or a defined name). `omni-dev` deliberately does not
+`A5:A`, a bare sheet name, or a defined name). `gwi` deliberately does not
 validate A1 grammar client-side; the server is authoritative and returns a
 clearer error than a local guess would.
 
@@ -1958,7 +1965,7 @@ Two differences between CSV and the structured formats are worth knowing:
 rather than a `{title: rows}` map, so workbook order is preserved:
 
 ```bash
-omni-dev drive sheets read <ID> -o json
+gwi drive sheets read <ID> -o json
 ```
 
 **`--render`** controls how the API renders each cell:
@@ -1978,18 +1985,18 @@ already produces for a Sheet.
 Writing cells is gated by the folder [write permissions](#write-permissions)
 under the **`sheets-write`** operation, and needs the `drive.file` or `drive`
 scope (`drive auth login --write-file` / `--write-full`). `drive.file` reaches
-only Sheets `omni-dev` itself created; a pre-existing Sheet needs
+only Sheets `gwi` itself created; a pre-existing Sheet needs
 `--write-full`.
 
 ```bash
 # Overwrite a range from a CSV file
-omni-dev drive sheets write <ID> --range 'A1:B10' --values ./cells.csv
+gwi drive sheets write <ID> --range 'A1:B10' --values ./cells.csv
 
 # Append rows after the end of a table, from stdin
-printf 'North,1200\nSouth,950\n' | omni-dev drive sheets append <ID> --range 'A:B' --values -
+printf 'North,1200\nSouth,950\n' | gwi drive sheets append <ID> --range 'A:B' --values -
 
 # Clear a range's values, leaving formatting intact
-omni-dev drive sheets clear <ID> --range 'Q1!A2:B100'
+gwi drive sheets clear <ID> --range 'Q1!A2:B100'
 ```
 
 **Always dry-run first.** `--dry-run` reports the gate verdict *and* the
@@ -1997,7 +2004,7 @@ parsed dimensions, which is how you catch a transposed or ragged input before
 it lands:
 
 ```bash
-$ omni-dev drive sheets write <ID> --range 'A1:B10' --values ./cells.csv --dry-run
+$ gwi drive sheets write <ID> --range 'A1:B10' --values ./cells.csv --dry-run
 Would write: 10 row(s) x 2 column(s) into A1:B10 of '2026 Budget'
 ```
 
@@ -2044,8 +2051,8 @@ it deliberately.
   `file_id` rule instead — see
   ["Granting a file shared with you"](#granting-a-file-shared-with-you). A
   `file_id` rule only satisfies the local gate, though: writing to a Sheet
-  `omni-dev` didn't create also needs the `--write-full` scope, since
-  `--write-file` (`drive.file`) only reaches files `omni-dev` itself
+  `gwi` didn't create also needs the `--write-full` scope, since
+  `--write-file` (`drive.file`) only reaches files `gwi` itself
   created.
 
 **Writing a cell drops its rich-text runs, even for identical text.**
@@ -2077,11 +2084,11 @@ other argument error. An *empty* `--values` is a refusal, so it exits 0.
 
 ```bash
 # Replace in one range; an empty replacement removes matches.
-omni-dev drive sheets find-replace <ID> --range 'Q1!A2:B100' \
+gwi drive sheets find-replace <ID> --range 'Q1!A2:B100' \
   --find 'draft' --replacement 'final'
 
 # Search every sheet, including formulas, with Java-regex syntax.
-omni-dev drive sheets find-replace <ID> --all-sheets --search-by-regex \
+gwi drive sheets find-replace <ID> --all-sheets --search-by-regex \
   --include-formulas --find 'FY([0-9]+)' --replacement '202$1'
 ```
 
@@ -2117,11 +2124,11 @@ move.
 
 ```bash
 # Sort first by column 0 ascending, then column 2 descending.
-omni-dev drive sheets sort-range <ID> --sheet Q1 --range A2:D100 \
+gwi drive sheets sort-range <ID> --sheet Q1 --range A2:D100 \
   --sort-by 0:asc --sort-by 2:desc
 
 # Preview the gate and request; this never reads values or calls batchUpdate.
-omni-dev drive sheets sort-range <ID> --sheet Q1 --range A2:D100 \
+gwi drive sheets sort-range <ID> --sheet Q1 --range A2:D100 \
   --sort-by 0:asc --dry-run
 ```
 
@@ -2159,10 +2166,10 @@ Neither half opens it alone, and a refusal names the half that was
 missing.
 
 ```bash
-omni-dev drive sheets randomize-range <ID> --sheet Q1 --range A2:D100
+gwi drive sheets randomize-range <ID> --sheet Q1 --range A2:D100
 
 # Preview the gate and request; this never reads values or calls batchUpdate.
-omni-dev drive sheets randomize-range <ID> --sheet Q1 --range A2:D100 --dry-run
+gwi drive sheets randomize-range <ID> --sheet Q1 --range A2:D100 --dry-run
 ```
 
 The range must be bounded (`A2:D100`, not `A:A` or `2:2`) — `sort-range`'s
@@ -2173,7 +2180,7 @@ even after a real run.** `randomizeRange` carries no response object, and
 which order the server settles on is entirely its own choice:
 
 ```
-$ omni-dev drive sheets randomize-range <ID> --sheet Q1 --range A2:D100 --dry-run
+$ gwi drive sheets randomize-range <ID> --sheet Q1 --range A2:D100 --dry-run
 Would randomize the row order of 'Q1'!A2:D100 in 'Budget'
   the resulting order is chosen by the server and cannot be previewed or reported; the previous row order is not preserved
   references outside the range may observe values from a different row after randomizing
@@ -2204,17 +2211,17 @@ Exactly one of `--range`/`--source` is required, mirroring the API's own
 # --range: names the whole region. Sheets examines it and decides for
 # itself which cells are the source and which are filled, so the count
 # --dry-run reports is only an upper bound on what will be overwritten.
-omni-dev drive sheets auto-fill <ID> --sheet Q1 --range A1:A10 --dry-run
+gwi drive sheets auto-fill <ID> --sheet Q1 --range A1:A10 --dry-run
 
 # --source/--dimension/--fill-length: an explicit source, extended by a
 # caller-chosen length and direction. --fill-length may be negative, which
 # fills backward (up or left) instead of forward (down or right).
-omni-dev drive sheets auto-fill <ID> --sheet Q1 --source A1:A3 \
+gwi drive sheets auto-fill <ID> --sheet Q1 --source A1:A3 \
   --dimension rows --fill-length 7
 
 # Fills using the alternate series Sheets would not otherwise choose (e.g.
 # a copy instead of a linear progression for a plain numeric run).
-omni-dev drive sheets auto-fill <ID> --sheet Q1 --source A1:A2 \
+gwi drive sheets auto-fill <ID> --sheet Q1 --source A1:A2 \
   --dimension rows --fill-length 5 --alternate-series
 ```
 
@@ -2226,7 +2233,7 @@ count and A1 locations of the non-blank cells within it that would be (or
 were) overwritten, never their values:
 
 ```
-$ omni-dev drive sheets auto-fill <ID> --sheet Q1 --source A1:A3 \
+$ gwi drive sheets auto-fill <ID> --sheet Q1 --source A1:A3 \
     --dimension rows --fill-length 7 --dry-run
 Would auto-fill 'Q1'!A4:A10 from source 'Q1'!A1:A3, extending 7 row(s) down in 'Budget'
   2 non-blank cell(s) would be overwritten: A4, A6
@@ -2239,7 +2246,7 @@ prefixed `up to`, since Sheets picks the source/destination split itself
 and some of the listed cells are the source:
 
 ```
-$ omni-dev drive sheets auto-fill <ID> --sheet Q1 --range A1:A10 --dry-run
+$ gwi drive sheets auto-fill <ID> --sheet Q1 --range A1:A10 --dry-run
 Would auto-fill within 'Q1'!A1:A10 (Sheets decides which cells are the source and which are filled) in 'Budget'
   up to 3 non-blank cell(s) would be overwritten: A1, A2, A3
   the filled values are computed by Sheets' own series detection and are never reported, before or after the request
@@ -2265,7 +2272,7 @@ that same head line is the applied span too (`994`, not the `--fill-length
 caveat line's requested range, not as a second count:
 
 ```
-$ omni-dev drive sheets auto-fill <ID> --sheet AF --source G5:G6 \
+$ gwi drive sheets auto-fill <ID> --sheet AF --source G5:G6 \
     --dimension rows --fill-length 1000 --dry-run
 Would auto-fill 'AF'!G7:G1000 from source 'AF'!G5:G6, extending 994 row(s) down in 'Budget'
   no non-blank cells in the destination
@@ -2287,7 +2294,7 @@ before any lease is checked or the request is sent — under `--dry-run` and
 a real run alike, since nothing would be written:
 
 ```
-$ omni-dev drive sheets auto-fill <ID> --sheet AF --source G999:G1000 \
+$ gwi drive sheets auto-fill <ID> --sheet AF --source G999:G1000 \
     --dimension rows --fill-length 20
 Refused: 'AF'!G1001:G1020 lies wholly past 'Budget''s current grid (1000 rows x 26 columns); auto-fill does not grow the sheet. Grow it first (e.g. `sheets append`, `sheets insert-rows`/`insert-columns`), or choose a destination within the grid.
 ```
@@ -2316,15 +2323,15 @@ own "must span exactly one column" constraint, plus this v1's own
 requirement that it not be open-ended (`A2:A100`, not `A:A`):
 
 ```bash
-omni-dev drive sheets text-to-columns <ID> --sheet Q1 --source A2:A100 \
+gwi drive sheets text-to-columns <ID> --sheet Q1 --source A2:A100 \
   --delimiter comma
 
 # A custom separator:
-omni-dev drive sheets text-to-columns <ID> --sheet Q1 --source A2:A100 \
+gwi drive sheets text-to-columns <ID> --sheet Q1 --source A2:A100 \
   --delimiter custom --custom-delimiter '|'
 
 # Let Sheets detect the separator itself:
-omni-dev drive sheets text-to-columns <ID> --sheet Q1 --source A2:A100 \
+gwi drive sheets text-to-columns <ID> --sheet Q1 --source A2:A100 \
   --delimiter auto --dry-run
 ```
 
@@ -2338,7 +2345,7 @@ cells within that upper-bound span that would be (or were) overwritten,
 never their values or the split pieces:
 
 ```
-$ omni-dev drive sheets text-to-columns <ID> --sheet Q1 --source A2:A4 \
+$ gwi drive sheets text-to-columns <ID> --sheet Q1 --source A2:A4 \
     --delimiter comma --dry-run
 Would split 'Q1'!A2:A4 on comma into up to 3 column(s), spill 'Q1'!B2:C4 in 'Budget'
   up to 1 non-blank cell(s) would be overwritten: B3
@@ -2372,7 +2379,7 @@ finds no separator at all, the summary reports the spill span as unknown
 rather than claiming no row spills:
 
 ```
-$ omni-dev drive sheets text-to-columns <ID> --sheet Q1 --source A2:A4 \
+$ gwi drive sheets text-to-columns <ID> --sheet Q1 --source A2:A4 \
     --delimiter auto --dry-run
 Would split 'Q1'!A2:A4 on an auto-detected separator (none detected in the preview, so the spill span is unknown) in 'Budget'
   --delimiter auto lets Sheets detect the separator itself, and it detects separators this preview does not try (a tab-separated column splits under auto, though none of comma, semicolon, period or space appears in it) — so for auto the width above and the cells listed are a guess in both directions, not a bound
@@ -2450,13 +2457,13 @@ Pass either `--range` or `--whole-sheet`, never both. An open-ended
 
 ```bash
 # A bounded range.
-omni-dev drive sheets trim-whitespace <ID> --sheet Q1 --range A2:D100
+gwi drive sheets trim-whitespace <ID> --sheet Q1 --range A2:D100
 
 # A whole tab.
-omni-dev drive sheets trim-whitespace <ID> --sheet Q1 --whole-sheet
+gwi drive sheets trim-whitespace <ID> --sheet Q1 --whole-sheet
 
 # Preview: reads the range's values, sends no batchUpdate.
-omni-dev drive sheets trim-whitespace <ID> --sheet Q1 --range A2:D100 --dry-run
+gwi drive sheets trim-whitespace <ID> --sheet Q1 --range A2:D100 --dry-run
 ```
 
 **`--dry-run` never claims which cells will change.** Sheets owns the trim
@@ -2467,7 +2474,7 @@ locations of the range's **non-blank** cells, any of which *may* be
 trimmed, and never their values:
 
 ```
-$ omni-dev drive sheets trim-whitespace <ID> --sheet Sheet1 --range A1:C5 --dry-run
+$ gwi drive sheets trim-whitespace <ID> --sheet Sheet1 --range A1:C5 --dry-run
 Would trim whitespace in 'Sheet1'!A1:C5 of 'Budget'
   13 non-blank cell(s) may be trimmed: A1, B1, C1, A2, B2, C2, A3, B3, C3, A4, C4, A5, C5
 ```
@@ -2491,7 +2498,7 @@ what changed — and deliberately does **not** re-read the range, unlike
 `auto-fill` and the paste family, whose requests return no count:
 
 ```
-$ omni-dev drive sheets trim-whitespace <ID> --sheet Sheet1 --range A1:C5
+$ gwi drive sheets trim-whitespace <ID> --sheet Sheet1 --range A1:C5
 Trimmed whitespace in 5 cell(s) of 'Sheet1'!A1:C5 in 'Budget'
 ```
 
@@ -2509,14 +2516,14 @@ open it, and neither does `sheets-structure`.
 
 ```bash
 # Compare every column in the range.
-omni-dev drive sheets delete-duplicates <ID> --sheet Q1 --range A2:D100
+gwi drive sheets delete-duplicates <ID> --sheet Q1 --range A2:D100
 
 # Compare only columns 0 and 2 (absolute, zero-based, as --sort-by uses).
-omni-dev drive sheets delete-duplicates <ID> --sheet Q1 --range A2:D100 \
+gwi drive sheets delete-duplicates <ID> --sheet Q1 --range A2:D100 \
   --comparison-column 0 --comparison-column 2
 
 # Preview: makes no values read and no batchUpdate.
-omni-dev drive sheets delete-duplicates <ID> --sheet Q1 --range A2:D100 --dry-run
+gwi drive sheets delete-duplicates <ID> --sheet Q1 --range A2:D100 --dry-run
 ```
 
 Each `--comparison-column` must fall inside the selected range, and the
@@ -2542,7 +2549,7 @@ a *row*, `--dry-run` states that rule rather than listing rows it cannot
 vouch for ([ADR-0083](adrs/adr-0083.md) §6):
 
 ```
-$ omni-dev drive sheets delete-duplicates <ID> --sheet Q1 --range A2:D100 --dry-run
+$ gwi drive sheets delete-duplicates <ID> --sheet Q1 --range A2:D100 --dry-run
 Warning: blank rows between data rows duplicate one another, so every such blank row after the first is removed; blank rows after the last data row are left alone
 Warning: only cells inside the selected range are removed and shifted up; columns outside it stay in place, so a range narrower than the sheet can misalign records
 Would remove duplicate rows from 'Q1'!A2:D100 in 'Budget', comparing every column in the range
@@ -2579,11 +2586,11 @@ with — naming the lease's backup when one was taken, and saying plainly
 that there is none when the deciding rule set `require_lease: false`:
 
 ```
-$ omni-dev drive sheets delete-duplicates <ID> --sheet Q1 --range A2:D100 --lease <TOKEN>
+$ gwi drive sheets delete-duplicates <ID> --sheet Q1 --range A2:D100 --lease <TOKEN>
 Warning: only cells inside the selected range are removed and shifted up; columns outside it stay in place, so a range narrower than the sheet can misalign records
 Removed 4 duplicate row(s) from 'Q1'!A2:D100 in 'Budget', comparing every column in the range
   the API keeps the first instance of each duplicate and removes the rest; …
-  this cannot be undone through omni-dev — the lease this write required backed the whole spreadsheet up when it was acquired (Drive copy 1AbC…); run `omni-dev drive lease restore <TOKEN>` to locate it, restore from that copy in the Drive UI, or fall back to Google Drive's own version history
+  this cannot be undone through gwi — the lease this write required backed the whole spreadsheet up when it was acquired (Drive copy 1AbC…); run `gwi drive lease restore <TOKEN>` to locate it, restore from that copy in the Drive UI, or fall back to Google Drive's own version history
 ```
 
 #### `drive sheets create`
@@ -2593,8 +2600,8 @@ Creates a spreadsheet, optionally seeded with values. Gated under the
 `drive create`.
 
 ```bash
-omni-dev drive sheets create --name '2027 Budget' --parent <FOLDER_ID>
-omni-dev drive sheets create --name '2027 Budget' --parent <FOLDER_ID> --values ./seed.csv
+gwi drive sheets create --name '2027 Budget' --parent <FOLDER_ID>
+gwi drive sheets create --name '2027 Budget' --parent <FOLDER_ID> --values ./seed.csv
 ```
 
 Without `--values` this is shorthand for
@@ -2633,7 +2640,7 @@ Every one of these previews with `--dry-run` first:
 
 ```bash
 # What would change, and to what — no mutation is attempted.
-omni-dev drive sheets insert-rows <ID> --sheet Q2 --at 5 --count 3 --dry-run
+gwi drive sheets insert-rows <ID> --sheet Q2 --at 5 --count 3 --dry-run
 ```
 
 ```
@@ -2648,22 +2655,22 @@ real current size rather than assumed.
 
 ```bash
 # Add a tab. --rows/--columns are optional; omitted takes Sheets' own
-# defaults (1000 x 26) rather than a size omni-dev invents.
-omni-dev drive sheets add-sheet <ID> --title Q3
-omni-dev drive sheets add-sheet <ID> --title Q3 --index 2 --rows 200 --columns 8
+# defaults (1000 x 26) rather than a size gwi invents.
+gwi drive sheets add-sheet <ID> --title Q3
+gwi drive sheets add-sheet <ID> --title Q3 --index 2 --rows 200 --columns 8
 
 # Rename a tab, by its current title.
-omni-dev drive sheets rename-sheet <ID> --sheet Q2 --title 'Q2 (final)'
+gwi drive sheets rename-sheet <ID> --sheet Q2 --title 'Q2 (final)'
 
 # Insert rows or columns. --at is 1-based and inclusive — the row or column
 # number the spreadsheet itself shows — and inserts *before* it.
-omni-dev drive sheets insert-rows <ID> --sheet Q2 --at 5 --count 3
-omni-dev drive sheets insert-columns <ID> --sheet Q2 --at 2
+gwi drive sheets insert-rows <ID> --sheet Q2 --at 5 --count 3
+gwi drive sheets insert-columns <ID> --sheet Q2 --at 2
 
 # Insert empty cells into a bounded rectangle. Existing cells shift down
 # (`--shift rows`) or right (`--shift columns`); the bounds are 1-based and
 # inclusive, like delete-range.
-omni-dev drive sheets insert-range <ID> --sheet Q2 \
+gwi drive sheets insert-range <ID> --sheet Q2 \
   --start-row 2 --end-row 4 --start-column 2 --end-column 3 --shift rows
 ```
 
@@ -2680,12 +2687,12 @@ the grid edge, so the `--dry-run` preview always calls out that risk.
 # (1-based inclusive, same as insert-rows/insert-columns); --before is the
 # 1-based row/column the block moves in front of, numbered as the sheet
 # stands *before* the move — the same numbering --at uses.
-omni-dev drive sheets move-rows <ID> --sheet Q2 --at 2 --count 2 --before 6
-omni-dev drive sheets move-columns <ID> --sheet Q2 --at 5 --before 1
+gwi drive sheets move-rows <ID> --sheet Q2 --at 2 --count 2 --before 6
+gwi drive sheets move-columns <ID> --sheet Q2 --at 5 --before 1
 ```
 
 ```bash
-omni-dev drive sheets move-rows <ID> --sheet Q2 --at 2 --count 2 --before 6 --dry-run
+gwi drive sheets move-rows <ID> --sheet Q2 --at 2 --count 2 --before 6 --dry-run
 ```
 
 ```
@@ -2708,15 +2715,15 @@ groups; Sheets applies its own rules to the move.
 # the live API to be the front of the workbook (index 0), not the end,
 # unlike add-sheet. A given --title must not already be in use, including
 # by the source sheet itself.
-omni-dev drive sheets duplicate-sheet <ID> --sheet Q2 --title 'Q2 (copy)'
+gwi drive sheets duplicate-sheet <ID> --sheet Q2 --title 'Q2 (copy)'
 
 # Move a sheet to a new zero-based position among its siblings.
-omni-dev drive sheets reorder-sheet <ID> --sheet Q2 --index 0
+gwi drive sheets reorder-sheet <ID> --sheet Q2 --index 0
 
 # Hide/show a tab. Hiding the workbook's last visible sheet is refused —
 # Sheets requires at least one to stay visible.
-omni-dev drive sheets hide-sheet <ID> --sheet Q2
-omni-dev drive sheets show-sheet <ID> --sheet Q2
+gwi drive sheets hide-sheet <ID> --sheet Q2
+gwi drive sheets show-sheet <ID> --sheet Q2
 ```
 
 Several refusals are specific to these verbs, and all of them are checked
@@ -2749,7 +2756,7 @@ The *positions* — `--at` on `insert-rows`/`insert-columns` and `--index` on
 may name one past the sheet's last row/column (that's a valid append), never
 further. The *counts* — `--count`, `--rows`, `--columns` — are checked only
 for being positive: the workbook's state implies no upper bound on how much
-you may add, so `omni-dev` doesn't invent one, and Sheets remains the
+you may add, so `gwi` doesn't invent one, and Sheets remains the
 authority on how large a sheet may actually get. A count large enough to
 overflow the row/column index space is refused rather than sent.
 
@@ -2767,7 +2774,7 @@ field mask, so a change to one property never disturbs another. At least
 one must be given.
 
 ```bash
-omni-dev drive sheets update-sheet-properties <ID> --sheet Q2 \
+gwi drive sheets update-sheet-properties <ID> --sheet Q2 \
   --freeze-rows 1 --tab-color '#FF8800'
 ```
 
@@ -2778,7 +2785,7 @@ Would update sheet 'Q2' (sheetId 118293) in 'Budget': frozen rows 0 -> 1, tab co
 Tab color has no bare "unset" value, so clearing it is a separate flag:
 
 ```bash
-omni-dev drive sheets update-sheet-properties <ID> --sheet Q2 --clear-tab-color
+gwi drive sheets update-sheet-properties <ID> --sheet Q2 --clear-tab-color
 ```
 
 `--right-to-left`/`--hide-gridlines` take an explicit `true`/`false` rather
@@ -2820,23 +2827,23 @@ crate's established pattern of shipping a documented subset.
 ```bash
 # Set locale and time zone. At least one of --locale/--time-zone/
 # --auto-recalc/--iterative-calculation is required.
-omni-dev drive sheets update-workbook-properties <ID> --locale en_US --time-zone America/New_York
+gwi drive sheets update-workbook-properties <ID> --locale en_US --time-zone America/New_York
 
 # How often the workbook recalculates.
-omni-dev drive sheets update-workbook-properties <ID> --auto-recalc on-change
+gwi drive sheets update-workbook-properties <ID> --auto-recalc on-change
 
 # Turn iterative calculation on, optionally with explicit bounds — omitted
 # sub-fields take Sheets' own defaults.
-omni-dev drive sheets update-workbook-properties <ID> --iterative-calculation on \
+gwi drive sheets update-workbook-properties <ID> --iterative-calculation on \
   --iterative-calculation-max-iterations 50 \
   --iterative-calculation-convergence-threshold 0.01
 
 # Turn it back off.
-omni-dev drive sheets update-workbook-properties <ID> --iterative-calculation off
+gwi drive sheets update-workbook-properties <ID> --iterative-calculation off
 ```
 
 ```bash
-omni-dev drive sheets update-workbook-properties <ID> --locale en_US --auto-recalc hour --dry-run
+gwi drive sheets update-workbook-properties <ID> --locale en_US --auto-recalc hour --dry-run
 ```
 
 ```
@@ -2897,7 +2904,7 @@ array: every verb, destructive or not, is its own typed command.
 
 ```bash
 # What would be destroyed — no mutation is attempted.
-omni-dev drive sheets delete-rows <ID> --sheet Q2 --at 5 --count 3 --dry-run
+gwi drive sheets delete-rows <ID> --sheet Q2 --at 5 --count 3 --dry-run
 ```
 
 ```
@@ -2915,17 +2922,17 @@ additive one above — no extra `values.get` read, no cell content in its
 output or the request log.
 
 ```bash
-# Delete an entire tab. Cannot be undone through omni-dev.
-omni-dev drive sheets delete-sheet <ID> --sheet Q2
+# Delete an entire tab. Cannot be undone through gwi.
+gwi drive sheets delete-sheet <ID> --sheet Q2
 
 # Delete rows or columns. --at is 1-based inclusive, same as insert-rows.
-omni-dev drive sheets delete-rows <ID> --sheet Q2 --at 5 --count 3
-omni-dev drive sheets delete-columns <ID> --sheet Q2 --at 2
+gwi drive sheets delete-rows <ID> --sheet Q2 --at 5 --count 3
+gwi drive sheets delete-columns <ID> --sheet Q2 --at 2
 
 # Delete a rectangular range, shifting what remains up or left to close the
 # gap. All four bounds are required — an open-ended span is delete-rows/
 # delete-columns's job, not this one's.
-omni-dev drive sheets delete-range <ID> --sheet Q2 \
+gwi drive sheets delete-range <ID> --sheet Q2 \
   --start-row 2 --end-row 4 --start-column 2 --end-column 3 --shift rows
 ```
 
@@ -2939,8 +2946,8 @@ path:
 
 ```
 Deleted sheet 'Q2' (sheetId 118293) from 'Budget'; this cannot be undone
-through omni-dev — the lease this write required backed the whole
-spreadsheet up when it was acquired (Drive copy 1AbC…); run `omni-dev
+through gwi — the lease this write required backed the whole
+spreadsheet up when it was acquired (Drive copy 1AbC…); run `gwi
 drive lease restore <TOKEN>` — it restores a single deleted sheet
 automatically, or otherwise locates the copy to restore from by hand in
 the Drive UI — or fall back to Google Drive's own version history
@@ -2976,31 +2983,31 @@ Cell and border formatting, merging, and row/column sizing. Also gated by
 ```bash
 # Format cells. At least one property flag is required; the batchUpdate
 # fields mask sent is built from exactly the flags given.
-omni-dev drive sheets format-cells <ID> --sheet Q2 --range A1:D1 \
+gwi drive sheets format-cells <ID> --sheet Q2 --range A1:D1 \
   --bold true --background '#FFFF00'
 
 # The CellFormat subset now also reaches font family, text rotation,
 # hyperlink display type, padding and text direction (#1791) — the union
 # --text-rotation-angle/--text-rotation-vertical is mutually exclusive.
-omni-dev drive sheets format-cells <ID> --sheet Q2 --range B2:B100 \
+gwi drive sheets format-cells <ID> --sheet Q2 --range B2:B100 \
   --number-format '#,##0.00' --number-format-type currency \
   --font-family Arial --padding-top 4 --padding-bottom 4
 
 # Borders: at least one of --top/--bottom/--left/--right/--all/
 # --inner-horizontal/--inner-vertical. --all covers only the four outer
 # edges; the two inner-grid-line flags need to be named explicitly.
-omni-dev drive sheets update-borders <ID> --sheet Q2 --range A1:D1 --all \
+gwi drive sheets update-borders <ID> --sheet Q2 --range A1:D1 --all \
   --style solid-medium --color '#000000'
 
 # Merging discards every value but the top-left's. --dry-run lists exactly
 # which cells and values would be lost — read it before running for real.
-omni-dev drive sheets merge-cells <ID> --sheet Q2 --range A1:D1 --dry-run
-omni-dev drive sheets unmerge-cells <ID> --sheet Q2 --range A1:D1
+gwi drive sheets merge-cells <ID> --sheet Q2 --range A1:D1 --dry-run
+gwi drive sheets unmerge-cells <ID> --sheet Q2 --range A1:D1
 
 # Resize rows/columns. --start/--end are 1-based and inclusive.
-omni-dev drive sheets auto-resize-dimension <ID> --sheet Q2 \
+gwi drive sheets auto-resize-dimension <ID> --sheet Q2 \
   --dimension columns --start 1 --end 4
-omni-dev drive sheets update-dimension-properties <ID> --sheet Q2 \
+gwi drive sheets update-dimension-properties <ID> --sheet Q2 \
   --dimension columns --start 1 --end 1 --pixel-size 200
 ```
 
@@ -3030,29 +3037,29 @@ Restricts what may be entered into a range. Also gated by
 
 ```bash
 # Exactly one condition flag is required.
-omni-dev drive sheets set-data-validation <ID> --sheet Q2 --range C2:C100 \
+gwi drive sheets set-data-validation <ID> --sheet Q2 --range C2:C100 \
   --one-of-list Draft,Final,Archived
-omni-dev drive sheets set-data-validation <ID> --sheet Q2 --range D2:D100 \
+gwi drive sheets set-data-validation <ID> --sheet Q2 --range D2:D100 \
   --number-between 0 100
-omni-dev drive sheets set-data-validation <ID> --sheet Q2 --range E2:E100 --checkbox
-omni-dev drive sheets set-data-validation <ID> --sheet Q2 --range F2:F100 \
+gwi drive sheets set-data-validation <ID> --sheet Q2 --range E2:E100 --checkbox
+gwi drive sheets set-data-validation <ID> --sheet Q2 --range F2:F100 \
   --custom-formula '=F2<=D2'
 
 # Tranche 2 (#1792): a dropdown sourced from a range, numeric comparators,
 # text conditions, date conditions (absolute dates only), and blank checks.
-omni-dev drive sheets set-data-validation <ID> --sheet Q2 --range G2:G100 \
+gwi drive sheets set-data-validation <ID> --sheet Q2 --range G2:G100 \
   --one-of-range 'Lists!A1:A10'
-omni-dev drive sheets set-data-validation <ID> --sheet Q2 --range H2:H100 \
+gwi drive sheets set-data-validation <ID> --sheet Q2 --range H2:H100 \
   --number-greater 0
-omni-dev drive sheets set-data-validation <ID> --sheet Q2 --range I2:I100 \
+gwi drive sheets set-data-validation <ID> --sheet Q2 --range I2:I100 \
   --text-contains '@example.com'
-omni-dev drive sheets set-data-validation <ID> --sheet Q2 --range J2:J100 \
+gwi drive sheets set-data-validation <ID> --sheet Q2 --range J2:J100 \
   --date-after 2024-01-01
-omni-dev drive sheets set-data-validation <ID> --sheet Q2 --range K2:K100 --not-blank
+gwi drive sheets set-data-validation <ID> --sheet Q2 --range K2:K100 --not-blank
 
 # --show-warning allows an invalid entry through with a warning instead of
 # rejecting it outright (the default).
-omni-dev drive sheets clear-data-validation <ID> --sheet Q2 --range C2:C100
+gwi drive sheets clear-data-validation <ID> --sheet Q2 --range C2:C100
 ```
 
 **A `--range` past the sheet's grid is clamped, not grown.** Sheets applies
@@ -3062,7 +3069,7 @@ in the dry run and the real run (`-o json`: `clamped_to`), and refuse a
 range lying wholly past the grid, which would change nothing:
 
 ```
-$ omni-dev drive sheets set-data-validation <ID> --sheet Q2 --range Z1:AA2000 --checkbox --dry-run
+$ gwi drive sheets set-data-validation <ID> --sheet Q2 --range Z1:AA2000 --checkbox --dry-run
 Would set data validation (boolean, reject invalid entries) in 'Budget'
   the range runs past the sheet's current grid; Sheets clamps it, so this would apply to 'Q2'!Z1:Z1000 only
 ```
@@ -3098,28 +3105,28 @@ index — refused locally with a clear message if they don't (issue #1933).
 
 ```bash
 # Spreadsheet-scoped: no --sheet/--dimension/--start/--end at all.
-omni-dev drive sheets set-developer-metadata <ID> --key owner --value team-a
+gwi drive sheets set-developer-metadata <ID> --key owner --value team-a
 
 # Sheet-scoped.
-omni-dev drive sheets set-developer-metadata <ID> --key owner --value team-a \
+gwi drive sheets set-developer-metadata <ID> --key owner --value team-a \
   --sheet Q2
 
 # Row/column-scoped: --start and --end name the same 1-based row or column.
-omni-dev drive sheets set-developer-metadata <ID> --key source --value import \
+gwi drive sheets set-developer-metadata <ID> --key source --value import \
   --sheet Q2 --dimension rows --start 2 --end 2
 
 # Re-running set-developer-metadata with an existing key and location
 # updates its value instead of creating a duplicate entry.
-omni-dev drive sheets set-developer-metadata <ID> --key owner --value team-b
+gwi drive sheets set-developer-metadata <ID> --key owner --value team-b
 
 # --dry-run reports every entry that would be removed before it happens.
-omni-dev drive sheets delete-developer-metadata <ID> --key owner --dry-run
-omni-dev drive sheets delete-developer-metadata <ID> --key owner
+gwi drive sheets delete-developer-metadata <ID> --key owner --dry-run
+gwi drive sheets delete-developer-metadata <ID> --key owner
 
 # search-developer-metadata is read-only and ungated. Omit --key and every
 # location flag to list every DOCUMENT-visibility entry in the workbook.
-omni-dev drive sheets search-developer-metadata <ID>
-omni-dev drive sheets search-developer-metadata <ID> --sheet Q2
+gwi drive sheets search-developer-metadata <ID>
+gwi drive sheets search-developer-metadata <ID> --sheet Q2
 ```
 
 **There is no `--visibility` flag.** `DeveloperMetadata` carries a
@@ -3150,28 +3157,28 @@ visible before it's acted on.
 ```bash
 # A BooleanRule: exactly one condition flag, plus at least one of
 # --background/--text-color/--bold.
-omni-dev drive sheets add-conditional-format <ID> --sheet Q2 --range C2:C100 \
+gwi drive sheets add-conditional-format <ID> --sheet Q2 --range C2:C100 \
   --number-greater 100 --background '#FF0000' --bold true
 
 # A GradientRule: --gradient-min-color/--gradient-max-color, plus an
 # optional --gradient-mid-color/--gradient-mid-type/--gradient-mid-value.
-omni-dev drive sheets add-conditional-format <ID> --sheet Q2 --range D2:D100 \
+gwi drive sheets add-conditional-format <ID> --sheet Q2 --range D2:D100 \
   --gradient-min-color '#FFFFFF' --gradient-max-color '#00FF00' \
   --gradient-mid-color '#FFFF00' --gradient-mid-type percent --gradient-mid-value 50
 
 # A rule can span more than one range — repeat --range.
-omni-dev drive sheets add-conditional-format <ID> --sheet Q2 \
+gwi drive sheets add-conditional-format <ID> --sheet Q2 \
   --range C2:C100 --range D2:D100 --cell-empty --background '#CCCCCC'
 
 # See what exists, and at what index — a plain, ungated read.
-omni-dev drive sheets list-conditional-formats <ID>
+gwi drive sheets list-conditional-formats <ID>
 
 # update-conditional-format replaces the whole rule at --index, ranges
 # included; it does not move a rule to a different index.
-omni-dev drive sheets update-conditional-format <ID> --sheet Q2 --index 0 \
+gwi drive sheets update-conditional-format <ID> --sheet Q2 --index 0 \
   --range C2:C100 --number-greater 200 --background '#FF0000'
 
-omni-dev drive sheets delete-conditional-format <ID> --sheet Q2 --index 1
+gwi drive sheets delete-conditional-format <ID> --sheet Q2 --index 1
 ```
 
 Unlike `set-data-validation`, `--sheet` is required on `add`/`update` (a
@@ -3206,7 +3213,7 @@ clears the anchor's own value, no structural effect.
 
 ```bash
 # Grant both operations on the folder these spreadsheets live in.
-cat >> ~/.omni-dev/settings.json <<'EOF'
+cat >> ~/.gwi/settings.json <<'EOF'
 {"write_permissions": {"rules": [
   {"folder_id": "<FOLDER_ID>", "allow": ["sheets-write", "sheets-structure"]}
 ]}}
@@ -3217,21 +3224,21 @@ EOF
 # 0-based column offset *into the source*, not an absolute sheet column.
 # A --row/--column sort order is optional and defaults to asc: the API
 # rejects a grouping without one, so a bare `--row 0` is sent as `0:asc`.
-omni-dev drive sheets add-pivot-table <ID> --sheet Report --anchor A1 \
+gwi drive sheets add-pivot-table <ID> --sheet Report --anchor A1 \
   --source 'Data!A1:D1000' \
   --row 0:asc --value 3:sum
 
 # Multiple groupings, a filter, and a vertical layout.
-omni-dev drive sheets add-pivot-table <ID> --sheet Report --anchor D1 \
+gwi drive sheets add-pivot-table <ID> --sheet Report --anchor D1 \
   --source 'Data!A1:D1000' \
   --row 0 --column 1:desc --value 3:sum --value 2:counta \
   --filter 1:East,West --value-layout vertical --no-totals
 
 # Discover existing pivot tables and their anchors — the one way to find
 # the --anchor delete-pivot-table needs.
-omni-dev drive sheets list-pivot-tables <ID>
+gwi drive sheets list-pivot-tables <ID>
 
-omni-dev drive sheets delete-pivot-table <ID> --sheet Report --anchor A1
+gwi drive sheets delete-pivot-table <ID> --sheet Report --anchor A1
 ```
 
 **`--dry-run` names the anchor, the source, the configuration, and the
@@ -3281,21 +3288,21 @@ change.
 
 ```bash
 # Protect a range, or an entire sheet with --whole-sheet.
-omni-dev drive sheets protect-range <ID> --sheet Q2 --range A1:A10 \
+gwi drive sheets protect-range <ID> --sheet Q2 --range A1:A10 \
   --description 'Locked headers' --editor teammate@example.com
-omni-dev drive sheets protect-range <ID> --sheet Signed --whole-sheet --description Final
+gwi drive sheets protect-range <ID> --sheet Signed --whole-sheet --description Final
 
 # See what's protected — a plain, ungated read.
-omni-dev drive sheets list-protections <ID>
+gwi drive sheets list-protections <ID>
 
 # Change or remove an existing protection, resolved by exact range match.
-omni-dev drive sheets update-protection <ID> --sheet Q2 --range A1:A10 \
+gwi drive sheets update-protection <ID> --sheet Q2 --range A1:A10 \
   --add-editor another@example.com --remove-editor teammate@example.com
-omni-dev drive sheets unprotect-range <ID> --sheet Q2 --range A1:A10
+gwi drive sheets unprotect-range <ID> --sheet Q2 --range A1:A10
 
 # A whole-sheet protection has no range of its own — --whole-sheet is the
 # only way to update-protection/unprotect-range one.
-omni-dev drive sheets unprotect-range <ID> --sheet Signed --whole-sheet
+gwi drive sheets unprotect-range <ID> --sheet Signed --whole-sheet
 ```
 
 `update-protection`/`unprotect-range` need the *exact* range (or, with
@@ -3329,17 +3336,17 @@ rather than nothing when there is nothing to list.
 
 ```bash
 # The basic filter — one per sheet.
-omni-dev drive sheets set-basic-filter <ID> --sheet Q2 --range A1:D100 \
+gwi drive sheets set-basic-filter <ID> --sheet Q2 --range A1:D100 \
   --sort-by 0:asc --hide-values 1:Discontinued,Returned
-omni-dev drive sheets clear-basic-filter <ID> --sheet Q2
+gwi drive sheets clear-basic-filter <ID> --sheet Q2
 
 # Filter views — many per sheet, addressed by id.
-omni-dev drive sheets add-filter-view <ID> --sheet Q2 --range A1:D100 \
+gwi drive sheets add-filter-view <ID> --sheet Q2 --range A1:D100 \
   --title 'Open only' --hide-values 2:Closed
-omni-dev drive sheets list-filter-views <ID>
-omni-dev drive sheets update-filter-view <ID> --filter-view-id 3 \
+gwi drive sheets list-filter-views <ID>
+gwi drive sheets update-filter-view <ID> --filter-view-id 3 \
   --hide-values 2:Closed,Cancelled
-omni-dev drive sheets delete-filter-view <ID> --filter-view-id 3
+gwi drive sheets delete-filter-view <ID> --filter-view-id 3
 ```
 
 **`set-basic-filter --sort-by` also needs `sheets-write`** (issue #1940).
@@ -3420,22 +3427,22 @@ validation and chart references are not scanned by the preview below).
 
 ```bash
 # Add a named range, or one covering an entire sheet with --whole-sheet.
-omni-dev drive sheets add-named-range <ID> --name Prices --sheet Q2 --range B2:B50
-omni-dev drive sheets add-named-range <ID> --name AllOfQ2 --sheet Q2 --whole-sheet
+gwi drive sheets add-named-range <ID> --name Prices --sheet Q2 --range B2:B50
+gwi drive sheets add-named-range <ID> --name AllOfQ2 --sheet Q2 --whole-sheet
 
 # See what's defined — a plain, ungated read.
-omni-dev drive sheets list-named-ranges <ID>
+gwi drive sheets list-named-ranges <ID>
 
 # Rename and/or re-point an existing named range, resolved by exact name.
-omni-dev drive sheets update-named-range <ID> --name Prices --new-name UnitPrices
-omni-dev drive sheets update-named-range <ID> --name Prices --sheet Q3 --range B2:B50
+gwi drive sheets update-named-range <ID> --name Prices --new-name UnitPrices
+gwi drive sheets update-named-range <ID> --name Prices --sheet Q3 --range B2:B50
 
 # Or resolve it by id instead — see `--id` below.
-omni-dev drive sheets update-named-range <ID> --id id-1 --new-name UnitPrices
+gwi drive sheets update-named-range <ID> --id id-1 --new-name UnitPrices
 
 # Remove a named range — read --dry-run first.
-omni-dev drive sheets delete-named-range <ID> --name Prices --dry-run
-omni-dev drive sheets delete-named-range <ID> --name Prices
+gwi drive sheets delete-named-range <ID> --name Prices --dry-run
+gwi drive sheets delete-named-range <ID> --name Prices
 ```
 
 `update-named-range`/`delete-named-range` resolve their target by `--name`
@@ -3492,28 +3499,28 @@ scorecard, data-source), are documented cuts.
 
 ```bash
 # A column chart, anchored on the same sheet its data comes from.
-omni-dev drive sheets add-chart <ID> --type column --sheet Q1 \
+gwi drive sheets add-chart <ID> --type column --sheet Q1 \
   --domain A2:A10 --series B2:B10 --series C2:C10 \
   --title 'Revenue by region' --legend bottom --anchor F2
 
 # A pie chart on a brand-new sheet of its own.
-omni-dev drive sheets add-chart <ID> --type pie --sheet Q1 \
+gwi drive sheets add-chart <ID> --type pie --sheet Q1 \
   --domain A2:A10 --series B2:B10 --pie-hole 0.4 --new-sheet
 
 # See what exists, and its numeric id — a plain, ungated read.
-omni-dev drive sheets list-charts <ID>
+gwi drive sheets list-charts <ID>
 
-omni-dev drive sheets update-chart <ID> --chart-id 3 --title 'Revenue (final)'
-omni-dev drive sheets delete-chart <ID> --chart-id 3
+gwi drive sheets update-chart <ID> --chart-id 3 --title 'Revenue (final)'
+gwi drive sheets delete-chart <ID> --chart-id 3
 
 # A slicer over B1:E100, filtering on column D — absolute index 3
 # (0 = A), not an offset within the range.
-omni-dev drive sheets add-slicer <ID> --sheet Q1 --range B1:E100 \
+gwi drive sheets add-slicer <ID> --sheet Q1 --range B1:E100 \
   --column 3 --hide-values Closed,Cancelled --title Status --anchor G2
 
-omni-dev drive sheets list-slicers <ID>
-omni-dev drive sheets update-slicer <ID> --slicer-id 4 --hide-values Closed
-omni-dev drive sheets delete-slicer <ID> --slicer-id 4
+gwi drive sheets list-slicers <ID>
+gwi drive sheets update-slicer <ID> --slicer-id 4 --hide-values Closed
+gwi drive sheets delete-slicer <ID> --slicer-id 4
 ```
 
 **`update-chart`'s crux: no field mask.** Unlike every other `update-*`
@@ -3569,20 +3576,20 @@ slicer carries no `border` field at all.
 
 ```bash
 # Move a chart to a new anchor cell on the same sheet, resizing it too.
-omni-dev drive sheets move-chart <ID> --chart-id 3 --sheet Q1 --anchor F2 --width 480
+gwi drive sheets move-chart <ID> --chart-id 3 --sheet Q1 --anchor F2 --width 480
 
 # Resize without moving: every placement flag is optional, unlike add-chart.
-omni-dev drive sheets move-chart <ID> --chart-id 3 --height 300
+gwi drive sheets move-chart <ID> --chart-id 3 --height 300
 
 # Move a chart onto a brand-new sheet of its own.
-omni-dev drive sheets move-chart <ID> --chart-id 3 --new-sheet
+gwi drive sheets move-chart <ID> --chart-id 3 --new-sheet
 
 # A slicer moves the same way, minus --new-sheet — it has no own-sheet
 # placement.
-omni-dev drive sheets move-slicer <ID> --slicer-id 4 --sheet Q2 --anchor B2
+gwi drive sheets move-slicer <ID> --slicer-id 4 --sheet Q2 --anchor B2
 
-omni-dev drive sheets update-chart-border <ID> --chart-id 3 --color '#4A86E8'
-omni-dev drive sheets update-chart-border <ID> --chart-id 3 --clear
+gwi drive sheets update-chart-border <ID> --chart-id 3 --color '#4A86E8'
+gwi drive sheets update-chart-border <ID> --chart-id 3 --clear
 ```
 
 **Every flag on `move-chart`/`move-slicer` is optional** — unlike `add-chart`,
@@ -3642,24 +3649,24 @@ applied to a range, so removing one destroys no data, the same reasoning as
 
 ```bash
 # Add row banding (the default axis) to a range.
-omni-dev drive sheets add-banding <ID> --sheet Q1 --range A1:D50 \
+gwi drive sheets add-banding <ID> --sheet Q1 --range A1:D50 \
   --first-band-color '#FFFFFF' --second-band-color '#F3F3F3'
 
 # Add column banding, with a distinct header color.
-omni-dev drive sheets add-banding <ID> --sheet Q1 --range A1:D50 \
+gwi drive sheets add-banding <ID> --sheet Q1 --range A1:D50 \
   --axis columns --header-color '#4A86E8' \
   --first-band-color '#FFFFFF' --second-band-color '#F3F3F3'
 
 # See what's defined, and its id — a plain, ungated read.
-omni-dev drive sheets list-bandings <ID>
+gwi drive sheets list-bandings <ID>
 
 # Change a color, or reposition the range, by id.
-omni-dev drive sheets update-banding <ID> --banded-range-id 0 --footer-color '#000000'
-omni-dev drive sheets update-banding <ID> --banded-range-id 0 --sheet Q1 --range A1:D100
+gwi drive sheets update-banding <ID> --banded-range-id 0 --footer-color '#000000'
+gwi drive sheets update-banding <ID> --banded-range-id 0 --sheet Q1 --range A1:D100
 
 # Remove a banded range — read --dry-run first.
-omni-dev drive sheets delete-banding <ID> --banded-range-id 0 --dry-run
-omni-dev drive sheets delete-banding <ID> --banded-range-id 0
+gwi drive sheets delete-banding <ID> --banded-range-id 0 --dry-run
+gwi drive sheets delete-banding <ID> --banded-range-id 0
 ```
 
 **Colors are `#RRGGBB` only, written via the modern `*ColorStyle` fields.**
@@ -3710,20 +3717,20 @@ applied to a span, so removing one destroys no data, the same reasoning as
 
 ```bash
 # Group rows 5-9 into a collapsible outline.
-omni-dev drive sheets add-dimension-group <ID> --sheet Q1 \
+gwi drive sheets add-dimension-group <ID> --sheet Q1 \
   --dimension rows --start 5 --end 9
 
 # See what's defined, and each group's depth — a plain, ungated read.
-omni-dev drive sheets list-dimension-groups <ID>
+gwi drive sheets list-dimension-groups <ID>
 
 # Collapse or expand a group, addressed by its span.
-omni-dev drive sheets update-dimension-group <ID> --sheet Q1 \
+gwi drive sheets update-dimension-group <ID> --sheet Q1 \
   --dimension rows --start 5 --end 9 --collapsed true
 
 # Remove a group — read --dry-run first.
-omni-dev drive sheets delete-dimension-group <ID> --sheet Q1 \
+gwi drive sheets delete-dimension-group <ID> --sheet Q1 \
   --dimension rows --start 5 --end 9 --dry-run
-omni-dev drive sheets delete-dimension-group <ID> --sheet Q1 \
+gwi drive sheets delete-dimension-group <ID> --sheet Q1 \
   --dimension rows --start 5 --end 9
 ```
 
@@ -3769,22 +3776,22 @@ from the clipboard.
 ```bash
 # Move A1:B10 on Q1 to D1, clearing the source. --paste-type defaults to
 # normal (values, formulas, formats and merges).
-omni-dev drive sheets cut-paste <ID> --sheet Q1 \
+gwi drive sheets cut-paste <ID> --sheet Q1 \
   --source A1:B10 --destination D1 --dry-run
-omni-dev drive sheets cut-paste <ID> --sheet Q1 --source A1:B10 --destination D1
+gwi drive sheets cut-paste <ID> --sheet Q1 --source A1:B10 --destination D1
 
 # Copy a single cell across a 3x3 block — repeats to fill it, since 3 is a
 # multiple of the source's 1x1 size.
-omni-dev drive sheets copy-paste <ID> --sheet Q1 \
+gwi drive sheets copy-paste <ID> --sheet Q1 \
   --source A1 --destination B1:D3 --paste-type values
 
 # Paste a tab-separated block at A1. --paste-type defaults to values, not
 # normal, since delimited text carries no formats to add.
-omni-dev drive sheets paste-data <ID> --sheet Q1 \
+gwi drive sheets paste-data <ID> --sheet Q1 \
   --destination A1 --data-file clip.tsv
-omni-dev drive sheets paste-data <ID> --sheet Q1 \
+gwi drive sheets paste-data <ID> --sheet Q1 \
   --destination A1 --data "$(printf '1\t2\n3\t4')"
-printf '1\t2\n3\t4\n' | omni-dev drive sheets paste-data <ID> --sheet Q1 \
+printf '1\t2\n3\t4\n' | gwi drive sheets paste-data <ID> --sheet Q1 \
   --destination A1 --data-file -
 ```
 
@@ -3897,15 +3904,15 @@ It exists to close [ADR-0083](adrs/adr-0083.md) §5's gate-moving question in
 tooling rather than by eye: "a verb live-verified to move or write
 formatting resolves both `sheets-write` and `sheets-structure`" is an
 obligation every grid-mutation verb has, and until this verb existed
-nothing under `omni-dev drive sheets` could read a cell's format back to
+nothing under `gwi drive sheets` could read a cell's format back to
 check it.
 
 ```bash
 # Snapshot a range's formatting before running a verb under test, then
 # again after, and diff the two — the ADR-0083 §5 verification recipe.
-omni-dev drive sheets read-cell-format <ID> --sheet Q1 --range A1:D10 -o yaml > before.yaml
-omni-dev drive sheets trim-whitespace <ID> --sheet Q1 --range A1:D10
-omni-dev drive sheets read-cell-format <ID> --sheet Q1 --range A1:D10 -o yaml > after.yaml
+gwi drive sheets read-cell-format <ID> --sheet Q1 --range A1:D10 -o yaml > before.yaml
+gwi drive sheets trim-whitespace <ID> --sheet Q1 --range A1:D10
+gwi drive sheets read-cell-format <ID> --sheet Q1 --range A1:D10 -o yaml > after.yaml
 diff before.yaml after.yaml
 ```
 
@@ -3984,7 +3991,7 @@ bytes, and `endIndex` is exclusive. The distinction is invisible in ASCII and
 matters the moment a document contains an emoji or a CJK character: `😀` is one
 character, two UTF-16 code units and four UTF-8 bytes.
 
-`omni-dev` never computes an index itself — it only reports what the server
+`gwi` never computes an index itself — it only reports what the server
 sent — so nothing here rounds the difference away silently.
 
 ### Tabs
@@ -4005,7 +4012,7 @@ Shows the document's identity, its revision, its per-tab counts and its
 heading outline. Also available as the `drive_docs_info` MCP tool.
 
 ```bash
-$ omni-dev drive docs info 1AbC_dEfGhIjKlMnOpQrStUvWxYz
+$ gwi drive docs info 1AbC_dEfGhIjKlMnOpQrStUvWxYz
 Id: 1AbC_dEfGhIjKlMnOpQrStUvWxYz
 Title: Design Doc
 Revision: ALm37BXk3nQ
@@ -4045,7 +4052,7 @@ One line per structural element, indented by nesting depth. Also available
 as the `drive_docs_read` MCP tool.
 
 ```bash
-$ omni-dev drive docs read 1AbC_dEfGhIjKlMnOpQrStUvWxYz
+$ gwi drive docs read 1AbC_dEfGhIjKlMnOpQrStUvWxYz
 START  END  KIND           STYLE        TEXT
     0    1  section-break
     1   18  paragraph      HEADING_1    Overview
@@ -4102,13 +4109,13 @@ requiring `--write-file` or `--write-full`.
 
 ```bash
 # Preview first — reports the occurrence count without sending anything
-$ omni-dev drive docs replace 1AbC… --search Q3 --replace Q4 --dry-run
+$ gwi drive docs replace 1AbC… --search Q3 --replace Q4 --dry-run
 Would replace: 7 occurrence(s) in 'Roadmap' (counted from the copy just read)
 
-$ omni-dev drive docs replace 1AbC… --search Q3 --replace Q4
+$ gwi drive docs replace 1AbC… --search Q3 --replace Q4
 Replaced: 7 occurrence(s) in 'Roadmap'
 
-$ omni-dev drive docs append 1AbC… --text $'\nAppended by omni-dev.'
+$ gwi drive docs append 1AbC… --text $'\nAppended by gwi.'
 Appended: 22 char(s) / 22 byte(s) to 'Roadmap'
 ```
 
@@ -4172,10 +4179,10 @@ The operation defaults to deny and requires a Drive lease unless the deciding
 rule explicitly sets `require_lease: false`. Preview with `--dry-run` first.
 
 ```bash
-omni-dev drive docs text-style <ID> --match 'Important' --bold true --dry-run
-omni-dev drive docs text-style <ID> --from 'Start' --to 'End' --italic false --underline true --lease <TOKEN>
-omni-dev drive docs paragraph-style <ID> --match 'Summary' --named-style heading1 --dry-run
-omni-dev drive docs paragraph-style <ID> --match 'Summary' --alignment center --lease <TOKEN>
+gwi drive docs text-style <ID> --match 'Important' --bold true --dry-run
+gwi drive docs text-style <ID> --from 'Start' --to 'End' --italic false --underline true --lease <TOKEN>
+gwi drive docs paragraph-style <ID> --match 'Summary' --named-style heading1 --dry-run
+gwi drive docs paragraph-style <ID> --match 'Summary' --alignment center --lease <TOKEN>
 ```
 
 Text properties are `--bold`, `--italic`, `--underline`, and `--strikethrough`,
@@ -4219,12 +4226,12 @@ or delete a unique match or inclusive anchor range. Insertion uses `docs-write`;
 rule opts out; both support the same output formats and `--dry-run`.
 
 ```bash
-omni-dev drive docs insert <ID> --after 'Summary' --text ' (updated)' --dry-run
-omni-dev drive docs insert <ID> --before 'Conclusion' --text-file note.txt --lease <TOKEN>
-omni-dev drive docs delete <ID> --match 'obsolete sentence' --dry-run
-omni-dev drive docs delete <ID> --from 'Start marker' --to 'End marker' --lease <TOKEN>
-omni-dev drive docs insert <ID> --segment-id <HEADER_ID> --after 'Title' --text ' (updated)' --dry-run
-omni-dev drive docs delete <ID> --segment-id <FOOTNOTE_ID> --tab-id <TAB_ID> --match 'obsolete' --lease <TOKEN>
+gwi drive docs insert <ID> --after 'Summary' --text ' (updated)' --dry-run
+gwi drive docs insert <ID> --before 'Conclusion' --text-file note.txt --lease <TOKEN>
+gwi drive docs delete <ID> --match 'obsolete sentence' --dry-run
+gwi drive docs delete <ID> --from 'Start marker' --to 'End marker' --lease <TOKEN>
+gwi drive docs insert <ID> --segment-id <HEADER_ID> --after 'Title' --text ' (updated)' --dry-run
+gwi drive docs delete <ID> --segment-id <FOOTNOTE_ID> --tab-id <TAB_ID> --match 'obsolete' --lease <TOKEN>
 ```
 
 `--from`/`--to` removes from the start of the first anchor through the end of
@@ -4278,10 +4285,10 @@ visual nesting as paragraph indentation. Creation converts leading tab character
 into nesting levels and removes those tabs as part of the formatting operation.
 
 ```bash
-omni-dev drive docs create-bullets <ID> --match 'Action items' --preset bullet-disc-circle-square --dry-run
-omni-dev drive docs create-bullets <ID> --from 'First item' --to 'Last item' --preset numbered-decimal-alpha-roman --lease <TOKEN>
-omni-dev drive docs delete-bullets <ID> --match 'Action items' --dry-run
-omni-dev drive docs delete-bullets <ID> --from 'First item' --to 'Last item' --lease <TOKEN>
+gwi drive docs create-bullets <ID> --match 'Action items' --preset bullet-disc-circle-square --dry-run
+gwi drive docs create-bullets <ID> --from 'First item' --to 'Last item' --preset numbered-decimal-alpha-roman --lease <TOKEN>
+gwi drive docs delete-bullets <ID> --match 'Action items' --dry-run
+gwi drive docs delete-bullets <ID> --from 'First item' --to 'Last item' --lease <TOKEN>
 ```
 
 `--match` selects its containing paragraph, including text outside the match.
@@ -4328,11 +4335,11 @@ deciding operator rule explicitly sets `require_lease: false`. Preview first;
 a preview does not authorize a subsequent write.
 
 ```bash
-omni-dev drive docs insert-table <ID> --after 'Summary' --rows 2 --columns 3 --dry-run
-omni-dev drive docs insert-table-row <ID> --cell 'Unique heading' --after --lease <TOKEN>
-omni-dev drive docs insert-table-column <ID> --cell 'Unique heading' --before --dry-run
-omni-dev drive docs delete-table-row <ID> --cell 'Obsolete entry' --dry-run
-omni-dev drive docs delete-table-column <ID> --cell 'Obsolete heading' --lease <TOKEN>
+gwi drive docs insert-table <ID> --after 'Summary' --rows 2 --columns 3 --dry-run
+gwi drive docs insert-table-row <ID> --cell 'Unique heading' --after --lease <TOKEN>
+gwi drive docs insert-table-column <ID> --cell 'Unique heading' --before --dry-run
+gwi drive docs delete-table-row <ID> --cell 'Obsolete entry' --dry-run
+gwi drive docs delete-table-column <ID> --cell 'Obsolete heading' --lease <TOKEN>
 ```
 
 `insert-table` creates an empty grid next to a unique literal anchor in an
@@ -4397,22 +4404,22 @@ spans. The table and JSONL read formats continue to show structural elements.
 
 ```bash
 # Read current server indices, tab/segment identities and named-range IDs.
-omni-dev drive docs read <ID> -o json
+gwi drive docs read <ID> -o json
 
 # Name a plain-text span using inclusive start/exclusive end UTF-16 indices.
-omni-dev drive docs create-named-range <ID> --tab <TAB_ID> --segment body \
+gwi drive docs create-named-range <ID> --tab <TAB_ID> --segment body \
   --name Summary --start-index 4 --end-index 11 --dry-run
-omni-dev drive docs create-named-range <ID> --tab <TAB_ID> --segment body \
+gwi drive docs create-named-range <ID> --tab <TAB_ID> --segment body \
   --name Summary --start-index 4 --end-index 11 --lease <TOKEN>
 
 # Remove metadata only, by stable ID. The text remains intact.
-omni-dev drive docs delete-named-range <ID> --tab <TAB_ID> --segment body \
+gwi drive docs delete-named-range <ID> --tab <TAB_ID> --segment body \
   --id <RANGE_ID> --dry-run
 
 # Replace a header span, or remove the body span's content explicitly.
-omni-dev drive docs replace-named-range-content <ID> --tab <TAB_ID> \
+gwi drive docs replace-named-range-content <ID> --tab <TAB_ID> \
   --segment <HEADER_ID> --id <RANGE_ID> --text-file replacement.txt --dry-run
-omni-dev drive docs replace-named-range-content <ID> --tab <TAB_ID> \
+gwi drive docs replace-named-range-content <ID> --tab <TAB_ID> \
   --segment body --id <RANGE_ID> --text '' --lease <TOKEN>
 ```
 
@@ -4454,7 +4461,7 @@ Creates a Google Doc, optionally seeded with text. Gated by the `create`
 operation, not `docs-write`.
 
 ```bash
-$ omni-dev drive docs create --name "Q4 Plan" --parent 1FoLdEr… --text "Draft."
+$ gwi drive docs create --name "Q4 Plan" --parent 1FoLdEr… --text "Draft."
 Created: 'Q4 Plan' (1NeW…) in 1FoLdEr…, seeded with 6 char(s)
 ```
 
@@ -4493,13 +4500,13 @@ Use `drive auth login --write-file` or `--write-full` for replacement, and grant
 `slides-write` explicitly; `edit`, `docs-write` and `sheets-write` do not grant it.
 
 ```bash
-omni-dev drive slides info PRESENTATION_ID
-omni-dev drive slides read PRESENTATION_ID -o json
-omni-dev drive slides read PRESENTATION_ID --slide SLIDE_OBJECT_ID -o jsonl
-omni-dev drive slides replace PRESENTATION_ID --search 'Q3' --replace 'Q4' --dry-run
-omni-dev drive lease acquire PRESENTATION_ID
-omni-dev drive slides replace PRESENTATION_ID --search 'Q3' --replace 'Q4' --lease TOKEN
-omni-dev drive slides replace PRESENTATION_ID --search 'Q3' --replace 'Q4' --slide SLIDE_OBJECT_ID --lease TOKEN
+gwi drive slides info PRESENTATION_ID
+gwi drive slides read PRESENTATION_ID -o json
+gwi drive slides read PRESENTATION_ID --slide SLIDE_OBJECT_ID -o jsonl
+gwi drive slides replace PRESENTATION_ID --search 'Q3' --replace 'Q4' --dry-run
+gwi drive lease acquire PRESENTATION_ID
+gwi drive slides replace PRESENTATION_ID --search 'Q3' --replace 'Q4' --lease TOKEN
+gwi drive slides replace PRESENTATION_ID --search 'Q3' --replace 'Q4' --slide SLIDE_OBJECT_ID --lease TOKEN
 ```
 
 Presentation IDs are the `/d/<ID>/` segment of a Slides URL. `info` lists ordinary
@@ -4543,6 +4550,66 @@ Mutation logs contain metadata/counts, never searched/replacement prose.
 Object deletion, adding slides, styling, index insertion and MCP are deferred.
 See [ADR-0093](adrs/adr-0093.md).
 
+## Request and audit logs
+
+gwi keeps two JSON Lines files under the platform state directory, `<state dir>/gwi/`
+(`~/.local/state/gwi/` on Linux; `~/Library/Application Support/gwi/` on macOS, which has no
+state directory). The directory is created `0700` and the files `0600`, and they never leave
+your machine. They are separate from omni-dev's logs, which `gwi import` does not copy; the
+history stays where it was.
+
+| | Request log | Audit log |
+|---|---|---|
+| File | `log.jsonl` | `audit.jsonl` |
+| Records | One `invocation` record per run, one `http` record per outbound request, and the Drive mutation attempts | The leased-write lifecycle and refusal trail |
+| On a write failure | Swallowed; the command's exit code is unaffected | Propagated: an operation whose audit record cannot be written does not happen |
+| `GWI_LOG_DISABLE=1` | Suppresses all writes | No effect |
+| Rotation (`GWI_LOG_MAX_SIZE`) and `gwi log prune` | Applies | Never applies; `gwi log prune --audit` is refused |
+| Path override | `GWI_LOG_FILE` | `GWI_AUDIT_LOG_FILE` |
+
+Pointing both overrides at one file is refused when the path is resolved, however the two are
+spelled (relative, `..`, symlink), so neither rotation nor `prune` can reach `audit.jsonl`.
+
+### What gets recorded
+
+Each Google API call is an `http` record tagged `service: "drive"` for this integration, with
+credentials redacted from headers and URLs and no request or response bodies by default.
+Request and response bodies (`GWI_LOG_BODIES=1`) and redacted headers (`GWI_LOG_HEADERS=1`) are
+opt-in, since a Drive body can hold the content of your files. Every rename, move, create,
+upload, edit, trash and restore attempt, whether it succeeded, was refused by the write gate
+before any API call, or failed, also writes a `kind: "drivemutation"` record carrying the file
+id and the outcome; `--dry-run` previews are never logged.
+
+### Audit log
+
+`audit.jsonl` records `kind: "audit"` entries with `context.integration: "drive"`, a `file_id`
+and a `verdict`, for every `drive lease acquire` attempt whatever its outcome and for the
+lease-gated writes and refusals that follow. A restore records both the fresh lease and the one
+it restored from. See [ADR-0080](adrs/adr-0080.md) §11 for the verdicts and why this file is
+exempt from every growth bound. Read it with `gwi log --audit`.
+
+The field-by-field record schema is in omni-dev's
+[log reference](https://github.com/rust-works/omni-dev/blob/main/docs/log.md#what-gets-recorded);
+gwi's records use the same schema, and gwi has no log reference of its own yet.
+
+### Reading and pruning
+
+```bash
+gwi log -n 20                                       # the last 20 requests
+gwi log --service drive --status '4xx,5xx' --since 2h
+gwi log --query 'kind:drivemutation status:blocked'
+gwi log --audit --since 1d -o full                  # the audit trail
+gwi log --id <INVOCATION_ID>                        # a run and every request it made
+gwi log --follow                                    # tail live
+gwi log prune --older-than 30d --dry-run            # then without --dry-run
+gwi log prune --max-size 20mb
+```
+
+`-o` takes `oneline` (the default), `json` (the stored line, verbatim, for `jq`) or `full`.
+`gwi log --help` lists every filter. `GWI_LOG_MAX_SIZE` (for example `10mb`) turns on
+size-capped rotation on write, keeping `GWI_LOG_KEEP_FILES` rotated files (default 3); rotation
+on write is unix-only.
+
 ## Rate limits and retry behaviour
 
 Drive signals quota exhaustion two ways: a plain **HTTP 429**, and **HTTP
@@ -4578,12 +4645,12 @@ symlink/path errors without pointing the mirror at unrelated local content.
 ### Credentials not configured
 
 ```
-Error: Drive credentials not configured. Run `omni-dev drive auth login`
+Error: Drive credentials not configured. Run `gwi drive auth login`
 ```
 
 Means `DRIVE_CLIENT_ID`, `DRIVE_CLIENT_SECRET`, or `DRIVE_REFRESH_TOKEN` is
 missing from both the environment and `settings.json`. Run
-`omni-dev drive auth login` — it prompts for the first two if they're
+`gwi drive auth login` — it prompts for the first two if they're
 still absent; the third is written by `auth login` itself.
 
 ### `invalid_grant`
@@ -4594,18 +4661,18 @@ tailored message:
 
 ```
 Error: Failed to obtain a Drive access token
-  Caused by: Google rejected the request (invalid_grant): this almost always means either (1) your Drive OAuth client is in "Testing" publishing status, where refresh tokens expire after 7 days — publish it to "In production" in Google Cloud Console to avoid this, or (2) access was revoked. Run `omni-dev drive auth login` again to re-authenticate.
+  Caused by: Google rejected the request (invalid_grant): this almost always means either (1) your Drive OAuth client is in "Testing" publishing status, where refresh tokens expire after 7 days — publish it to "In production" in Google Cloud Console to avoid this, or (2) access was revoked. Run `gwi drive auth login` again to re-authenticate.
 ```
 
 (during a refresh — by far the most common cause, the 7-day testing-mode
 expiry described in [Prerequisites](#prerequisites)), or:
 
 ```
-Error: Google rejected the request (invalid_grant): the authorization code was invalid, already used, expired (codes are single-use and valid only a few minutes), or the PKCE code_verifier did not match the code_challenge sent at the start of login. Run `omni-dev drive auth login` again.
+Error: Google rejected the request (invalid_grant): the authorization code was invalid, already used, expired (codes are single-use and valid only a few minutes), or the PKCE code_verifier did not match the code_challenge sent at the start of login. Run `gwi drive auth login` again.
 ```
 
 (during the initial code exchange, right after approving the consent
-screen). Either way, re-run `omni-dev drive auth login`, or push your OAuth
+screen). Either way, re-run `gwi drive auth login`, or push your OAuth
 client to "In production" in Google Cloud Console to stop the 7-day
 expiry recurring.
 
@@ -4618,7 +4685,7 @@ Error: Google denied the authorization request: access_denied
 You (or another user) clicked "Cancel" on Google's consent screen, or your
 OAuth client's test-user allowlist doesn't include the account you tried to
 authorize (a Testing-mode consent screen only allows explicitly added test
-users). Re-run `omni-dev drive auth login` and either approve the prompt or
+users). Re-run `gwi drive auth login` and either approve the prompt or
 add the account under **OAuth consent screen → Test users** in Google Cloud
 Console.
 
@@ -4631,17 +4698,17 @@ Error: Failed to start the local OAuth callback listener
 The loopback listener binds an OS-assigned ephemeral port, so this should
 be rare. The one common cause is a stale process from a previously
 interrupted `drive auth login` holding a socket resource open — retry,
-and if it persists, check for a leftover `omni-dev` process.
+and if it persists, check for a leftover `gwi` process.
 
 ### Timed out waiting for the browser sign-in callback
 
 ```
-Error: Timed out after 120s waiting for the browser sign-in callback; re-run `omni-dev drive auth login`
+Error: Timed out after 120s waiting for the browser sign-in callback; re-run `gwi drive auth login`
 ```
 
 Nothing hit the loopback callback within 120 seconds — most often because
 the consent screen was left open too long, or the browser never opened
-(see below). Just re-run `omni-dev drive auth login`.
+(see below). Just re-run `gwi drive auth login`.
 
 ### Browser did not open
 
@@ -4659,14 +4726,14 @@ targeting](#browser-profile-targeting) above.
 ```
 Error: Google did not grant the drive.readonly scope (received: openid, email, profile).
   On the consent screen, tick the Drive permission — restricted scopes are
-  not granted by default. Re-run `omni-dev drive auth login`.
+  not granted by default. Re-run `gwi drive auth login`.
 ```
 
 Cause: the consent screen's Drive permission tick-box (see
 [Prerequisites](#prerequisites)) was left unticked, so Google granted only
 `openid`/`email`/`profile` — no Drive scope at all. `auth login` rejects
 this immediately, naming the scopes Google actually granted, and writes
-nothing to `settings.json`. Fix: re-run `omni-dev drive auth login` and
+nothing to `settings.json`. Fix: re-run `gwi drive auth login` and
 tick the Drive permission this time.
 
 ### Reading a folder or shortcut's content
@@ -4699,31 +4766,31 @@ for this command today.
 
 ```
 Error: Drive API request failed: HTTP 403: Insufficient Permission (reason: insufficientPermissions)
-  Run `omni-dev drive auth login --write` to grant the drive.metadata scope needed for rename/move
+  Run `gwi drive auth login --write` to grant the drive.metadata scope needed for rename/move
 ```
 
 The active credentials only carry `drive.readonly` — there is no
 client-side check before the call, so this surfaces from Google's own 403.
-Re-run `omni-dev drive auth login --write` to upgrade the grant (see
+Re-run `gwi drive auth login --write` to upgrade the grant (see
 [Interactive setup](#interactive-setup)), then retry.
 
 ### `insufficientPermissions` on create/upload/edit
 
 ```
 Error: Drive API request failed: HTTP 403: Insufficient Permission (reason: insufficientPermissions)
-  Run `omni-dev drive auth login --write-file` (or `--write-full`) to grant the scope needed to create files/folders and upload content
+  Run `gwi drive auth login --write-file` (or `--write-full`) to grant the scope needed to create files/folders and upload content
 ```
 
 Same shape as the rename/move hint above, but for `create`/`upload` (needs
 `--write-file` or `--write-full`) or `edit` (needs `--write-file` if
-`omni-dev` created the file, `--write-full` for any pre-existing one — see
+`gwi` created the file, `--write-full` for any pre-existing one — see
 [Edit](#edit)). Re-run `drive auth login` with the named flag(s), then
 retry.
 
 ### `Blocked` — refused by the write-permission gate
 
 ```bash
-$ omni-dev drive create --name "x" --parent 1Sen...Confidential
+$ gwi drive create --name "x" --parent 1Sen...Confidential
 Blocked: x in 1Sen...Confidential
   refused by default policy (no matching rule)
 ```
@@ -4742,7 +4809,7 @@ rule (see [Resolution](#write-permissions)).
 ### `Refused: … has no parent folder visible to this account`
 
 ```bash
-$ omni-dev drive sheets write 1Sh4r3d...Plan --range 'A1' --values data.csv
+$ gwi drive sheets write 1Sh4r3d...Plan --range 'A1' --values data.csv
 Refused: 'Quarterly Plan' has no parent folder visible to this account, so no
 folder rule can apply to it. This is normal for a Sheet shared by link or
 email. Grant it by id instead: add {"file_id": "<spreadsheet id>", "allow":
@@ -4766,7 +4833,7 @@ file to a folder in your own Drive and grant that folder.
 ### `Refused: … changed since it was read (revision lease … no longer current)`
 
 ```bash
-$ omni-dev drive docs replace 1AbC… --search Q3 --replace Q4
+$ gwi drive docs replace 1AbC… --search Q3 --replace Q4
 Refused: 'Roadmap' changed since it was read (revision lease ALm37BXk3nQ no
 longer current) — nothing was written. Re-run to apply against the current
 version.
@@ -4779,7 +4846,7 @@ atomic, so the document is exactly as the other person left it.
 **Re-running is the fix**, and it is the only one. There is deliberately no
 flag to force the write through: the Docs API's alternative rebases your edit
 on top of the other person's changes and reports success, which would mean
-`omni-dev` editing a document nobody had looked at. See
+`gwi` editing a document nobody had looked at. See
 [ADR-0076](adrs/adr-0076.md) §3 and [Every edit is leased against a
 revision](#every-edit-is-leased-against-a-revision).
 
@@ -4794,7 +4861,7 @@ See [Slides](#slides).
 ### `Refused: … returned no revision id`
 
 ```bash
-$ omni-dev drive docs replace 1AbC… --search Q3 --replace Q4
+$ gwi drive docs replace 1AbC… --search Q3 --replace Q4
 Refused: 'Roadmap' returned no revision id, which Google sends only to
 callers with edit access — so this write cannot be leased against a known
 version. Request edit access, or check the account in use.
@@ -4809,7 +4876,7 @@ anyway — or worse, write without a lease — the edit is refused up front.
 Two things to check: whether the account actually has edit access to the
 document, and whether `--account` is selecting the account you meant (see
 [Multiple accounts](#multiple-accounts)). Note this is distinct from a
-`Blocked`, which is *omni-dev's* own gate refusing, and from an
+`Blocked`, which is *gwi's* own gate refusing, and from an
 `insufficientPermissions` error, which is the OAuth scope being too narrow.
 
 ### No default export format for a Google-native file
@@ -4820,6 +4887,24 @@ Error: '<name>' (mimeType: application/vnd.google-apps.form) has no default expo
 
 Only Docs/Sheets/Slides have a safe default export MIME type (see
 [Read](#read)). Pass one of the listed `--export-mime-type` values.
+
+## Coming from omni-dev
+
+gwi has its own configuration, state and manifests, and `gwi import` copies only part of what
+omni-dev's Drive integration left behind. gwi never changes omni-dev's files, so both tools can
+coexist.
+
+| omni-dev state | In gwi |
+|---|---|
+| The `drive` block (default account and accounts), the `lease` block, the `DRIVE_*` variables, and `OMNI_DEV_DRIVE_*` variables (renamed to `GWI_DRIVE_*`) in `~/.omni-dev/settings.json` | Copied by `gwi import` into `~/.gwi/settings.json`. Credentials in a `_file` that points inside `~/.omni-dev/` keep working only while that file exists. |
+| Lease ledger, `<state dir>/omni-dev/lease-ledger.jsonl` | Copied by `gwi import` (`--source-ledger PATH` for another file), expired and released leases included, so a lease taken with `omni-dev drive lease acquire` works and can be restored through `gwi drive`. A live lease stays live until it expires, in both tools, and the two ledgers are copies: releasing it in omni-dev does not release gwi's. The backups themselves are not copied; a row keeps pointing at where omni-dev put them. See [Importing omni-dev's ledger](#importing-omni-devs-ledger). |
+| Sync manifest, `<DIR>/.omni-dev-sync.json` | Nothing to do. When `<DIR>/.gwi-sync.json` is absent, `gwi drive sync` reads the old manifest (same version-1 format, same checks) and writes `.gwi-sync.json` from the first checkpoint on; if both exist, `.gwi-sync.json` wins. gwi never changes or deletes `.omni-dev-sync.json`. See [Sync](#sync). |
+| Request and audit logs | Not copied; gwi starts its own (see [Request and audit logs](#request-and-audit-logs)). The audit history stays in omni-dev ([ADR-0001](adrs/adr-0001.md)). |
+| MCP tools | gwi's `gwi-mcp` serves its own `drive_*` tools; omni-dev's keep working alongside. |
+
+The design records in [docs/adrs/](adrs/README.md) quote omni-dev's commands, paths and
+variables as they were when written; read `omni-dev drive` as `gwi drive`, `~/.omni-dev` as
+`~/.gwi` and `OMNI_DEV_*` as `GWI_*`.
 
 ## See also
 
@@ -4870,4 +4955,5 @@ Only Docs/Sheets/Slides have a safe default export MIME type (see
   `--profile`.
 - MCP tools — the 15 `drive_*` tools served by `gwi-mcp`; see the
   [MCP server](../README.md#mcp-server) section of the README.
+- [Coming from omni-dev](#coming-from-omni-dev) — what carries over and what does not.
 - [Drive API documentation](https://developers.google.com/workspace/drive/api/reference/rest/v3) — upstream reference.

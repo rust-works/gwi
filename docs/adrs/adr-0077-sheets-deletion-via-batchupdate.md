@@ -40,7 +40,7 @@ Three questions issue #1623 asked, and this ADR settles all three:
 
 1. A new gate operation, or something stronger — interactive confirmation,
    a two-phase check-then-execute pattern like the worktrees `close` op
-   ([ADR-0049](adr-0049.md))?
+   ([ADR-0049](https://github.com/rust-works/omni-dev/blob/main/docs/adrs/adr-0049.md))?
 2. What does `--dry-run` show — structural facts only, or a preview of the
    affected cell content (an extra `values.get` read, and a data-exposure
    question)?
@@ -93,7 +93,7 @@ in this tool relies on. A `--dry-run` that tells the truth about what would
 be destroyed (§4 below) is the other half of that mechanism, and together
 they are judged sufficient here as everywhere else in this integration.
 
-[ADR-0049](adr-0049.md)'s two-phase check-then-execute pattern (the
+[ADR-0049](https://github.com/rust-works/omni-dev/blob/main/docs/adrs/adr-0049.md)'s two-phase check-then-execute pattern (the
 worktrees `close` op) was the other alternative issue #1623 raised, and it
 is not adopted. That pattern exists because the worktrees daemon is a
 long-lived process a client can round-trip against twice — check, then
@@ -213,7 +213,7 @@ dimension deletes reuse the existing `sheet_id`/`sheet_title`/
 `delete-range` cannot: `dimension_range` only ever spans one axis, and a
 rectangle needs both, so `DriveMutationOutcome` gains one more
 omit-if-absent key, `grid_range` (e.g. `"rows 2-4, columns 2-3"`), the
-`deleteRange` analogue of `dimension_range`. [docs/log.md](../log.md)
+`deleteRange` analogue of `dimension_range`. [omni-dev docs/log.md](https://github.com/rust-works/omni-dev/blob/main/docs/log.md)
 documents it alongside the rest.
 
 ## Consequences
@@ -248,6 +248,6 @@ documents it alongside the rest.
 - **Sync obligation.** [docs/drive.md](../drive.md) documents the four new
   verbs, the `sheets-delete` row in the write-permission table, and removes
   the "no deletion, at all" limitation it used to state;
-  [docs/log.md](../log.md) documents the new `drivemutation` operations and
+  [omni-dev docs/log.md](https://github.com/rust-works/omni-dev/blob/main/docs/log.md) documents the new `drivemutation` operations and
   the `grid_range` context field. Keep both in sync when this ADR's
   decisions change.

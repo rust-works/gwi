@@ -1,6 +1,6 @@
 //! Cell/border formatting, merging and auto-resize via
 //! `spreadsheets.batchUpdate` (issue #1643,
-//! [ADR-0077](../../../docs/adrs/adr-0077.md)).
+//! [ADR-0077](../../../docs/adrs/adr-0077-sheets-deletion-via-batchupdate.md)).
 //!
 //! Six verbs, all gated by [`DriveOperation::SheetsStructure`] — none
 //! destroy data, with one deliberate exception called out below.

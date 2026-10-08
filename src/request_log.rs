@@ -1441,7 +1441,7 @@ pub struct DriveMutationOutcome {
     /// `None` for every non-validation verb.
     pub validation_type: Option<String>,
     /// The stable numeric id of a protected range a protection verb acted
-    /// on (issue #1643, [ADR-0077](../docs/adrs/adr-0077.md)). Set by
+    /// on (issue #1643, [ADR-0077](../docs/adrs/adr-0077-sheets-deletion-via-batchupdate.md)). Set by
     /// `protect-range` from the `addProtectedRange` reply (the id is
     /// server-assigned, like [`Self::sheet_id`] for `add-sheet`) and by
     /// `update-protection`/`unprotect-range` from the range they resolved
@@ -3162,6 +3162,21 @@ mod tests {
         };
         let err = try_record(&rec).unwrap_err();
         assert!(err.to_string().contains("record_audit()"), "{err}");
+    }
+
+    #[test]
+    fn record_swallows_the_error_when_try_record_refuses() {
+        // An audit-kind entry makes `try_record` fail before it touches the
+        // filesystem, so this reaches `record`'s swallow-and-debug-log arm
+        // deterministically (no unwritable path, no env, no other test's
+        // incidental failure) and proves the error never escapes to the caller.
+        let rec = LogRecord {
+            kind: RecordKind::Audit,
+            id: new_id(),
+            invocation_id: new_id(),
+            ..LogRecord::default()
+        };
+        record(&rec);
     }
 
     #[test]

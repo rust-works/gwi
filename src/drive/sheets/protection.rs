@@ -1,5 +1,5 @@
 //! Protected ranges via `spreadsheets.batchUpdate` (issue #1643,
-//! [ADR-0077](../../../docs/adrs/adr-0077.md)).
+//! [ADR-0077](../../../docs/adrs/adr-0077-sheets-deletion-via-batchupdate.md)).
 //!
 //! Gated by [`DriveOperation::SheetsProtection`], **not**
 //! `SheetsStructure` — see that variant's doc comment for why. A protected

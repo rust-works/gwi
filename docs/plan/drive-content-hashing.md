@@ -2,6 +2,10 @@
 
 **Status:** Built
 
+Written in omni-dev and carried over with the Drive code; it describes that work as it was
+planned there (`DriveFile`, the issue link and "omni-dev" below are omni-dev's), with commands
+spelled `gwi drive`.
+
 ## Overview
 Drive API v3's `files` resource exposes `md5Checksum`/`sha1Checksum`/`sha256Checksum`
 for binary-content files (absent for folders and Google-native Docs/Sheets/Slides),
@@ -28,14 +32,14 @@ Tracks [issue #1556](https://github.com/rust-works/omni-dev/issues/1556).
 
 ## Current CLI Structure
 ```
-omni-dev drive
+gwi drive
 ├── auth {login, status, logout}
 ├── account {list, add, remove, default}
 ├── search <QUERY> [--limit] [-o]
 └── read <FILE_ID> [--content] [--export-mime-type] [--out-file] [-o]
 
 Target:
-omni-dev drive
+gwi drive
 ├── auth {login, status, logout}
 ├── account {list, add, remove, default}
 ├── search <QUERY> [--limit] [-o]

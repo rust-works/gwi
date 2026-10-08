@@ -15,7 +15,7 @@
 //! plain-C surface, which is why this uses the upstream-generated
 //! `objc2-local-authentication` bindings rather than hand-rolled `extern
 //! "C"` declarations (ADR-0080 §7 explains the asymmetry with
-//! [ADR-0058](../../../../docs/adrs/adr-0058.md) §6's choice for
+//! [ADR-0058](https://github.com/rust-works/omni-dev/blob/main/docs/adrs/adr-0058.md) §6's choice for
 //! Accessibility). `drive lease acquire` is a synchronous CLI command, so
 //! [`LocalAuthenticator::authenticate`] bridges the async reply over a
 //! one-shot channel and blocks the calling thread on it.

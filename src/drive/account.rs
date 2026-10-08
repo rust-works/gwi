@@ -3,7 +3,7 @@
 //! [ADR-0069](../../docs/adrs/adr-0069.md)).
 //!
 //! A second, Drive-specific multi-tenancy axis, orthogonal to `--profile`
-//! ([ADR-0045](../../docs/adrs/adr-0045.md)): named accounts in the `drive`
+//! ([ADR-0045](https://github.com/rust-works/omni-dev/blob/main/docs/adrs/adr-0045.md)): named accounts in the `drive`
 //! block of `settings.json`, selected per invocation via `--account` /
 //! [`DRIVE_ACCOUNT_ENV`]. [`resolve_account`] (reads) and
 //! [`resolve_account_for_write`] (account-creating writes: `login`,

@@ -2,7 +2,7 @@
 //! [ADR-0066](../../docs/adrs/adr-0066.md)).
 //!
 //! A second, Gmail-specific multi-tenancy axis, orthogonal to `--profile`
-//! ([ADR-0045](../../docs/adrs/adr-0045.md)): named accounts in the `gmail`
+//! ([ADR-0045](https://github.com/rust-works/omni-dev/blob/main/docs/adrs/adr-0045.md)): named accounts in the `gmail`
 //! block of `settings.json`, selected per invocation via `--account` /
 //! [`GMAIL_ACCOUNT_ENV`]. [`resolve_account`] (reads) and
 //! [`resolve_account_for_write`] (account-creating writes: `login`,

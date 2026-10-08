@@ -33,7 +33,7 @@ use serde::{Deserialize, Serialize};
 /// looked at. The dangerous outcome is indistinguishable from the safe one.
 ///
 /// So it is made **unrepresentable** rather than merely undocumented,
-/// following [ADR-0061](../../../docs/adrs/adr-0061.md) §2's "not an engine
+/// following [ADR-0061](https://github.com/rust-works/omni-dev/blob/main/docs/adrs/adr-0061.md) §2's "not an engine
 /// option, not a CLI flag, not a wire field" stance.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct WriteControl {
