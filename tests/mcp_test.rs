@@ -35,6 +35,31 @@ const GMAIL_TOOLS: [&str; 8] = [
     "gmail_thread_read",
 ];
 
+const DRIVE_TOOLS: [&str; 15] = [
+    "drive_account_list",
+    "drive_auth_status",
+    "drive_dedupe",
+    "drive_docs_append",
+    "drive_docs_info",
+    "drive_docs_read",
+    "drive_docs_replace",
+    "drive_file_read",
+    "drive_lease_acquire",
+    "drive_search",
+    "drive_sheets_append",
+    "drive_sheets_clear",
+    "drive_sheets_info",
+    "drive_sheets_read",
+    "drive_sheets_write",
+];
+
+/// Every tool `gwi-mcp` serves, sorted.
+fn all_tools() -> Vec<&'static str> {
+    let mut names: Vec<_> = GMAIL_TOOLS.iter().chain(&DRIVE_TOOLS).copied().collect();
+    names.sort_unstable();
+    names
+}
+
 struct TestClient;
 
 impl ClientHandler for TestClient {}
@@ -65,14 +90,14 @@ fn text_of(result: &CallToolResult) -> String {
 }
 
 #[tokio::test]
-async fn list_tools_advertises_exactly_the_gmail_tools() -> Result<()> {
+async fn list_tools_advertises_exactly_the_gmail_and_drive_tools() -> Result<()> {
     let (client, server_handle) = spawn_server().await;
 
     let tools = client.list_tools(Option::default()).await?;
 
     let mut names: Vec<_> = tools.tools.iter().map(|t| t.name.to_string()).collect();
     names.sort();
-    assert_eq!(names, GMAIL_TOOLS);
+    assert_eq!(names, all_tools());
     for tool in &tools.tools {
         let description = tool.description.as_deref().unwrap_or_default();
         assert!(!description.is_empty(), "{} has no description", tool.name);
@@ -101,8 +126,8 @@ async fn every_tool_takes_an_optional_account() -> Result<()> {
             .and_then(|v| v.as_array())
             .cloned()
             .unwrap_or_default();
-        // `gmail_account_list` lists the accounts, so it is the one tool that takes none.
-        if name == "gmail_account_list" {
+        // The two account lists list the accounts, so they are the tools that take none.
+        if name == "gmail_account_list" || name == "drive_account_list" {
             assert!(!props.contains_key("account"), "{name}");
             continue;
         }
@@ -186,6 +211,80 @@ async fn an_unknown_tool_is_a_protocol_error_not_a_panic() -> Result<()> {
     Ok(())
 }
 
+/// Schemas and dispatch reject policy overrides before credentials or consent
+/// (omni-dev's `drive_write_tools_round_trip_and_reject_policy_parameters`).
+#[tokio::test]
+async fn drive_write_tools_round_trip_and_reject_policy_parameters() -> Result<()> {
+    let (client, server_handle) = spawn_server().await;
+    let tools = client.list_tools(Option::default()).await?;
+    for (name, arguments) in [
+        (
+            "drive_docs_replace",
+            serde_json::json!({"document_id":"target","search":"a","replace":"b"}),
+        ),
+        (
+            "drive_docs_append",
+            serde_json::json!({"document_id":"target","text":"a"}),
+        ),
+        (
+            "drive_sheets_write",
+            serde_json::json!({"spreadsheet_id":"target","values":[["a"]]}),
+        ),
+        (
+            "drive_sheets_append",
+            serde_json::json!({"spreadsheet_id":"target","values":[["a"]]}),
+        ),
+        (
+            "drive_sheets_clear",
+            serde_json::json!({"spreadsheet_id":"target","range":"A1"}),
+        ),
+        (
+            "drive_lease_acquire",
+            serde_json::json!({"file_id":"target"}),
+        ),
+    ] {
+        let tool = tools.tools.iter().find(|t| t.name == name).unwrap();
+        let properties = tool
+            .input_schema
+            .get("properties")
+            .unwrap()
+            .as_object()
+            .unwrap();
+        assert!(properties.contains_key("account"));
+        for forbidden in [
+            "allow_headless",
+            "biometrics_only",
+            "ledger_path",
+            "supersedes",
+            "rules",
+        ] {
+            assert!(
+                !properties.contains_key(forbidden),
+                "{name} exposes {forbidden}"
+            );
+        }
+        let mut arguments = arguments.as_object().unwrap().clone();
+        arguments.insert("allow_headless".into(), serde_json::json!(true));
+        let outcome = client
+            .call_tool(CallToolRequestParams::new(name).with_arguments(arguments))
+            .await;
+        let message = match outcome {
+            Err(err) => err.to_string(),
+            Ok(result) => {
+                assert_eq!(result.is_error, Some(true));
+                text_of(&result)
+            }
+        };
+        assert!(
+            message.contains("unknown field") && message.contains("allow_headless"),
+            "{name}: {message}"
+        );
+    }
+    client.cancel().await?;
+    let _ = server_handle.await;
+    Ok(())
+}
+
 /// Spawns the real `gwi-mcp` binary hermetically in an empty `HOME`.
 async fn spawn_binary(home: &std::path::Path) -> Result<(Client, tokio::process::Child)> {
     let mut child = tokio::process::Command::new(env!("CARGO_BIN_EXE_gwi-mcp"))
@@ -206,7 +305,7 @@ async fn spawn_binary(home: &std::path::Path) -> Result<(Client, tokio::process:
     Ok((client, child))
 }
 
-/// The real binary serves the same eight tools over stdio, answers the one tool
+/// The real binary serves the same 23 tools over stdio, answers the one tool
 /// that needs no credentials, and reports the others as tool errors rather than
 /// protocol failures.
 #[tokio::test]
@@ -234,11 +333,17 @@ async fn the_binary_serves_the_tools_over_stdio() -> Result<()> {
     );
 
     let tools = client.list_tools(Option::default()).await?;
-    assert_eq!(tools.tools.len(), GMAIL_TOOLS.len());
+    assert_eq!(tools.tools.len(), all_tools().len());
 
     // No accounts are configured: a successful, empty answer, not an error.
     let accounts = call("gmail_account_list", serde_json::json!({})).await??;
     assert_ne!(accounts.is_error, Some(true), "{}", text_of(&accounts));
+
+    // Likewise for Drive: the account list and the auth status answer locally.
+    for name in ["drive_account_list", "drive_auth_status"] {
+        let answer = call(name, serde_json::json!({})).await??;
+        assert_ne!(answer.is_error, Some(true), "{name}: {}", text_of(&answer));
+    }
 
     // Everything that would call the API fails first on missing credentials.
     for (name, args) in [
@@ -246,6 +351,25 @@ async fn the_binary_serves_the_tools_over_stdio() -> Result<()> {
         ("gmail_label_list", serde_json::json!({})),
         ("gmail_draft_list", serde_json::json!({})),
         ("gmail_draft_show", serde_json::json!({"draft_id": "r1"})),
+        (
+            "drive_search",
+            serde_json::json!({"query": "name contains 'x'"}),
+        ),
+        (
+            "drive_dedupe",
+            serde_json::json!({"query": "name contains 'x'"}),
+        ),
+        ("drive_file_read", serde_json::json!({"file_id": "f1"})),
+        ("drive_docs_info", serde_json::json!({"document_id": "d1"})),
+        ("drive_docs_read", serde_json::json!({"document_id": "d1"})),
+        (
+            "drive_sheets_info",
+            serde_json::json!({"spreadsheet_id": "s1"}),
+        ),
+        (
+            "drive_sheets_read",
+            serde_json::json!({"spreadsheet_id": "s1", "range": "A1"}),
+        ),
     ] {
         let failed = match call(name, args).await? {
             Ok(result) => {
