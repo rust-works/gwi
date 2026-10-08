@@ -403,6 +403,39 @@ fn log_query_warns_on_a_field_no_record_has_but_still_exits_zero() {
 }
 
 #[test]
+fn log_warns_about_unparseable_lines_but_leaves_stdout_and_exit_code_alone() {
+    let home = tempfile::tempdir().unwrap();
+    let path = home.path().join("log.jsonl");
+    // Two corrupt lines among good ones, plus a blank line and a trailing partial line.
+    std::fs::write(
+        &path,
+        format!("not json\n{HTTP_LINE}\n\n{{\"id\":\n{DRIVE_MUTATION_LINE}\n{{\"id\":\"3\",\"ki"),
+    )
+    .unwrap();
+
+    let output = gwi(home.path(), &["log", "-o", "json"]);
+
+    assert!(output.status.success());
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout),
+        format!("{HTTP_LINE}\n{DRIVE_MUTATION_LINE}\n")
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&output.stderr),
+        format!(
+            "warning: skipped 2 unparseable lines in {}\n",
+            path.display()
+        )
+    );
+
+    // A clean log, blank lines and a trailing partial line stay quiet.
+    std::fs::write(&path, format!("{HTTP_LINE}\n\n{{\"id\":\"3\",\"ki")).unwrap();
+    let output = gwi(home.path(), &["log", "-o", "json"]);
+    assert!(output.status.success());
+    assert_eq!(output.stderr, b"");
+}
+
+#[test]
 fn log_query_quoted_not_is_a_literal_and_status_accepts_drive_statuses() {
     let home = tempfile::tempdir().unwrap();
     write_logs(home.path());
