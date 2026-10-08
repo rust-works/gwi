@@ -17,8 +17,12 @@
 #          record the call, and the run fails if any was made: the application ignores
 #          the opener's exit status, so a failing stub alone would not fail a test.
 #
-# Only a PATH lookup of the opener is intercepted on Linux, and only /usr/bin/open is
-# denied on macOS; an opener invoked another way is not caught.
+# The sandbox is the backstop, not the guarantee. Every browser launch in the library goes
+# through src/utils/browser_launch.rs, which panics in a unit test that has not installed a
+# recorder (rust-works/gwi#34), on every platform. What only the sandbox covers are the
+# integration tests in tests/, which run the real binary. There only a PATH lookup of the
+# opener is intercepted on Linux, and only /usr/bin/open is denied on macOS; an opener
+# invoked another way is not caught.
 set -euo pipefail
 
 root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
