@@ -3083,7 +3083,7 @@ mod tests {
         // The fallback must be a stable scratch path, distinct from the
         // audit scratch file, and never the `state_dir`/`data_dir`-based
         // default the non-test build resolves to.
-        let real_state_dir = dirs::state_dir().or_else(dirs::data_dir);
+        let real_state_dir = dirs::state_dir().or_else(dirs::data_dir).unwrap();
 
         let unset = MapEnv::new();
         let resolved = log_file_path_with(&unset).unwrap();
@@ -3092,14 +3092,10 @@ mod tests {
             log_file_path_with(&unset).unwrap(),
             "the fallback path must be stable across calls"
         );
-        if let Some(real_state_dir) = real_state_dir {
-            assert!(
-                !resolved.starts_with(&real_state_dir),
-                "{} must not lie under the real state directory {}",
-                resolved.display(),
-                real_state_dir.display()
-            );
-        }
+        assert!(
+            !resolved.starts_with(&real_state_dir),
+            "the request-log fallback must not lie under the real state directory"
+        );
         assert_ne!(
             Some(resolved),
             audit_file_path_with(&unset),
