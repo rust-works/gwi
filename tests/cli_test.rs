@@ -604,6 +604,27 @@ fn log_warns_on_a_status_word_no_drive_mutation_has_but_still_exits_zero() {
 }
 
 #[test]
+fn log_prints_field_and_status_warnings_together_even_with_a_limit() {
+    let home = tempfile::tempdir().unwrap();
+    write_logs(home.path());
+
+    let output = gwi(
+        home.path(),
+        &[
+            "log",
+            "--limit",
+            "1",
+            "--query",
+            "servce:drive status:blokced",
+        ],
+    );
+    assert!(output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("Did you mean `service`?"), "{stderr}");
+    assert!(stderr.contains("Did you mean `blocked`?"), "{stderr}");
+}
+
+#[test]
 fn log_query_quoted_not_is_a_literal_and_status_accepts_drive_statuses() {
     let home = tempfile::tempdir().unwrap();
     write_logs(home.path());

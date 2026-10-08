@@ -307,7 +307,7 @@ impl StatusFilter {
     /// The domain status words this filter looks for, if it is one.
     fn domain_words(&self) -> Vec<&str> {
         match self {
-            Self::Domain(spec) => status_words(spec).collect(),
+            Self::Domain(spec) => domain_status_words(spec).collect(),
             Self::Codes(_) | Self::Compare(_) => Vec::new(),
         }
     }
@@ -327,16 +327,23 @@ fn status_words(spec: &str) -> impl Iterator<Item = &str> {
     spec.split(',').map(str::trim).filter(|w| !w.is_empty())
 }
 
+/// The words of a domain status spec that name a status (start with a letter),
+/// so a stray code or class in a mixed list (`blocked,5xx`) is not mistaken for
+/// a mistyped status.
+fn domain_status_words(spec: &str) -> impl Iterator<Item = &str> {
+    status_words(spec).filter(|w| w.starts_with(|c: char| c.is_ascii_alphabetic()))
+}
+
 /// Whether a `drivemutation` record's domain status (`context["status"]`) is
 /// one of the comma-separated `spec` values. Exact, not substring: the status
 /// set is enum-like and several values share substrings (`written` /
 /// `would-write`, `blocked` / `refused-*`). Other kinds never match.
 fn domain_status_matches(rec: &LogRecord, spec: &str) -> bool {
     rec.kind == RecordKind::DriveMutation
-        && rec.context.get("status").is_some_and(|status| {
-            spec.split(',')
-                .any(|want| status.eq_ignore_ascii_case(want.trim()))
-        })
+        && rec
+            .context
+            .get("status")
+            .is_some_and(|status| status_words(spec).any(|want| status.eq_ignore_ascii_case(want)))
 }
 
 /// Whether the record's command path matches `prefix` on whole path segments
@@ -559,7 +566,7 @@ impl Expr {
                     && v.trim_start()
                         .starts_with(|c: char| c.is_ascii_alphabetic()) =>
             {
-                out.extend(status_words(v).map(|w| (w, format!("status:{w}"))));
+                out.extend(domain_status_words(v).map(|w| (w, format!("status:{w}"))));
             }
             Self::Field(..) | Self::Term(_) => {}
         }
@@ -682,9 +689,12 @@ impl StatusWatch {
         }
         self.mutations += 1;
         if let Some(status) = rec.context.get("status") {
-            let status = status.to_ascii_lowercase();
-            self.unseen.remove(&status);
-            self.seen.insert(status);
+            // Case-insensitive scans of two tiny sets, so no per-record allocation.
+            self.unseen
+                .retain(|word, _| !word.eq_ignore_ascii_case(status));
+            if !self.seen.iter().any(|s| s.eq_ignore_ascii_case(status)) {
+                self.seen.insert(status.to_ascii_lowercase());
+            }
         }
     }
 
@@ -709,7 +719,7 @@ impl StatusWatch {
                     None => String::new(),
                 };
                 format!(
-                    "warning: no status `{word}` in {scanned}, so `{term}` matches nothing{so_far}.{hint}"
+                    "warning: no status `{word}` in {scanned}, so `{term}` matches no record{so_far}.{hint}"
                 )
             })
             .collect()
@@ -1713,6 +1723,16 @@ mod tests {
     }
 
     #[test]
+    fn only_status_words_in_a_mixed_list_are_watched() {
+        let recs = [drive_rec("written")];
+        let w = status_warnings(Some("written,5xx,500"), &["status:written,>=400"], &recs);
+        assert!(w.is_empty(), "{w:?}");
+        let w = status_warnings(Some("blokced,5xx"), &[], &recs);
+        assert_eq!(w.len(), 1, "{w:?}");
+        assert!(w[0].contains("`blokced`"), "{w:?}");
+    }
+
+    #[test]
     fn a_negated_or_nested_status_term_is_watched() {
         let recs = [drive_rec("written")];
         let w = status_warnings(None, &["service:drive OR NOT (status:blokced)"], &recs);
@@ -1723,8 +1743,8 @@ mod tests {
     fn following_status_warnings_say_so_far() {
         let f = filter_for(Some("blokced"), &[]).unwrap();
         f.matches(&drive_rec("blocked"), "{}");
-        assert!(f.unseen_status_warnings(true)[0].contains("matches nothing so far."));
-        assert!(f.unseen_status_warnings(false)[0].contains("matches nothing."));
+        assert!(f.unseen_status_warnings(true)[0].contains("matches no record so far."));
+        assert!(f.unseen_status_warnings(false)[0].contains("matches no record."));
     }
 
     #[test]
