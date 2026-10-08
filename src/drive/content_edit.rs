@@ -1044,6 +1044,7 @@ mod tests {
             superseded_by: None,
             restored_at: None,
             restored_sheet_id: None,
+            extra: serde_json::Map::new(),
         });
         ledger.save(&ledger_path).unwrap();
 

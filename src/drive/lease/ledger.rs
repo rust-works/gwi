@@ -151,6 +151,18 @@ pub(crate) struct LeaseRecord {
     /// is expected to proceed through.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) restored_sheet_id: Option<i64>,
+    /// Every field of the row this build does not know, kept as parsed JSON
+    /// values and written back on every rewrite (issue #46).
+    ///
+    /// The ledger is rewritten whole on each change and `gwi import` copies
+    /// rows through this type, so without this a field added by a newer
+    /// omni-dev — or by a later gwi, read by an older one after a downgrade —
+    /// would be silently dropped the next time the row was saved. Only
+    /// top-level row fields are kept: a field inside `backup` is still
+    /// dropped. Keys come back sorted, not in their original order, and a
+    /// number outside the `i64`/`u64` range comes back as an `f64`.
+    #[serde(flatten)]
+    pub(crate) extra: serde_json::Map<String, serde_json::Value>,
 }
 
 impl LeaseRecord {
@@ -767,6 +779,7 @@ mod tests {
             superseded_by: None,
             restored_at: None,
             restored_sheet_id: None,
+            extra: serde_json::Map::new(),
         }
     }
 
@@ -1082,6 +1095,63 @@ mod tests {
 
         let record = LeaseLedger::load(&path).unwrap();
         assert_eq!(record.get("t1").unwrap().superseded_by, None);
+    }
+
+    /// A row as a newer build might write it: every known field plus unknown ones of
+    /// several JSON shapes.
+    fn row_with_unknown_fields(token: &str) -> serde_json::Value {
+        let mut row = serde_json::to_value(sample_record(token)).unwrap();
+        let fields = row.as_object_mut().unwrap();
+        fields.insert("from_the_future".into(), serde_json::json!("kept"));
+        fields.insert("nested".into(), serde_json::json!({"a": [1, 2.5, null]}));
+        fields.insert("flag".into(), serde_json::json!(false));
+        row
+    }
+
+    #[test]
+    fn unknown_fields_survive_a_load_and_a_save() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("lease-ledger.jsonl");
+        let row = row_with_unknown_fields("t1");
+        std::fs::write(&path, format!("{row}\n")).unwrap();
+
+        LeaseLedger::load(&path).unwrap().save(&path).unwrap();
+
+        let saved: serde_json::Value =
+            serde_json::from_str(std::fs::read_to_string(&path).unwrap().trim()).unwrap();
+        assert_eq!(saved, row);
+    }
+
+    #[test]
+    fn unknown_fields_survive_every_mutation_of_the_row() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("lease-ledger.jsonl");
+        let row = row_with_unknown_fields("t1");
+        std::fs::write(&path, format!("{row}\n")).unwrap();
+
+        let lock = LedgerLock::acquire(&path).unwrap();
+        LeaseLedger::mutate(&lock, &path, |ledger| {
+            ledger.record_write("t1", "9".into(), None);
+            ledger.mark_restored("t1", Utc::now(), Some(7));
+            ledger.release("t1", Utc::now(), Some("t2"));
+        })
+        .unwrap();
+
+        let ledger = LeaseLedger::load(&path).unwrap();
+        let rec = ledger.get("t1").unwrap();
+        assert_eq!(rec.version, "9");
+        assert_eq!(rec.restored_sheet_id, Some(7));
+        assert!(rec.released_at.is_some());
+        for key in ["from_the_future", "nested", "flag"] {
+            assert_eq!(rec.extra.get(key), row.get(key), "{key}");
+        }
+        assert_eq!(rec.extra.len(), 3, "known fields must not land in `extra`");
+    }
+
+    #[test]
+    fn a_row_without_unknown_fields_serialises_no_extra_keys() {
+        let value = serde_json::to_value(sample_record("t1")).unwrap();
+        assert!(value.get("extra").is_none(), "{value}");
     }
 
     #[test]
