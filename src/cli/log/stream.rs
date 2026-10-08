@@ -4,7 +4,8 @@
 //! the most recent N matches in a ring buffer); `--follow` then tails newly
 //! appended complete lines. A broken pipe (e.g. piping into `head`) is treated
 //! as a clean exit, not an error, and ends the scan at once. A reader that goes
-//! away while `--follow` is idle is only noticed on the next write.
+//! away while `--follow` is idle is noticed on the next poll tick (on unix, by
+//! polling stdout for hangup; elsewhere only on the next write).
 //!
 //! `--follow` also notices the log being replaced (`gwi log prune`, rotation):
 //! on unix by the file's device and inode, elsewhere only by its shrinking.
@@ -38,6 +39,38 @@ fn file_id(meta: &std::fs::Metadata) -> FileId {
 #[cfg(not(unix))]
 fn file_id(_meta: &std::fs::Metadata) -> FileId {
     None
+}
+
+/// Whether the reader of stdout has gone away (e.g. `| head -1` has exited), so an
+/// idle `--follow`, which writes nothing, can still stop.
+#[cfg(unix)]
+fn stdout_hung_up() -> bool {
+    use std::os::fd::AsFd;
+    fd_hung_up(io::stdout().as_fd())
+}
+
+/// No hangup probe off unix: a closed pipe is only found by the next write.
+#[cfg(not(unix))]
+fn stdout_hung_up() -> bool {
+    false
+}
+
+/// Polls `fd` without waiting. A pipe whose read end is closed reports `POLLERR`
+/// (Linux) or `POLLHUP` (macOS), while a tty, a file or `/dev/null` reports neither.
+/// `POLLOUT` is requested because macOS reports nothing at all for an empty event
+/// set. `POLLNVAL` (the fd is closed) and a failed poll are not a hangup, so this
+/// can only add an exit, never a new failure.
+#[cfg(unix)]
+fn fd_hung_up(fd: std::os::fd::BorrowedFd<'_>) -> bool {
+    use nix::poll::{poll, PollFd, PollFlags, PollTimeout};
+
+    let mut fds = [PollFd::new(fd, PollFlags::POLLOUT)];
+    match poll(&mut fds, PollTimeout::ZERO) {
+        Ok(n) if n > 0 => fds[0]
+            .revents()
+            .is_some_and(|r| r.intersects(PollFlags::POLLERR | PollFlags::POLLHUP)),
+        _ => false,
+    }
 }
 
 /// Where `--follow` has got to in the file it is tailing.
@@ -91,7 +124,7 @@ pub fn run(
     }
 
     if follow {
-        if let Err(e) = follow_loop(path, filter, format, tail, &mut out) {
+        if let Err(e) = follow_loop(path, filter, format, tail, &mut out, stdout_hung_up) {
             return swallow_broken_pipe(e);
         }
     }
@@ -188,17 +221,23 @@ fn write_line<W: Write>(out: &mut W, rendered: &str) -> io::Result<bool> {
 }
 
 /// Tails the file from `pos`, printing newly appended complete lines forever
-/// (until the process is interrupted or a write finds the pipe closed). Restarts
-/// from the top when the file is truncated or replaced.
+/// (until the process is interrupted, a write finds the pipe closed, or
+/// `reader_gone` reports that the reader has gone away, which is checked each
+/// tick so an idle follow, which never writes, still stops). Restarts from the
+/// top when the file is truncated or replaced.
 fn follow_loop<W: Write>(
     path: &Path,
     filter: &Filter,
     format: Format,
     mut tail: Tail,
     out: &mut W,
+    mut reader_gone: impl FnMut() -> bool,
 ) -> Result<()> {
     loop {
         drain_appended(path, filter, format, &mut tail, out)?;
+        if reader_gone() {
+            return Ok(());
+        }
         std::thread::sleep(FOLLOW_POLL);
     }
 }
@@ -554,9 +593,64 @@ mod tests {
         let mut out = PipeWriter::failing_with(io::ErrorKind::BrokenPipe, 0);
         let tail = Tail { pos: 0, id: None };
 
-        let err = follow_loop(&path, &empty_filter(), Format::Json, tail, &mut out).unwrap_err();
+        let err = follow_loop(&path, &empty_filter(), Format::Json, tail, &mut out, || {
+            false
+        })
+        .unwrap_err();
 
         assert!(swallow_broken_pipe(err).is_ok());
+    }
+
+    #[test]
+    fn follow_loop_exits_when_the_reader_goes_away_while_idle() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("log.jsonl");
+        std::fs::write(&path, "").unwrap();
+        let mut out = Vec::new();
+        let mut ticks = 0;
+
+        // Nothing is ever written, so only the hangup check can end the loop.
+        follow_loop(
+            &path,
+            &empty_filter(),
+            Format::Json,
+            tail_at_start(),
+            &mut out,
+            || {
+                ticks += 1;
+                ticks == 3
+            },
+        )
+        .unwrap();
+
+        assert_eq!(ticks, 3);
+        assert!(out.is_empty());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn fd_hung_up_is_true_only_once_the_read_end_of_a_pipe_closes() {
+        use std::os::fd::AsFd;
+
+        let (read, write) = nix::unistd::pipe().unwrap();
+        assert!(!fd_hung_up(write.as_fd()));
+        drop(read);
+        assert!(fd_hung_up(write.as_fd()));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn fd_hung_up_is_false_for_files_and_a_writable_pipe_with_its_reader() {
+        use std::os::fd::AsFd;
+
+        let dir = tempfile::tempdir().unwrap();
+        let file = File::create(dir.path().join("out")).unwrap();
+        assert!(!fd_hung_up(file.as_fd()));
+        let null = std::fs::OpenOptions::new()
+            .write(true)
+            .open("/dev/null")
+            .unwrap();
+        assert!(!fd_hung_up(null.as_fd()));
     }
 
     fn tail_at_start() -> Tail {

@@ -498,3 +498,48 @@ fn log_follow_exits_when_its_output_pipe_closes() {
     };
     assert!(status.success(), "{status}");
 }
+
+/// An idle follow writes nothing, so it can't learn from a failed write that its
+/// reader has gone; it has to notice the hangup itself.
+#[cfg(unix)]
+#[test]
+fn log_follow_exits_when_its_output_pipe_closes_while_idle() {
+    use std::io::{BufRead, BufReader};
+    use std::process::Stdio;
+    use std::time::{Duration, Instant};
+
+    let home = tempfile::tempdir().unwrap();
+    // Small enough for the pipe buffer, so no write fails, and nothing is appended.
+    std::fs::write(home.path().join("log.jsonl"), format!("{HTTP_LINE}\n")).unwrap();
+
+    let mut child = Command::new(env!("CARGO_BIN_EXE_gwi"))
+        .args(["log", "--follow", "-o", "json"])
+        .env("HOME", home.path())
+        .env("GWI_LOG_FILE", home.path().join("log.jsonl"))
+        .env("GWI_AUDIT_LOG_FILE", home.path().join("audit.jsonl"))
+        .env("GWI_LOG_DISABLE", "1")
+        .stdout(Stdio::piped())
+        .spawn()
+        .expect("failed to run the gwi binary");
+
+    // Like `| head -1`: read the one line, then close the pipe.
+    let mut first = String::new();
+    BufReader::new(child.stdout.take().unwrap())
+        .read_line(&mut first)
+        .unwrap();
+    assert_eq!(first.trim_end(), HTTP_LINE);
+
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let status = loop {
+        if let Some(status) = child.try_wait().unwrap() {
+            break status;
+        }
+        if Instant::now() > deadline {
+            child.kill().unwrap();
+            child.wait().unwrap();
+            panic!("an idle gwi log --follow kept running after its output pipe closed");
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    };
+    assert!(status.success(), "{status}");
+}
