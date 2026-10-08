@@ -219,6 +219,70 @@ fn import_fails_on_a_conflict_until_forced() {
         .contains("fixture-id"));
 }
 
+#[test]
+fn import_dry_run_exits_zero_on_a_settings_conflict() {
+    let home = tempfile::tempdir().unwrap();
+    write_omni_dev_settings(home.path());
+    std::fs::create_dir_all(home.path().join(".gwi")).unwrap();
+    let target = home.path().join(".gwi").join("settings.json");
+    let existing = r#"{"gmail":{"accounts":{"work":{"client_id":"already-in-gwi"}}}}"#;
+    std::fs::write(&target, existing).unwrap();
+
+    let preview = gwi(home.path(), &["import", "--dry-run"]);
+    assert!(preview.status.success(), "{preview:?}");
+    let stdout = String::from_utf8_lossy(&preview.stdout);
+    assert!(
+        stdout.contains("conflict    gmail.accounts.work"),
+        "{stdout}"
+    );
+    assert!(stdout.contains("1 conflict(s)"), "{stdout}");
+    assert_eq!(
+        stdout.matches("this dry run succeeds").count(),
+        1,
+        "{stdout}"
+    );
+    assert_eq!(std::fs::read_to_string(&target).unwrap(), existing);
+
+    assert_eq!(gwi(home.path(), &["import"]).status.code(), Some(1));
+}
+
+#[test]
+fn import_dry_run_exits_zero_on_a_ledger_conflict() {
+    let home = tempfile::tempdir().unwrap();
+    write_omni_dev_settings(home.path());
+    let elsewhere = home.path().join("elsewhere.jsonl");
+    let row = r#"{"token":"t1","file_id":"f","version":"1","backup":{"kind":"drive_copy","file_id":"c"},"acquired_at":"2020-01-01T00:00:00Z","expires_at":"2020-01-01T00:15:00Z"}"#;
+    std::fs::write(&elsewhere, row).unwrap();
+    let source_ledger = elsewhere.to_str().unwrap();
+    assert!(
+        gwi(home.path(), &["import", "--source-ledger", source_ledger])
+            .status
+            .success()
+    );
+    std::fs::write(&elsewhere, row.replace("\"1\"", "\"2\"")).unwrap();
+    let target = state_dir(home.path())
+        .join("gwi")
+        .join("lease-ledger.jsonl");
+    let before = std::fs::read(&target).unwrap();
+
+    let preview = gwi(
+        home.path(),
+        &["import", "--dry-run", "--source-ledger", source_ledger],
+    );
+    assert!(preview.status.success(), "{preview:?}");
+    let stdout = String::from_utf8_lossy(&preview.stdout);
+    assert!(stdout.contains("conflict    lease t1"), "{stdout}");
+    assert_eq!(
+        stdout.matches("this dry run succeeds").count(),
+        1,
+        "{stdout}"
+    );
+    assert_eq!(std::fs::read(&target).unwrap(), before);
+
+    let real = gwi(home.path(), &["import", "--source-ledger", source_ledger]);
+    assert_eq!(real.status.code(), Some(1));
+}
+
 /// Where `dirs` puts the state directory when `HOME` is `home`.
 fn state_dir(home: &Path) -> std::path::PathBuf {
     if cfg!(target_os = "macos") {

@@ -184,14 +184,15 @@ fn lock_source(source: &Path, max_wait: Duration) -> Result<(Option<FileLock>, O
 ///
 /// A missing source is not an error: most omni-dev users never leased a Drive write.
 /// Returns an error when the source is unusable, or when conflicts were left unresolved
-/// (after importing everything that could be imported safely).
+/// (after importing everything that could be imported safely). A dry run reports its
+/// conflicts but does not fail on them: they are part of the preview.
 pub(super) fn run_ledger_import(
     source: &Path,
     target: &Path,
     dry_run: bool,
     force: bool,
     out: &mut impl Write,
-) -> Result<()> {
+) -> Result<usize> {
     run_ledger_import_waiting(
         source,
         target,
@@ -211,7 +212,7 @@ fn run_ledger_import_waiting(
     force: bool,
     lock_wait: Duration,
     out: &mut impl Write,
-) -> Result<()> {
+) -> Result<usize> {
     match std::fs::symlink_metadata(source) {
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
             writeln!(
@@ -220,7 +221,7 @@ fn run_ledger_import_waiting(
                  point at one).",
                 source.display()
             )?;
-            return Ok(());
+            return Ok(0);
         }
         Err(e) => return Err(e).with_context(|| format!("Failed to inspect {}", source.display())),
         Ok(_) if !source.is_file() => {
@@ -252,7 +253,7 @@ fn run_ledger_import_waiting(
     let source_ledger = LeaseLedger::load(source)?;
     if source_ledger.iter().next().is_none() {
         writeln!(out, "Nothing to import: the source ledger holds no leases.")?;
-        return Ok(());
+        return Ok(0);
     }
     let _target_lock = if dry_run {
         None
@@ -306,13 +307,13 @@ fn run_ledger_import_waiting(
     if !dry_run && count(Status::Added) + count(Status::Overwritten) + count(Status::Released) > 0 {
         target_ledger.save(target)?;
     }
-    if conflicts > 0 {
+    if conflicts > 0 && !dry_run {
         return Err(anyhow!(
             "{conflicts} lease(s) were not imported because gwi already has a different row for \
              the token; re-run with --force to overwrite them"
         ));
     }
-    Ok(())
+    Ok(conflicts)
 }
 
 #[cfg(test)]
@@ -359,7 +360,7 @@ mod tests {
         (dir, source, target)
     }
 
-    fn import(source: &Path, target: &Path, dry_run: bool, force: bool) -> (Result<()>, String) {
+    fn import(source: &Path, target: &Path, dry_run: bool, force: bool) -> (Result<usize>, String) {
         let mut out = Vec::new();
         let result = run_ledger_import(source, target, dry_run, force, &mut out);
         (result, String::from_utf8(out).unwrap())
@@ -511,6 +512,23 @@ mod tests {
         let merged = LeaseLedger::load(&target).unwrap();
         assert_eq!(merged.get("live"), Some(&changed), "gwi's row must survive");
         assert!(merged.get("expired").is_some() && merged.get("released").is_some());
+    }
+
+    #[test]
+    fn a_dry_run_reports_a_conflict_without_failing() {
+        let (_dir, source, target) = setup();
+        let mut changed = record("live", 10);
+        changed.version = "9".to_string();
+        ledger_of(vec![changed]).save(&target).unwrap();
+        let before = std::fs::read(&target).unwrap();
+
+        let (result, report) = import(&source, &target, true, false);
+
+        assert_eq!(result.unwrap(), 1);
+        assert!(report.contains("conflict    lease live"), "{report}");
+        assert!(report.contains("1 conflict(s)."), "{report}");
+        assert_eq!(std::fs::read(&target).unwrap(), before);
+        assert!(import(&source, &target, false, false).0.is_err());
     }
 
     #[test]

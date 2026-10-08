@@ -44,6 +44,11 @@ copies: a lease released in omni-dev is released in gwi by the next `gwi import`
 two rows are otherwise the same, not before. Audit history is not
 copied. See [Coming from omni-dev](docs/drive.md#coming-from-omni-dev) for the details.
 
+`--dry-run` lists conflicts as part of its preview and exits 0 for them, in both the settings
+and the lease ledger, with a note saying so. It is a preview, not a check: the real run
+still exits 1 on a conflict until you pass `--force`, so read the report before
+`gwi import --dry-run && gwi import` (a dry run fails only when the import itself does).
+
 A folder you synced with `omni-dev drive sync` needs nothing: `gwi drive sync` reads its
 `.omni-dev-sync.json` and continues in `.gwi-sync.json`, leaving the old file alone.
 
