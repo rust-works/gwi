@@ -4,7 +4,7 @@
 //! does not read omni-dev's `~/.omni-dev/settings.json` or its lease ledger. This command
 //! is the bridge for someone who already configured Gmail or Drive there: it copies the
 //! relevant items across so they can switch without logging in again. The settings are
-//! handled here; the lease ledger is handled in [`ledger`].
+//! handled here; the lease ledger is handled in the `ledger` submodule.
 //!
 //! The rules that make it safe to run, and to run twice:
 //!
