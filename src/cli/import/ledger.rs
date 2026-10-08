@@ -13,13 +13,20 @@
 //!   `--force` is given. A lease gwi has *released* is never re-activated, with or
 //!   without `--force`: omni-dev's copy of it is stale, and bringing it back would make a
 //!   released token valid again.
+//! - **A release in omni-dev propagates.** When omni-dev has released a lease that gwi's
+//!   row still shows live, and the rows differ in nothing else, gwi's row takes omni-dev's
+//!   `released_at` (and `superseded_by`) and is reported as `released`. This is the mirror
+//!   of the rule above: an import only ever ends authority, never grants it, so it is
+//!   always on. A row that differs in anything else (a write under the lease moves its
+//!   `version`, for one) is still a conflict. A lease both tools released, at different
+//!   moments, is unchanged.
 //! - **Every row is copied, expired and released ones included.** The ledger keeps them
 //!   on purpose: `drive lease restore` finds a backup by token, and a restore is almost
 //!   always wanted after the expiry window (ADR-0080 §4).
 //! - **A live lease is carried over unchanged.** It stays valid in gwi until its absolute
 //!   expiry, and the file's `version` is still checked on every write, so a write made
 //!   through the other tool is refused rather than overwritten. The two ledgers are
-//!   copies, not shared: releasing a lease in omni-dev does not release gwi's copy, which
+//!   copies, not shared: a release in omni-dev reaches gwi only on the next import, which
 //!   is why the report warns about the live ones it carried.
 //! - Both ledgers' advisory locks are held while copying (omni-dev's only if its lock
 //!   file already exists, because taking a lock creates the file and the source must not
@@ -37,7 +44,7 @@ use chrono::{DateTime, Utc};
 
 use super::Status;
 use crate::drive::lease::ledger::{
-    default_lock_wait_timeout, lock_path_for, LeaseLedger, LedgerLock,
+    default_lock_wait_timeout, lock_path_for, LeaseLedger, LeaseRecord, LedgerLock,
 };
 use crate::utils::fs::{try_lock_or_busy, FileLock};
 
@@ -64,6 +71,15 @@ struct Outcome {
     note: Option<&'static str>,
 }
 
+/// Whether the two rows are identical once the release fields (`released_at` and
+/// `superseded_by`) are set aside.
+fn same_but_for_release(current: &LeaseRecord, source: &LeaseRecord) -> bool {
+    let mut normalised = current.clone();
+    normalised.released_at = source.released_at;
+    normalised.superseded_by.clone_from(&source.superseded_by);
+    normalised == *source
+}
+
 /// Merges `source`'s rows into `target`, never replacing a differing row unless `force`.
 fn merge(
     target: &mut LeaseLedger,
@@ -82,12 +98,38 @@ fn merge(
                 note = Some("gwi released it; not re-activated");
                 Status::Unchanged
             }
+            // omni-dev ended this lease after the last import and nothing else differs:
+            // end it here too. Only ever stricter, so it needs no `--force`.
+            Some(current)
+                if current.released_at.is_none()
+                    && record.released_at.is_some()
+                    && same_but_for_release(current, record) =>
+            {
+                note = Some("released in omni-dev");
+                Status::Released
+            }
+            // Both tools ended it, at different moments: nothing left to propagate.
+            Some(current)
+                if current.released_at.is_some()
+                    && record.released_at.is_some()
+                    && same_but_for_release(current, record) =>
+            {
+                note = Some("already released in gwi");
+                Status::Unchanged
+            }
             Some(_) if force => Status::Overwritten,
             Some(_) => Status::Conflict,
         };
         let copied = matches!(status, Status::Added | Status::Overwritten);
         if copied {
             target.insert(record.clone());
+        } else if status == Status::Released {
+            // End authority only: keep every other field of gwi's row as it is.
+            if let Some(mut row) = target.get(&record.token).cloned() {
+                row.released_at = record.released_at;
+                row.superseded_by.clone_from(&record.superseded_by);
+                target.insert(row);
+            }
         }
         outcomes.push(Outcome {
             token: record.token.clone(),
@@ -238,14 +280,14 @@ fn run_ledger_import_waiting(
         writeln!(
             out,
             "warning: {live} live lease(s) were carried over and stay valid in gwi until they \
-             expire; the two ledgers are copies, so releasing a lease in omni-dev does not \
-             release gwi's (use `gwi drive lease release`)"
+             expire; the two ledgers are copies, so releasing a lease in omni-dev ends gwi's \
+             copy only on a later `gwi import` (or with `gwi drive lease release`)"
         )?;
     }
     let conflicts = count(Status::Conflict);
     writeln!(
         out,
-        "{}{} added, {} overwritten, {} unchanged, {} conflict(s).",
+        "{}{} added, {} overwritten, {} released, {} unchanged, {} conflict(s).",
         if dry_run {
             "Dry run, nothing written: "
         } else {
@@ -253,11 +295,12 @@ fn run_ledger_import_waiting(
         },
         count(Status::Added),
         count(Status::Overwritten),
+        count(Status::Released),
         count(Status::Unchanged),
         conflicts,
     )?;
 
-    if !dry_run && count(Status::Added) + count(Status::Overwritten) > 0 {
+    if !dry_run && count(Status::Added) + count(Status::Overwritten) + count(Status::Released) > 0 {
         target_ledger.save(target)?;
     }
     if conflicts > 0 {
@@ -346,7 +389,7 @@ mod tests {
                 "{report}"
             );
         }
-        assert!(report.contains("3 added, 0 overwritten, 0 unchanged, 0 conflict(s)"));
+        assert!(report.contains("3 added, 0 overwritten, 0 released, 0 unchanged, 0 conflict(s)"));
     }
 
     #[test]
@@ -382,7 +425,7 @@ mod tests {
 
         result.unwrap();
         assert_eq!(std::fs::read(&target).unwrap(), after_first);
-        assert!(report.contains("0 added, 0 overwritten, 3 unchanged, 0 conflict(s)"));
+        assert!(report.contains("0 added, 0 overwritten, 0 released, 3 unchanged, 0 conflict(s)"));
         assert!(!report.contains("warning"), "{report}");
     }
 
@@ -547,6 +590,218 @@ mod tests {
             );
             let kept = LeaseLedger::load(&target).unwrap();
             assert_eq!(kept.get("live"), Some(&released), "force={force}");
+        }
+    }
+
+    /// Releases `token` in the source ledger, as `omni-dev drive lease release` would.
+    fn release_in_source(source: &Path, token: &str, superseded_by: Option<&str>) {
+        let mut ledger = LeaseLedger::load(source).unwrap();
+        let mut row = ledger.get(token).unwrap().clone();
+        row.released_at = Some(Utc::now());
+        row.superseded_by = superseded_by.map(str::to_string);
+        ledger.insert(row);
+        ledger.save(source).unwrap();
+    }
+
+    #[test]
+    fn a_release_in_omni_dev_after_an_import_is_released_in_gwi() {
+        let (_dir, source, target) = setup();
+        import(&source, &target, false, false).0.unwrap();
+        release_in_source(&source, "live", None);
+
+        let (result, report) = import(&source, &target, false, false);
+
+        result.unwrap();
+        let merged = LeaseLedger::load(&target).unwrap();
+        let row = merged.get("live").unwrap();
+        assert!(!row.is_live(Utc::now()));
+        assert_eq!(
+            row.released_at,
+            LeaseLedger::load(&source)
+                .unwrap()
+                .get("live")
+                .unwrap()
+                .released_at
+        );
+        assert_eq!(
+            merged.get("live"),
+            LeaseLedger::load(&source).unwrap().get("live")
+        );
+        assert!(
+            report.contains("released    lease live  (released in omni-dev)"),
+            "{report}"
+        );
+        assert!(
+            report.contains("0 added, 0 overwritten, 1 released, 2 unchanged, 0 conflict(s)"),
+            "{report}"
+        );
+        assert!(!report.contains("warning"), "{report}");
+    }
+
+    #[test]
+    fn a_second_run_after_a_release_changes_nothing() {
+        let (_dir, source, target) = setup();
+        import(&source, &target, false, false).0.unwrap();
+        release_in_source(&source, "live", None);
+        import(&source, &target, false, false).0.unwrap();
+        let after_release = std::fs::read(&target).unwrap();
+
+        let (result, report) = import(&source, &target, false, false);
+
+        result.unwrap();
+        assert_eq!(std::fs::read(&target).unwrap(), after_release);
+        assert!(
+            report.contains("0 added, 0 overwritten, 0 released, 3 unchanged, 0 conflict(s)"),
+            "{report}"
+        );
+    }
+
+    #[test]
+    fn a_release_carries_superseded_by_with_it() {
+        let (_dir, source, target) = setup();
+        import(&source, &target, false, false).0.unwrap();
+        release_in_source(&source, "live", Some("replacement"));
+
+        import(&source, &target, false, false).0.unwrap();
+
+        let merged = LeaseLedger::load(&target).unwrap();
+        assert_eq!(
+            merged.get("live").unwrap().superseded_by.as_deref(),
+            Some("replacement")
+        );
+    }
+
+    #[test]
+    fn a_release_plus_any_other_difference_is_still_a_conflict() {
+        let (_dir, source, target) = setup();
+        import(&source, &target, false, false).0.unwrap();
+        let mut ledger = LeaseLedger::load(&target).unwrap();
+        let mut row = ledger.get("live").unwrap().clone();
+        row.version = "9".to_string();
+        ledger.insert(row.clone());
+        ledger.save(&target).unwrap();
+        release_in_source(&source, "live", None);
+
+        let (result, report) = import(&source, &target, false, false);
+
+        assert!(result.unwrap_err().to_string().contains("--force"));
+        assert!(report.contains("conflict    lease live"), "{report}");
+        assert_eq!(LeaseLedger::load(&target).unwrap().get("live"), Some(&row));
+    }
+
+    #[test]
+    fn an_expired_but_unreleased_row_takes_the_release() {
+        let (_dir, source, target) = setup();
+        import(&source, &target, false, false).0.unwrap();
+        release_in_source(&source, "expired", None);
+
+        let (result, report) = import(&source, &target, false, false);
+
+        result.unwrap();
+        assert!(report.contains("released    lease expired"), "{report}");
+        assert!(LeaseLedger::load(&target)
+            .unwrap()
+            .get("expired")
+            .unwrap()
+            .released_at
+            .is_some());
+    }
+
+    #[test]
+    fn a_lease_released_in_both_tools_at_different_moments_is_unchanged() {
+        let (_dir, source, target) = setup();
+        import(&source, &target, false, false).0.unwrap();
+        let mut ledger = LeaseLedger::load(&target).unwrap();
+        let mut row = ledger.get("live").unwrap().clone();
+        row.released_at = Some(Utc::now() - ChronoDuration::hours(1));
+        ledger.insert(row.clone());
+        ledger.save(&target).unwrap();
+        release_in_source(&source, "live", None);
+
+        let (result, report) = import(&source, &target, false, true);
+
+        result.unwrap();
+        assert!(report.contains("already released in gwi"), "{report}");
+        assert_eq!(LeaseLedger::load(&target).unwrap().get("live"), Some(&row));
+    }
+
+    #[test]
+    fn a_release_changes_only_the_release_fields_of_gwis_row() {
+        let (_dir, source, target) = setup();
+        import(&source, &target, false, false).0.unwrap();
+        release_in_source(&source, "live", Some("replacement"));
+        let before = LeaseLedger::load(&target)
+            .unwrap()
+            .get("live")
+            .unwrap()
+            .clone();
+
+        import(&source, &target, false, false).0.unwrap();
+
+        let after = LeaseLedger::load(&target)
+            .unwrap()
+            .get("live")
+            .unwrap()
+            .clone();
+        let mut expected = before;
+        expected.released_at = after.released_at;
+        expected.superseded_by = Some("replacement".to_string());
+        assert!(after.released_at.is_some());
+        assert_eq!(after, expected);
+    }
+
+    #[test]
+    fn a_dry_run_reports_a_release_but_writes_nothing() {
+        let (_dir, source, target) = setup();
+        import(&source, &target, false, false).0.unwrap();
+        release_in_source(&source, "live", None);
+        let before = std::fs::read(&target).unwrap();
+
+        let (result, report) = import(&source, &target, true, false);
+
+        result.unwrap();
+        assert!(report.contains("released    lease live"), "{report}");
+        assert!(
+            report.contains("Dry run, nothing written: 0 added, 0 overwritten, 1 released"),
+            "{report}"
+        );
+        assert_eq!(std::fs::read(&target).unwrap(), before);
+    }
+
+    #[test]
+    fn propagating_a_release_leaves_the_source_alone() {
+        let (dir, source, target) = setup();
+        import(&source, &target, false, false).0.unwrap();
+        release_in_source(&source, "live", None);
+        let before = std::fs::read(&source).unwrap();
+
+        import(&source, &target, false, false).0.unwrap();
+
+        assert_eq!(std::fs::read(&source).unwrap(), before);
+        let entries: Vec<_> = std::fs::read_dir(dir.path().join("omni-dev"))
+            .unwrap()
+            .map(|e| e.unwrap().file_name())
+            .collect();
+        assert_eq!(entries, ["lease-ledger.jsonl"]);
+    }
+
+    #[test]
+    fn a_release_is_never_undone_by_a_live_source_row() {
+        let (_dir, source, target) = setup();
+        import(&source, &target, false, false).0.unwrap();
+        let mut ledger = LeaseLedger::load(&target).unwrap();
+        let mut row = ledger.get("live").unwrap().clone();
+        row.released_at = Some(Utc::now());
+        ledger.insert(row.clone());
+        ledger.save(&target).unwrap();
+
+        for force in [false, true] {
+            import(&source, &target, false, force).0.unwrap();
+            assert_eq!(
+                LeaseLedger::load(&target).unwrap().get("live"),
+                Some(&row),
+                "force={force}"
+            );
         }
     }
 

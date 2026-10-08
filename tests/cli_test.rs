@@ -281,9 +281,50 @@ fn import_carries_the_lease_ledger_across_and_a_second_run_changes_nothing() {
     let again = gwi(home.path(), &["import"]);
     assert!(again.status.success());
     assert!(String::from_utf8_lossy(&again.stdout)
-        .contains("0 added, 0 overwritten, 2 unchanged, 0 conflict(s)"));
+        .contains("0 added, 0 overwritten, 0 released, 2 unchanged, 0 conflict(s)"));
     assert_eq!(std::fs::read(&target).unwrap(), ledger_after_first);
     assert_eq!(std::fs::read(&source).unwrap(), source_before);
+}
+
+#[test]
+fn import_propagates_a_release_made_in_omni_dev_after_the_import() {
+    let home = tempfile::tempdir().unwrap();
+    write_omni_dev_settings(home.path());
+    let source = write_omni_dev_ledger(home.path());
+    let target = state_dir(home.path())
+        .join("gwi")
+        .join("lease-ledger.jsonl");
+    assert!(gwi(home.path(), &["import"]).status.success());
+    assert!(!std::fs::read_to_string(&target)
+        .unwrap()
+        .contains("released_at"));
+
+    // omni-dev releases the live lease after the import.
+    let released = std::fs::read_to_string(&source).unwrap().replace(
+        r#""expires_at":"2999-01-01T00:00:00Z""#,
+        r#""expires_at":"2999-01-01T00:00:00Z","released_at":"2026-10-01T00:00:00Z""#,
+    );
+    std::fs::write(&source, &released).unwrap();
+
+    let again = gwi(home.path(), &["import"]);
+    assert!(again.status.success());
+    let report = String::from_utf8_lossy(&again.stdout);
+    assert!(report.contains("released    lease lease-live"), "{report}");
+    assert!(
+        report.contains("0 added, 0 overwritten, 1 released, 1 unchanged, 0 conflict(s)"),
+        "{report}"
+    );
+    assert!(std::fs::read_to_string(&target)
+        .unwrap()
+        .contains("2026-10-01T00:00:00Z"));
+
+    let ledger_after_release = std::fs::read(&target).unwrap();
+    let third = gwi(home.path(), &["import"]);
+    assert!(third.status.success());
+    assert!(String::from_utf8_lossy(&third.stdout)
+        .contains("0 added, 0 overwritten, 0 released, 2 unchanged, 0 conflict(s)"));
+    assert_eq!(std::fs::read(&target).unwrap(), ledger_after_release);
+    assert_eq!(std::fs::read_to_string(&source).unwrap(), released);
 }
 
 #[test]

@@ -40,7 +40,8 @@ directory; `--source-ledger PATH` for another file), so a lease taken with
 `omni-dev drive lease acquire` works and can be restored through `gwi drive`. Every lease is
 copied, expired ones too, because a restore needs them. A lease that is still live carries
 over unchanged and stays valid until it expires, in both tools: the two ledgers are
-copies, so releasing it in omni-dev does not release it in gwi. Audit history is not
+copies: a lease released in omni-dev is released in gwi by the next `gwi import` when the
+two rows are otherwise the same, not before. Audit history is not
 copied. See [Coming from omni-dev](docs/drive.md#coming-from-omni-dev) for the details.
 
 A folder you synced with `omni-dev drive sync` needs nothing: `gwi drive sync` reads its

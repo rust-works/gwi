@@ -160,6 +160,9 @@ enum Status {
     Conflict,
     /// gwi had a different value and `--force` replaced it.
     Overwritten,
+    /// A lease ledger row gwi still had live was released, because omni-dev had since
+    /// released it and nothing else about the row differs.
+    Released,
 }
 
 impl Status {
@@ -169,6 +172,7 @@ impl Status {
             Self::Unchanged => "unchanged",
             Self::Conflict => "conflict",
             Self::Overwritten => "overwritten",
+            Self::Released => "released",
         }
     }
 }
