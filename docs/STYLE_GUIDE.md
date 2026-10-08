@@ -4,8 +4,9 @@ Conventions for code, documentation, and other project artifacts in the gwi proj
 
 > **Provenance:** seeded from omni-dev's `docs/STYLE_GUIDE.md` (rust-works/omni-dev#2203, Phase 0)
 > and pruned in #47 to the subsystems gwi has (Gmail, Drive, MCP, shared utilities). Rule IDs are
-> kept from omni-dev so existing references resolve; an ID is never reused or renumbered. Where a rule
-> cites an omni-dev issue, that is omni-dev's issue number.
+> kept from omni-dev so existing references resolve; a rule ID is never reused or renumbered (the numbered
+> items inside a rule may be, as in STYLE-0026). Where a rule cites an omni-dev issue, that is omni-dev's
+> issue number.
 
 Each item has a unique ID for easy reference.
 
@@ -17,26 +18,26 @@ which tags apply to the changes and search this file for those tags. Each rule h
 
 **Search command:** `grep "Tags:.*<tag>" docs/STYLE_GUIDE.md` returns matching rule headings.
 
-| When you are…                                    | Search for tags                          |
-|--------------------------------------------------|------------------------------------------|
-| Adding or modifying a function                   | `code-style`, `naming`, `documentation`  |
-| Adding a type, enum, or trait                    | `api-design`, `naming`, `documentation`  |
-| Adding or changing error handling                | `error-handling`                         |
-| Creating or restructuring a module/file          | `module-organization`, `naming`          |
-| Writing or updating tests                        | `testing`                                |
-| Adding a new Gmail or Drive client method        | `testing`, `api-design`                  |
-| Adding a new CLI command                         | `testing`, `module-organization`         |
-| Changing visibility (`pub`, `pub(crate)`)        | `api-design`, `module-organization`      |
-| Adding constants or replacing magic values       | `code-style`, `naming`                   |
-| Writing commit messages                          | `commits`                                |
-| After creating commits (before push / PR)        | `commits`                                |
-| Suppressing a lint or considering `unsafe`       | `code-style`, `unsafe`                   |
-| Writing or updating an ADR                       | `adrs`                                   |
-| Adding an MCP tool or param struct               | `api-design`, `module-organization`, `testing`, `documentation` |
-| Adding or modifying a docs/plan/ file            | `documentation`, `adrs`                  |
-| Reading env vars, or testing env-dependent code  | `testing`, `module-organization`         |
-| Reading a credential or other secret             | `module-organization`, `api-design`, `testing` |
-| Reviewing code for style compliance              | All tags relevant to the changed code    |
+| When you are…                                   | Search for tags                                                 |
+|-------------------------------------------------|-----------------------------------------------------------------|
+| Adding or modifying a function                  | `code-style`, `naming`, `documentation`                         |
+| Adding a type, enum, or trait                   | `api-design`, `naming`, `documentation`                         |
+| Adding or changing error handling               | `error-handling`                                                |
+| Creating or restructuring a module/file         | `module-organization`, `naming`                                 |
+| Writing or updating tests                       | `testing`                                                       |
+| Adding a new Gmail or Drive client method       | `testing`, `api-design`                                         |
+| Adding a new CLI command                        | `testing`, `module-organization`                                |
+| Changing visibility (`pub`, `pub(crate)`)       | `api-design`, `module-organization`                             |
+| Adding constants or replacing magic values      | `code-style`, `naming`                                          |
+| Writing commit messages                         | `commits`                                                       |
+| After creating commits (before push / PR)       | `commits`                                                       |
+| Suppressing a lint or considering `unsafe`      | `code-style`, `unsafe`                                          |
+| Writing or updating an ADR                      | `adrs`                                                          |
+| Adding an MCP tool or param struct              | `api-design`, `module-organization`, `testing`, `documentation` |
+| Adding or modifying a docs/plan/ file           | `documentation`, `adrs`                                         |
+| Reading env vars, or testing env-dependent code | `testing`, `module-organization`                                |
+| Reading a credential or other secret            | `module-organization`, `api-design`, `testing`                  |
+| Reviewing code for style compliance             | All tags relevant to the changed code                           |
 
 ---
 
@@ -416,7 +417,8 @@ and may incorrectly flag valid scopes as invalid — or accept scopes that no lo
 The list is hand-maintained, and in omni-dev it drifted by nine entries
 ([#1421](https://github.com/rust-works/omni-dev/issues/1421)) without producing a visible
 failure: the judge happened to resolve the contradiction in favour of `scopes.yaml`. Relying
-on that is a coin flip, which is why the rule is checked mechanically.
+on that is a coin flip, which is why omni-dev checks the rule with a test. gwi has no such test
+yet: clauses 1 and 2 are kept by review, so check them by hand when either file changes.
 
 ---
 
@@ -1623,10 +1625,11 @@ changes, and review the `--help`
 snapshots in [`tests/snapshots/`](../tests/snapshots/) with `cargo insta review`
 whenever the reverse-reference edits change CLI `--help` text.
 
-Nothing enforces this checklist mechanically yet: [tests/mcp_test.rs](../tests/mcp_test.rs)
-pins the tool list and the `account` parameter but does not fail on a missing
-description, so every item (including the "present and non-empty" floor of items
-1 and 6) needs review.
+Only the tool-level floor of this checklist is enforced mechanically:
+`list_tools_advertises_exactly_the_gmail_and_drive_tools` in
+[tests/mcp_test.rs](../tests/mcp_test.rs) fails if any advertised tool has an empty
+description. Nothing checks that every top-level parameter has a description (item 6's
+floor) or any of the prose-quality items, so those need review.
 
 ### Motivation
 
