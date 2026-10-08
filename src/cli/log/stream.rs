@@ -9,9 +9,8 @@
 //! away while `--follow` is idle is only noticed on the next write.
 //!
 //! `--follow` also notices the log being replaced (`gwi log prune`, rotation):
-//! by the file's identity (device and inode on unix; volume serial number, file
-//! index and creation time on Windows), and on any other platform only by its
-//! shrinking.
+//! by the file's identity (device and inode on unix; volume serial number and file
+//! index on Windows), and on any other platform only by its shrinking.
 
 use std::collections::VecDeque;
 use std::fs::File;
@@ -29,48 +28,31 @@ use crate::request_log::LogRecord;
 /// Poll interval while following the log.
 const FOLLOW_POLL: Duration = Duration::from_millis(250);
 
-/// What identifies a file on disk, so a replacement at the same path can be told
-/// from the file that was being read.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct FileIdentity {
-    /// The device (unix) or volume serial number (Windows) the file lives on.
-    volume: u64,
-    /// The inode (unix) or file index (Windows).
-    index: u64,
-    /// The creation time (Windows), a second signal for filesystems whose file
-    /// index is not stable; `None` on unix, where the inode is the whole identity.
-    created: Option<u64>,
-}
-
-/// Identity of a file on disk; `None` where the platform offers none, so only
+/// Identity of a file on disk, `(device, inode)` on unix and `(volume serial number,
+/// file index)` on Windows; `None` where the platform offers none, so only
 /// shrinkage reveals a replacement.
-type FileId = Option<FileIdentity>;
+type FileId = Option<(u64, u64)>;
 
-/// The identity of the open `file`, whose metadata is `meta`.
+/// The identity of the open `file`; `None` if it cannot be read.
 #[cfg(unix)]
-fn file_id(_file: &File, meta: &std::fs::Metadata) -> FileId {
+fn file_id(file: &File) -> FileId {
     use std::os::unix::fs::MetadataExt;
-    Some(FileIdentity {
-        volume: meta.dev(),
-        index: meta.ino(),
-        created: None,
-    })
+    let meta = file.metadata().ok()?;
+    Some((meta.dev(), meta.ino()))
 }
 
 /// The identity of the open `file`, from `GetFileInformationByHandle`; the std
 /// accessors for it (`MetadataExt::file_index`, `volume_serial_number`) are unstable.
+/// On NTFS the file index carries a sequence number, so a file recreated at the
+/// same path does not reuse its predecessor's identity.
 #[cfg(windows)]
-fn file_id(file: &File, _meta: &std::fs::Metadata) -> FileId {
+fn file_id(file: &File) -> FileId {
     let info = winapi_util::file::information(file).ok()?;
-    Some(FileIdentity {
-        volume: info.volume_serial_number(),
-        index: info.file_index(),
-        created: info.creation_time(),
-    })
+    Some((info.volume_serial_number(), info.file_index()))
 }
 
 #[cfg(not(any(unix, windows)))]
-fn file_id(_file: &File, _meta: &std::fs::Metadata) -> FileId {
+fn file_id(_file: &File) -> FileId {
     None
 }
 
@@ -108,7 +90,7 @@ pub fn run(
         Ok(file) => {
             // Taken from the handle that is scanned, so a replacement after this
             // point is seen as a change of identity by the follow loop.
-            tail.id = file.metadata().ok().and_then(|m| file_id(&file, &m));
+            tail.id = file_id(&file);
             let mut reader = BufReader::new(file);
             match emit_backlog(&mut reader, filter, format, limit, follow, &mut out)? {
                 Backlog::Complete(pos) => tail.pos = pos,
@@ -257,14 +239,15 @@ fn drain_appended<W: Write>(
         return Ok(());
     };
     // Identity and length come from the handle that is read, not from the path.
-    let meta = file.metadata().ok();
-    // A failed `fstat` says nothing about replacement, so keep the saved identity.
-    let id = meta.as_ref().and_then(|m| file_id(&file, m)).or(tail.id);
-    let len = meta.map_or(tail.pos, |m| m.len());
-    if id != tail.id || len < tail.pos {
+    let len = file.metadata().map_or(tail.pos, |m| m.len());
+    let id = file_id(&file);
+    // An identity that cannot be read says nothing about replacement: keep the saved
+    // one, and do not take a first successful read after a failure for a change.
+    let replaced = matches!((id, tail.id), (Some(now), Some(saved)) if now != saved);
+    if replaced || len < tail.pos {
         tail.pos = 0; // replaced, truncated or rotated — restart
     }
-    tail.id = id;
+    tail.id = id.or(tail.id);
     if len > tail.pos {
         let mut reader = BufReader::new(file);
         reader.seek(SeekFrom::Start(tail.pos))?;
@@ -852,11 +835,7 @@ mod tests {
         let (a, b) = (dir.path().join("a.jsonl"), dir.path().join("b.jsonl"));
         std::fs::write(&a, sample_lines()).unwrap();
         std::fs::write(&b, sample_lines()).unwrap();
-        let id_of = |path: &Path| {
-            let file = File::open(path).unwrap();
-            let meta = file.metadata().unwrap();
-            file_id(&file, &meta)
-        };
+        let id_of = |path: &Path| file_id(&File::open(path).unwrap());
 
         let first = id_of(&a);
         assert!(first.is_some());
@@ -865,6 +844,33 @@ mod tests {
         writeln!(f, "{{}}").unwrap();
         assert_eq!(id_of(&a), first);
         assert_ne!(id_of(&b), first);
+    }
+
+    #[test]
+    fn drain_appended_adopts_an_identity_learned_late_without_replaying() {
+        use std::io::Write as _;
+
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("log.jsonl");
+        std::fs::write(&path, sample_lines()).unwrap();
+        // The identity could not be read at startup (`None`), and the backlog is behind us.
+        let mut tail = Tail {
+            pos: sample_lines().len() as u64,
+            id: None,
+        };
+        let mut f = std::fs::OpenOptions::new()
+            .append(true)
+            .open(&path)
+            .unwrap();
+        writeln!(f, r#"{{"id":"5","kind":"http"}}"#).unwrap();
+
+        let mut out = Vec::new();
+        drain_appended(&path, &empty_filter(), Format::Json, &mut tail, &mut out).unwrap();
+
+        let text = String::from_utf8(out).unwrap();
+        assert_eq!(text.lines().count(), 1, "text was: {text}");
+        assert!(text.contains(r#""id":"5""#));
+        assert_eq!(tail.id.is_some(), cfg!(any(unix, windows)));
     }
 
     /// Replaces `path` with `content` the way `gwi log prune` does: write a sibling,
