@@ -40,6 +40,17 @@ jobs:
     # matrix leg, so the required `Test (stable)` and `Test (nightly)` contexts keep their names.
     - run: cargo test --features mcp --verbose
 
+  # The suite with the external network and the browser opener unavailable (#22). Not a
+  # required context; see "Running the tests in a sandbox" in CONTRIBUTING.md.
+  sandboxed-test:
+    name: Sandboxed Test
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v7
+    - uses: dtolnay/rust-toolchain@stable
+    - uses: Swatinem/rust-cache@v2
+    - run: scripts/sandbox-test.sh
+
   windows-build:
     name: Windows Build
     runs-on: windows-latest
