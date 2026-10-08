@@ -1,14 +1,14 @@
 //! Relative-duration parsing for `--older-than`-style flags.
 //!
-//! Forked from omni-dev's `cli::log::query::parse_since` (rust-works/omni-dev#2203). Only
-//! `drive lease prune` uses it; omni-dev's `log` command, where it lives upstream, is not
-//! part of gwi.
+//! Forked from omni-dev's `cli::log::query::parse_since` (rust-works/omni-dev#2203). Shared by
+//! `gwi log` (`--since`/`--until`, `log prune --older-than`) and `drive lease prune`, so both
+//! prune commands accept the identical `30m`/`2h`/`1d`/`1w` syntax.
 
 use anyhow::{bail, Context, Result};
 use chrono::{DateTime, Duration, Utc};
 
 /// Parses a relative duration like `30m`, `2h`, `1d`, `1w`, `45s` into the
-/// absolute cutoff `now - duration`. Used by `drive lease prune --older-than`.
+/// absolute cutoff `now - duration`. Shared by every `--older-than`/`--since` flag.
 pub fn parse_since(s: &str) -> Result<DateTime<Utc>> {
     let s = s.trim();
     let (num, unit) = s.split_at(
