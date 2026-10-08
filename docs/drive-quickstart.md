@@ -34,7 +34,7 @@ A second, Drive-only project/OAuth client is fine, and so is reusing the
 same project you already set up for [Gmail](gmail-quickstart.md) with both
 APIs enabled — the two features' credential stores are fully independent
 either way (see [ADR-0069](adrs/adr-0069.md)). This is your choice, not a
-constraint omni-dev imposes.
+constraint gwi imposes.
 
 ## 2. Create an OAuth2 client
 
@@ -58,7 +58,7 @@ verification review is required below 100 test users.
 ## 3. Log in — and tick the Drive permission
 
 ```bash
-omni-dev drive auth login
+gwi drive auth login
 ```
 
 This opens a browser to Google's consent screen. **The Drive permission is
@@ -74,7 +74,7 @@ re-run the command.
 ## 4. Verify
 
 ```bash
-omni-dev drive auth status
+gwi drive auth status
 ```
 
 Expect something like:
@@ -98,7 +98,7 @@ If this succeeds, everything downstream will work.
 Search for something you know is in your Drive:
 
 ```bash
-omni-dev drive search "name contains 'report'"
+gwi drive search "name contains 'report'"
 ```
 
 ```
@@ -109,14 +109,14 @@ ID                                   NAME              MIMETYPE                M
 Read that file's metadata:
 
 ```bash
-omni-dev drive read 1AbCdEfGhIjKlMnOpQrStUvWxYz
+gwi drive read 1AbCdEfGhIjKlMnOpQrStUvWxYz
 ```
 
 Then fetch its actual content. For a regular file (like the PDF above),
 save it to disk:
 
 ```bash
-omni-dev drive read 1AbCdEfGhIjKlMnOpQrStUvWxYz --content --out-file report.pdf
+gwi drive read 1AbCdEfGhIjKlMnOpQrStUvWxYz --content --out-file report.pdf
 ```
 
 For a Google Doc, Sheet, or Slides file instead, `--content` exports it —
@@ -124,7 +124,7 @@ Docs become Markdown, Sheets become CSV, Slides become plain text, by
 default:
 
 ```bash
-omni-dev drive read <google-doc-id> --content
+gwi drive read <google-doc-id> --content
 ```
 
 The full flag reference — including size caps and folder/shortcut
@@ -139,6 +139,8 @@ handling — is in [drive.md#read](drive.md#read).
   [drive.md#multiple-accounts](drive.md#multiple-accounts).
 - **MCP tools** — `gwi-mcp` serves 15 `drive_*` tools; see the
   [MCP server](../README.md#mcp-server) section of the README.
+- **Coming from omni-dev** — what `gwi import` carries over:
+  [drive.md#coming-from-omni-dev](drive.md#coming-from-omni-dev).
 
 ## Troubleshooting quick links
 
