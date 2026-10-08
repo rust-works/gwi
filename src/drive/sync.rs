@@ -21,7 +21,9 @@ use crate::drive::types::DriveFile;
 
 const MANIFEST: &str = ".gwi-sync.json";
 /// The manifest `omni-dev drive sync` wrote. It is read when [`MANIFEST`] is absent so a
-/// folder synced with omni-dev carries on; it is never written, changed or deleted.
+/// folder synced with omni-dev carries on; it is never written, changed or deleted. It is
+/// reserved against new allocations only: a gwi mirror that already holds a remote file of
+/// this name keeps it, so existing manifests still validate.
 const LEGACY_MANIFEST: &str = ".omni-dev-sync.json";
 const MAX_BYTES: u64 = 500 * 1024 * 1024;
 
@@ -266,7 +268,6 @@ fn validate_relative(path: &Path) -> Result<()> {
             .context("non-UTF-8 manifest path")?;
         ensure!(
             !name.eq_ignore_ascii_case(MANIFEST)
-                && !name.eq_ignore_ascii_case(LEGACY_MANIFEST)
                 && !name.chars().any(|c| c.is_control()
                     || matches!(c, '/' | '\\' | '<' | '>' | ':' | '"' | '|' | '?' | '*'))
                 && !name.ends_with(['.', ' '])

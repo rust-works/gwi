@@ -79,8 +79,6 @@ fn names_are_portable_bounded_and_cannot_traverse() {
         "/evil",
         ".gwi-sync.json",
         "foo/.gwi-sync.json",
-        ".omni-dev-sync.json",
-        "foo/.OMNI-DEV-SYNC.json",
         "a\\b",
         "a/../b",
     ] {
@@ -242,6 +240,11 @@ fn a_directory_holding_only_omni_devs_manifest_is_not_empty_without_it() {
         .unwrap_err()
         .to_string()
         .contains("non-empty"));
+}
+
+#[test]
+fn a_gwi_mirror_already_holding_that_remote_file_still_validates() {
+    validate_relative(Path::new(LEGACY_MANIFEST)).unwrap();
 }
 
 #[test]

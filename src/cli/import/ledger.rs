@@ -10,7 +10,9 @@
 //! - It merges one lease (one token) at a time. A token gwi lacks is added; an identical
 //!   row is unchanged, so a second run changes nothing; a *different* row for the same
 //!   token (gwi has since written under it) is a conflict and is left alone unless
-//!   `--force` is given.
+//!   `--force` is given. A lease gwi has *released* is never re-activated, with or
+//!   without `--force`: omni-dev's copy of it is stale, and bringing it back would make a
+//!   released token valid again.
 //! - **Every row is copied, expired and released ones included.** The ledger keeps them
 //!   on purpose: `drive lease restore` finds a backup by token, and a restore is almost
 //!   always wanted after the expiry window (ADR-0080 §4).
@@ -58,6 +60,8 @@ struct Outcome {
     status: Status,
     /// The row was copied in (added or overwritten) and can still authorise a write.
     carried_live: bool,
+    /// Why the row was left as it is, when that is not obvious from the status.
+    note: Option<&'static str>,
 }
 
 /// Merges `source`'s rows into `target`, never replacing a differing row unless `force`.
@@ -69,9 +73,15 @@ fn merge(
 ) -> Vec<Outcome> {
     let mut outcomes = Vec::new();
     for record in source.iter() {
+        let mut note = None;
         let status = match target.get(&record.token) {
             None => Status::Added,
             Some(current) if current == record => Status::Unchanged,
+            // gwi ended this lease; omni-dev's row still shows it live. Never revive it.
+            Some(current) if current.released_at.is_some() && record.released_at.is_none() => {
+                note = Some("gwi released it; not re-activated");
+                Status::Unchanged
+            }
             Some(_) if force => Status::Overwritten,
             Some(_) => Status::Conflict,
         };
@@ -83,6 +93,7 @@ fn merge(
             token: record.token.clone(),
             status,
             carried_live: copied && record.is_live(now),
+            note,
         });
     }
     outcomes
@@ -92,17 +103,25 @@ fn merge(
 ///
 /// `None` when the lock file does not exist: omni-dev creates it before it ever writes
 /// the ledger, so its absence means nothing is writing, and creating it here would
-/// modify the source. The ledger itself is replaced by rename, so a read without the
-/// lock still sees a whole file.
-fn lock_source(source: &Path, max_wait: Duration) -> Result<Option<FileLock>> {
+/// modify the source. `None` too, with a warning, when the file exists but cannot be
+/// opened for locking (a read-only copy, another owner): the ledger is replaced by
+/// rename, so reading it without the lock still sees a whole file.
+fn lock_source(source: &Path, max_wait: Duration) -> Result<(Option<FileLock>, Option<String>)> {
     let lock_path = lock_path_for(source);
     if !lock_path.exists() {
-        return Ok(None);
+        return Ok((None, None));
     }
     let start = Instant::now();
     loop {
-        if let Some(lock) = try_lock_or_busy(&lock_path, "omni-dev's lease lock file")? {
-            return Ok(Some(lock));
+        match try_lock_or_busy(&lock_path, "omni-dev's lease lock file") {
+            Ok(Some(lock)) => return Ok((Some(lock), None)),
+            Ok(None) => {}
+            Err(err) => {
+                let warning = format!(
+                    "could not lock omni-dev's ledger ({err:#}); reading it without the lock"
+                );
+                return Ok((None, Some(warning)));
+            }
         }
         if start.elapsed() >= max_wait {
             return Err(anyhow!(
@@ -148,14 +167,25 @@ fn run_ledger_import_waiting(
     lock_wait: Duration,
     out: &mut impl Write,
 ) -> Result<()> {
-    if !source.exists() {
-        writeln!(
-            out,
-            "No omni-dev lease ledger at {}; no leases to import (pass --source-ledger to \
-             point at one).",
-            source.display()
-        )?;
-        return Ok(());
+    match std::fs::symlink_metadata(source) {
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            writeln!(
+                out,
+                "No omni-dev lease ledger at {}; no leases to import (pass --source-ledger to \
+                 point at one).",
+                source.display()
+            )?;
+            return Ok(());
+        }
+        Err(e) => return Err(e).with_context(|| format!("Failed to inspect {}", source.display())),
+        Ok(_) if !source.is_file() => {
+            return Err(anyhow!(
+                "{} is not a lease ledger file; pass --source-ledger with the path of \
+                 lease-ledger.jsonl",
+                source.display()
+            ))
+        }
+        Ok(_) => {}
     }
     writeln!(
         out,
@@ -166,11 +196,14 @@ fn run_ledger_import_waiting(
 
     // Source lock first, then gwi's: every import takes them in this order, and omni-dev
     // never takes gwi's, so two imports cannot deadlock.
-    let _source_lock = if dry_run {
-        None
+    let (_source_lock, lock_warning) = if dry_run {
+        (None, None)
     } else {
         lock_source(source, lock_wait)?
     };
+    if let Some(warning) = lock_warning {
+        writeln!(out, "warning: {warning}")?;
+    }
     let source_ledger = LeaseLedger::load(source)?;
     if source_ledger.iter().next().is_none() {
         writeln!(out, "Nothing to import: the source ledger holds no leases.")?;
@@ -188,10 +221,10 @@ fn run_ledger_import_waiting(
 
     let count = |status: Status| outcomes.iter().filter(|o| o.status == status).count();
     for outcome in &outcomes {
-        let note = if outcome.status == Status::Conflict {
-            "  (gwi has a different row; use --force)"
-        } else {
-            ""
+        let note = match (outcome.status, outcome.note) {
+            (Status::Conflict, _) => "  (gwi has a different row; use --force)".to_string(),
+            (_, Some(note)) => format!("  ({note})"),
+            _ => String::new(),
         };
         writeln!(
             out,
@@ -495,6 +528,58 @@ mod tests {
 
         assert!(err.contains("timed out"), "{err}");
         assert!(!target.exists());
+    }
+
+    #[test]
+    fn a_lease_gwi_released_is_never_revived_even_with_force() {
+        let (_dir, source, target) = setup();
+        let mut released = record("live", 10);
+        released.released_at = Some(Utc::now());
+        ledger_of(vec![released.clone()]).save(&target).unwrap();
+
+        for force in [false, true] {
+            let (result, report) = import(&source, &target, false, force);
+
+            result.unwrap();
+            assert!(
+                report.contains("gwi released it; not re-activated"),
+                "{report}"
+            );
+            let kept = LeaseLedger::load(&target).unwrap();
+            assert_eq!(kept.get("live"), Some(&released), "force={force}");
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn an_unopenable_source_lock_falls_back_to_reading_without_it() {
+        use std::os::unix::fs::PermissionsExt;
+        let (_dir, source, target) = setup();
+        let lock = lock_path_for(&source);
+        std::fs::write(&lock, "").unwrap();
+        std::fs::set_permissions(&lock, std::fs::Permissions::from_mode(0o400)).unwrap();
+        if std::fs::OpenOptions::new().write(true).open(&lock).is_ok() {
+            return; // running as root: the permission cannot be made to bite
+        }
+
+        let (result, report) = import(&source, &target, false, false);
+
+        result.unwrap();
+        assert!(
+            report.contains("warning: could not lock omni-dev's ledger"),
+            "{report}"
+        );
+        assert_eq!(tokens(&target).len(), 3);
+    }
+
+    #[test]
+    fn a_source_that_is_not_a_file_is_named_not_reported_missing() {
+        let (dir, _source, target) = setup();
+
+        let (result, _) = import(&dir.path().join("omni-dev"), &target, false, false);
+
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("not a lease ledger file"), "{err}");
     }
 
     #[test]

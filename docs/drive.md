@@ -1774,9 +1774,14 @@ file, and `--dry-run` shows the plan and writes nothing.
   is unchanged (so running the import twice changes nothing), and a different row
   for a token gwi already has is a conflict: it is left alone and the command exits
   `1` unless `--force` replaces it. Other rows in gwi's ledger are never touched.
+  A lease you have released in gwi is never brought back to life, with or without
+  `--force`: omni-dev's copy of it is stale, so the row is left as it is.
 - **The source is never modified.** Both ledgers' advisory locks are held while
   copying (omni-dev's only when its lock file already exists, since taking a lock
-  creates one). A dry run takes no lock.
+  creates one; if that file cannot be opened the import warns and reads the ledger
+  without it, which is safe because the ledger is replaced atomically). A dry run
+  takes no lock. A missing omni-dev settings file is not an error when there is a
+  ledger to import.
 - **No audit history is copied** (ADR-0001 §3). Records omni-dev wrote stay in its
   `audit.jsonl`; `gwi log --audit` starts fresh.
 - The backups themselves are not copied: a row keeps pointing at the local path or
