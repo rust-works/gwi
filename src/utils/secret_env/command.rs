@@ -528,20 +528,20 @@ mod tests {
 
     #[test]
     fn a_missing_bare_program_names_it_and_hints_at_an_absolute_path() {
-        let err = resolve_now("omni-dev-no-such-helper --flag").unwrap_err();
+        let err = resolve_now("gwi-no-such-helper --flag").unwrap_err();
         assert!(matches!(err, SecretEnvError::CommandSpawn { .. }), "{err}");
         let text = err.to_string();
-        assert!(text.contains("omni-dev-no-such-helper"), "{text}");
+        assert!(text.contains("gwi-no-such-helper"), "{text}");
         assert!(text.contains("absolute path"), "{text}");
         assert!(!text.contains("--flag"), "arguments leaked: {text}");
     }
 
     #[test]
     fn a_missing_absolute_program_does_not_advise_what_it_already_did() {
-        let text = resolve_now("/nonexistent/omni-dev-helper")
+        let text = resolve_now("/nonexistent/gwi-helper")
             .unwrap_err()
             .to_string();
-        assert!(text.contains("/nonexistent/omni-dev-helper"), "{text}");
+        assert!(text.contains("/nonexistent/gwi-helper"), "{text}");
         assert!(!text.contains("absolute path"), "{text}");
     }
 

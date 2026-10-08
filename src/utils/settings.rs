@@ -9,8 +9,8 @@
 //! production paths that mutate the settings file. Writes target the active
 //! profile's `env` when a profile is given, mirroring the read-side isolation
 //! of [`Settings::resolve_with`] (issue #1116). Because the `env` maps hold
-//! credentials (Atlassian, Datadog), every write is hardened: parent directory
-//! `0700`, file `0600`, re-tightened on each write (issue #1128).
+//! credentials (such as the Gmail refresh token), every write is hardened: parent
+//! directory `0700`, file `0600`, re-tightened on each write (issue #1128).
 
 use std::collections::{BTreeSet, HashMap};
 use std::fmt;
@@ -29,12 +29,12 @@ use crate::utils::secret_env;
 ///
 /// An ambient setting — a shell export or a `settings.json` `env` entry — is
 /// sticky across invocations, so warnings about security-sensitive values
-/// (e.g. the claude-cli escape hatches) name the source to distinguish a
+/// (e.g. a credential or safety override) name the source to distinguish a
 /// deliberate one-off flag from a forgotten persistent setting.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum EnvValueSource {
     /// Exported into the process environment by a command-line flag during
-    /// this invocation (see `AiBackendArgs::apply`).
+    /// this invocation (see [`exported_by_cli_flag`]).
     CliFlag,
     /// The process environment (a shell export or inherited variable).
     ProcessEnv,
@@ -60,8 +60,8 @@ impl fmt::Display for EnvValueSource {
     }
 }
 
-/// Env-var keys that `AiBackendArgs::apply` exported from command-line
-/// flags this invocation. Additive-only, written once at startup, so readers
+/// Env-var keys that command-line flags exported into the process environment
+/// this invocation. Additive-only, written once at startup, so readers
 /// can attribute a process-env hit to the flag that set it rather than to an
 /// ambient shell export. Not an env-mutation seam: tests exercise the sourced
 /// resolvers through their injected `from_cli_flag` parameter instead.
@@ -339,7 +339,7 @@ impl EnvSource for SettingsEnvRef<'_> {
 /// Process-wide de-duplication for [`Settings::load_or_warn_default`]'s
 /// warning (issue #1744). Remembers the last failure warned about: a repeat
 /// of the same failure is silent, while a successful load forgets it — so a
-/// long-lived process (the daemon, the MCP server) warns afresh if the file is
+/// long-lived process (the MCP server) warns afresh if the file is
 /// fixed and later broken again, even with an identical error.
 struct LoadWarnDedup(Mutex<Option<String>>);
 
@@ -1105,7 +1105,7 @@ pub fn get_env_var(key: &str) -> Result<String> {
 ///
 /// The source is a command-line flag export, the process environment, or a
 /// settings.json `env` map (issue #1143) — for warnings about
-/// security-sensitive values (e.g. the claude-cli escape hatches) that
+/// security-sensitive values (e.g. a credential or safety override) that
 /// should name their source.
 pub fn get_env_var_sourced(key: &str) -> Result<(String, EnvValueSource)> {
     get_env_var_sourced_with(&SystemEnv, Settings::load, exported_by_cli_flag(key), key)
@@ -1187,11 +1187,11 @@ mod tests {
     /// resolver tests (no disk, no process env).
     fn settings_with_profile() -> Settings {
         let mut base = HashMap::new();
-        base.insert("ATLASSIAN_EMAIL".to_string(), "base@x.com".to_string());
+        base.insert("GWI_TEST_EMAIL".to_string(), "base@x.com".to_string());
         base.insert("SHARED".to_string(), "base-shared".to_string());
 
         let mut work_env = HashMap::new();
-        work_env.insert("ATLASSIAN_EMAIL".to_string(), "me@work.com".to_string());
+        work_env.insert("GWI_TEST_EMAIL".to_string(), "me@work.com".to_string());
 
         let mut profiles = HashMap::new();
         profiles.insert("work".to_string(), Profile { env: work_env });
@@ -1216,7 +1216,7 @@ mod tests {
         let settings_json = r#"{
             "env": {
                 "TEST_VAR": "test_value",
-                "CLAUDE_API_KEY": "test_api_key"
+                "GWI_TEST_API_KEY": "test_api_key"
             }
         }"#;
         fs::write(&settings_path, settings_json).unwrap();
@@ -1226,7 +1226,10 @@ mod tests {
 
         // Check env vars
         assert_eq!(settings.env.get("TEST_VAR").unwrap(), "test_value");
-        assert_eq!(settings.env.get("CLAUDE_API_KEY").unwrap(), "test_api_key");
+        assert_eq!(
+            settings.env.get("GWI_TEST_API_KEY").unwrap(),
+            "test_api_key"
+        );
     }
 
     #[test]
@@ -1351,7 +1354,7 @@ mod tests {
         let raw = MapEnv::new();
         assert_eq!(
             settings
-                .resolve_with(&raw, None, "ATLASSIAN_EMAIL")
+                .resolve_with(&raw, None, "GWI_TEST_EMAIL")
                 .as_deref(),
             Some("base@x.com")
         );
@@ -1363,7 +1366,7 @@ mod tests {
         let raw = MapEnv::new();
         assert_eq!(
             settings
-                .resolve_with(&raw, Some("work"), "ATLASSIAN_EMAIL")
+                .resolve_with(&raw, Some("work"), "GWI_TEST_EMAIL")
                 .as_deref(),
             Some("me@work.com")
         );
@@ -1381,16 +1384,16 @@ mod tests {
     #[test]
     fn resolve_process_env_wins_over_profile_and_base() {
         let settings = settings_with_profile();
-        let raw = MapEnv::new().with("ATLASSIAN_EMAIL", "cli@x.com");
+        let raw = MapEnv::new().with("GWI_TEST_EMAIL", "cli@x.com");
         assert_eq!(
             settings
-                .resolve_with(&raw, Some("work"), "ATLASSIAN_EMAIL")
+                .resolve_with(&raw, Some("work"), "GWI_TEST_EMAIL")
                 .as_deref(),
             Some("cli@x.com")
         );
         assert_eq!(
             settings
-                .resolve_with(&raw, None, "ATLASSIAN_EMAIL")
+                .resolve_with(&raw, None, "GWI_TEST_EMAIL")
                 .as_deref(),
             Some("cli@x.com")
         );
@@ -1403,7 +1406,7 @@ mod tests {
         let settings = settings_with_profile();
         let raw = MapEnv::new();
         assert_eq!(
-            settings.resolve_with(&raw, Some("nope"), "ATLASSIAN_EMAIL"),
+            settings.resolve_with(&raw, Some("nope"), "GWI_TEST_EMAIL"),
             None
         );
     }
@@ -1458,7 +1461,7 @@ mod tests {
             &path,
             None,
             &[
-                ("DATADOG_SITE", "eu"),
+                ("GWI_TEST_SITE", "eu"),
                 ("GMAIL_REFRESH_TOKEN", "s3cr3t-value"),
             ],
         )
@@ -1738,9 +1741,9 @@ mod tests {
     #[test]
     fn resolve_with_source_process_env_is_process_env() {
         let settings = settings_with_profile();
-        let raw = MapEnv::new().with("ATLASSIAN_EMAIL", "cli@x.com");
+        let raw = MapEnv::new().with("GWI_TEST_EMAIL", "cli@x.com");
         assert_eq!(
-            settings.resolve_with_source(&raw, None, "ATLASSIAN_EMAIL"),
+            settings.resolve_with_source(&raw, None, "GWI_TEST_EMAIL"),
             Some(("cli@x.com".to_string(), EnvValueSource::ProcessEnv))
         );
     }
@@ -1750,7 +1753,7 @@ mod tests {
         let settings = settings_with_profile();
         let raw = MapEnv::new();
         assert_eq!(
-            settings.resolve_with_source(&raw, None, "ATLASSIAN_EMAIL"),
+            settings.resolve_with_source(&raw, None, "GWI_TEST_EMAIL"),
             Some(("base@x.com".to_string(), EnvValueSource::SettingsEnv))
         );
     }
@@ -1760,7 +1763,7 @@ mod tests {
         let settings = settings_with_profile();
         let raw = MapEnv::new();
         assert_eq!(
-            settings.resolve_with_source(&raw, Some("work"), "ATLASSIAN_EMAIL"),
+            settings.resolve_with_source(&raw, Some("work"), "GWI_TEST_EMAIL"),
             Some((
                 "me@work.com".to_string(),
                 EnvValueSource::SettingsProfile("work".to_string())
@@ -1841,7 +1844,7 @@ mod tests {
         let json = r#"{
             "env": { "BASE": "b" },
             "profiles": {
-                "work": { "env": { "ATLASSIAN_EMAIL": "me@work.com" } }
+                "work": { "env": { "GWI_TEST_EMAIL": "me@work.com" } }
             }
         }"#;
         let settings: Settings = serde_json::from_str(json).unwrap();
@@ -1852,7 +1855,7 @@ mod tests {
                 .get("work")
                 .unwrap()
                 .env
-                .get("ATLASSIAN_EMAIL")
+                .get("GWI_TEST_EMAIL")
                 .unwrap(),
             "me@work.com"
         );
@@ -1913,7 +1916,7 @@ mod tests {
     fn get_env_var_with_falls_back_to_base_settings() {
         let settings = settings_with_profile();
         let env = MapEnv::new();
-        let value = get_env_var_with(&env, || Ok(settings), "ATLASSIAN_EMAIL").unwrap();
+        let value = get_env_var_with(&env, || Ok(settings), "GWI_TEST_EMAIL").unwrap();
         assert_eq!(value, "base@x.com");
     }
 
@@ -1921,7 +1924,7 @@ mod tests {
     fn get_env_var_with_honours_active_profile() {
         let settings = settings_with_profile();
         let env = MapEnv::new().with(PROFILE_ENV_VAR, "work");
-        let value = get_env_var_with(&env, || Ok(settings), "ATLASSIAN_EMAIL").unwrap();
+        let value = get_env_var_with(&env, || Ok(settings), "GWI_TEST_EMAIL").unwrap();
         assert_eq!(value, "me@work.com");
     }
 
@@ -1970,7 +1973,7 @@ mod tests {
         let settings = settings_with_profile();
         let env = MapEnv::new();
         let resolved =
-            get_env_var_sourced_with(&env, || Ok(settings), false, "ATLASSIAN_EMAIL").unwrap();
+            get_env_var_sourced_with(&env, || Ok(settings), false, "GWI_TEST_EMAIL").unwrap();
         assert_eq!(
             resolved,
             ("base@x.com".to_string(), EnvValueSource::SettingsEnv)
@@ -1979,7 +1982,7 @@ mod tests {
         let settings = settings_with_profile();
         let env = MapEnv::new().with(PROFILE_ENV_VAR, "work");
         let resolved =
-            get_env_var_sourced_with(&env, || Ok(settings), false, "ATLASSIAN_EMAIL").unwrap();
+            get_env_var_sourced_with(&env, || Ok(settings), false, "GWI_TEST_EMAIL").unwrap();
         assert_eq!(
             resolved,
             (
