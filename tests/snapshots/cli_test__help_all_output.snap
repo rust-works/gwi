@@ -11,6 +11,7 @@ Commands:
   gmail   Gmail: search, read, and label messages via OAuth2
   drive   Drive: search, read, edit and sync Google Drive files, plus Docs, Sheets and Slides
   import  Import: copy Gmail and Drive settings from omni-dev
+  log     Log: search the request and audit logs, and prune the request log
   help    Print this message or the help of the given subcommand(s)
 
 Options:
@@ -8414,6 +8415,103 @@ Options:
           Overwrite items that gwi already has with a different value.
           
           Without it such items are reported as conflicts and left as they are.
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+===== gwi log =====
+Log: search the request and audit logs, and prune the request log
+
+Usage: gwi log [OPTIONS]
+       gwi log <COMMAND>
+
+Commands:
+  prune  Prune old records to bound the log's on-disk growth
+  help   Print this message or the help of the given subcommand(s)
+
+Options:
+      --profile <NAME>
+          Selects a named credential/config profile from `~/.gwi/settings.json` (AWS-CLI style).
+          
+          When set, the profile's `env` bundle replaces the base `env` map in the settings-fallback chain (process env still wins); the base map is not consulted. Overrides `GWI_PROFILE`. An unknown name is a hard error listing the known profiles.
+
+      --since <DUR_OR_TS>
+          Lower time bound: a relative window (`30m`, `2h`, `1d`), a date (`2026-07-01`), or an RFC3339 timestamp
+
+      --until <DUR_OR_TS>
+          Upper time bound: same forms as `--since` (a relative value means that long ago). Pair with `--since` for a bounded window
+
+      --method <METHOD>
+          Match the HTTP method (case-insensitive), e.g. `GET`
+
+      --status <STATUS>
+          Match the status: exact (`200`), class (`5xx`), or list (`4xx,5xx`)
+
+      --service <NAME>
+          Match the service tag, e.g. `gmail`, `drive`
+
+      --command <PATH>
+          Match the resolved command path prefix, e.g. `"gmail read"`
+
+      --url <SUBSTR>
+          Match a substring of the request URL
+
+      --grep <REGEX>
+          Match a regular expression against the raw JSON line
+
+      --fuzzy <TOKEN>
+          Require a fuzzy token (substring of the raw line); repeatable, AND-ed
+
+      --query <EXPR>
+          A query expression (AND/OR/NOT, `field:value`, bare tokens); repeatable, AND-ed together
+
+      --id <ID>
+          Match this record `id` or `invocation_id` (pulls a run and its requests)
+
+  -o, --output <OUTPUT>
+          Output format
+
+          Possible values:
+          - oneline: One compact line per record (default)
+          - json:    The on-disk NDJSON line, verbatim (composes with `jq`)
+          - full:    A labelled, multi-line block per record
+          
+          [default: oneline]
+
+  -n, --limit <N>
+          Show at most N (most recent) matching records
+
+  -f, --follow
+          Follow the log, printing new matching records as they are appended
+
+      --audit
+          Read the fail-closed audit log (`audit.jsonl`) instead of the best-effort request log — the leased-write lifecycle and refusal trail (ADR-0080 §11), not subject to `GWI_LOG_DISABLE`, rotation or `prune`. Every filter, the `--query` mini-language and all three output formats apply unchanged; only the file being read differs
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+===== gwi log prune =====
+Prune old records to bound the log's on-disk growth
+
+Usage: gwi log prune [OPTIONS]
+
+Options:
+      --older-than <DUR>
+          Remove records older than this relative window (e.g. `7d`, `24h`, `2w`)
+
+      --profile <NAME>
+          Selects a named credential/config profile from `~/.gwi/settings.json` (AWS-CLI style).
+          
+          When set, the profile's `env` bundle replaces the base `env` map in the settings-fallback chain (process env still wins); the base map is not consulted. Overrides `GWI_PROFILE`. An unknown name is a hard error listing the known profiles.
+
+      --max-size <SIZE>
+          Trim the oldest records until the file is at most this size (e.g. `10mb`, `512kb`, `1048576`); applied after `--older-than`
+
+      --dry-run
+          Report what would be removed without modifying the log
+
+      --audit
+          Refused outright: the audit log (`audit.jsonl`) is exempt from pruning by design (ADR-0080 §11) — present only so the refusal is explicit rather than a silent no-op or a confusing "no such flag"
 
   -h, --help
           Print help (see a summary with '-h')
