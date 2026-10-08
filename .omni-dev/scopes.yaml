@@ -30,7 +30,11 @@ scopes:
   - name: "mcp"
     description: "MCP server and tools"
     examples: ["mcp: register gmail tools"]
-    file_patterns: ["src/mcp.rs", "src/mcp/**"]
+    file_patterns: ["src/mcp.rs", "src/mcp/**", "src/mcp_server.rs"]
+  - name: "log"
+    description: "Local invocation and HTTP request log (log.jsonl) and the gwi log command"
+    examples: ["log: redact more URL parameters", "log: fix follow on rotation"]
+    file_patterns: ["src/request_log.rs", "src/cli/log.rs", "src/cli/log/**"]
   - name: "utils"
     description: "Shared utilities: HTTP, settings, secrets, paths, rate limiting"
     examples: ["utils: tighten secret file permissions", "utils: fix rate limiter window"]
