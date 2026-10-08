@@ -347,6 +347,7 @@ async fn run_file_read_content(
     api: &FilesApi<'_>,
     params: &DriveFileReadParams,
 ) -> Result<String> {
+    super::output_file::check_output_file(policy, params.output_file.as_deref())?;
     let meta = api.get_metadata(&params.file_id).await?;
 
     if meta.mime_type == GOOGLE_FOLDER {

@@ -50,7 +50,7 @@ use crate::gmail::threads_api::{ThreadFormat, ThreadsApi};
 use crate::utils::settings::Settings;
 
 use super::error::tool_error;
-use super::output_file::write_to_file_yaml;
+use super::output_file::{check_output_file, write_to_file_yaml};
 use super::path_policy::PathPolicy;
 use super::server::GwiServer;
 use super::truncate::build_truncated_result;
@@ -423,6 +423,7 @@ async fn run_message_read(
     client: &GmailClient,
     params: &GmailMessageReadParams,
 ) -> Result<String> {
+    check_output_file(policy, params.output_file.as_deref())?;
     let format = parse_message_format(params.format.as_deref())?;
     let message = MessagesApi::new(client)
         .get(&params.message_id, format, &[])
@@ -464,6 +465,7 @@ async fn run_draft_show(
     client: &GmailClient,
     params: &GmailDraftShowParams,
 ) -> Result<String> {
+    check_output_file(policy, params.output_file.as_deref())?;
     let format = parse_message_format(params.format.as_deref())?;
     let draft = DraftsApi::new(client).get(&params.draft_id, format).await?;
     let yaml = yaml_result(&draft)?;

@@ -23,7 +23,8 @@
 //! Callers use the *resolved* path for the I/O that follows, which keeps the window
 //! between check and use small. It is not closed: a local attacker who can swap a
 //! directory component inside an allowed directory between the two calls is out of scope
-//! (it needs write access to that directory already).
+//! (it needs write access to that directory already). Writes additionally refuse a final
+//! symlink, a FIFO or a device found at open time.
 
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
@@ -35,16 +36,37 @@ use crate::utils::settings::{McpSettings, Settings};
 /// Credential locations under the home directory that are refused whatever the allowed
 /// set says.
 const PROTECTED_UNDER_HOME: &[&str] = &[
+    // gwi's and omni-dev's own settings, tokens and ledgers.
     ".gwi",
     ".omni-dev",
+    ".config/gwi",
+    // Credential stores.
     ".ssh",
     ".gnupg",
     ".aws",
     ".kube",
     ".docker",
     ".netrc",
+    ".git-credentials",
+    ".npmrc",
+    ".pypirc",
     ".config/gcloud",
+    ".config/gh",
+    ".local/share/keyrings",
     "Library/Keychains",
+    // Files a shell or git runs on its own, so a write is persistent code execution.
+    ".zshenv",
+    ".zprofile",
+    ".zshrc",
+    ".zlogin",
+    ".bash_profile",
+    ".bash_login",
+    ".bashrc",
+    ".profile",
+    ".gitconfig",
+    // Shell history regularly holds pasted secrets.
+    ".bash_history",
+    ".zsh_history",
 ];
 
 /// The directories a policy is built from, passed in rather than read from the
@@ -85,17 +107,32 @@ pub(crate) struct PathPolicy {
 impl PathPolicy {
     /// Builds the policy of the running process from the `mcp` block of `settings.json`.
     ///
-    /// Never fails: settings that cannot form a policy (an `allowed_paths` entry that is
-    /// not absolute) give a policy that refuses every path and says why, so the tools
-    /// that take no path keep working and the ones that do fail closed.
+    /// Never fails: settings that cannot form a policy (a `settings.json` that does not
+    /// parse, an `allowed_paths` entry that is not absolute) give a policy that refuses
+    /// every path and says why, so the tools that take no path keep working and the ones
+    /// that do fail closed.
     pub(crate) fn load() -> Self {
-        Self::from_settings(&Settings::load_mcp(), &PolicyDirs::current()).unwrap_or_else(|err| {
-            Self {
-                allowed: Vec::new(),
-                protected: Vec::new(),
-                unusable: Some(format!("{err:#}")),
-            }
-        })
+        // Not `load_mcp`: that falls back to defaults on a settings file it cannot
+        // parse, which would widen a configured `allowed_paths` to the default roots.
+        Self::from_load_result(Settings::load(), &PolicyDirs::current())
+    }
+
+    /// [`Self::load`] with the settings read and the directories injected.
+    fn from_load_result(settings: Result<Settings>, dirs: &PolicyDirs) -> Self {
+        match settings {
+            Ok(settings) => Self::from_settings(&settings.mcp, dirs)
+                .unwrap_or_else(|err| Self::unusable(format!("{err:#}"))),
+            Err(err) => Self::unusable(format!("settings.json could not be read: {err:#}")),
+        }
+    }
+
+    /// A policy that refuses every path, giving `reason`.
+    fn unusable(reason: String) -> Self {
+        Self {
+            allowed: Vec::new(),
+            protected: Vec::new(),
+            unusable: Some(reason),
+        }
     }
 
     /// Builds a policy from explicit settings and directories.
@@ -107,11 +144,34 @@ impl PathPolicy {
         if let Some(entries) = &settings.allowed_paths {
             for entry in entries {
                 let expanded = expand_entry(entry, dirs.home.as_deref())?;
-                // A directory that does not exist allows nothing.
-                allowed.extend(expanded.canonicalize().ok());
+                match expanded.canonicalize() {
+                    Ok(resolved) => allowed.push(resolved),
+                    // A directory that does not exist allows nothing; say so, because an
+                    // operator who sees only "outside the allowed directories" would not
+                    // know the entry was ignored.
+                    Err(err) => tracing::warn!(
+                        "mcp.allowed_paths entry {entry:?} was ignored: cannot resolve {}: {err}",
+                        expanded.display()
+                    ),
+                }
             }
         } else {
-            allowed.extend(dirs.cwd.as_deref().and_then(|dir| dir.canonicalize().ok()));
+            let home = dirs.home.as_deref().and_then(|dir| dir.canonicalize().ok());
+            if let Some(cwd) = dirs.cwd.as_deref().and_then(|dir| dir.canonicalize().ok()) {
+                // A client that launches the server in `/` or in the home directory
+                // would otherwise hand the model that whole tree.
+                let too_broad = cwd.parent().is_none()
+                    || home.as_deref().is_some_and(|home| home.starts_with(&cwd));
+                if too_broad {
+                    tracing::warn!(
+                        "the working directory {} is too broad to allow by default; set \
+                         mcp.allowed_paths to use paths outside the temp directory",
+                        cwd.display()
+                    );
+                } else {
+                    allowed.push(cwd);
+                }
+            }
             allowed.extend(dirs.temp.canonicalize().ok());
         }
 
@@ -123,6 +183,10 @@ impl PathPolicy {
         }
         if let Some(state) = &dirs.state {
             push_protected(&mut protected, &state.join("gwi"));
+        }
+        // A project-local `.gwi/` configuration directory under the working directory.
+        if let Some(cwd) = &dirs.cwd {
+            push_protected(&mut protected, &cwd.join(".gwi"));
         }
         Ok(Self {
             allowed,
@@ -179,17 +243,40 @@ impl PathPolicy {
 
     /// Writes `bytes` to the resolved, authorised form of `path`.
     ///
-    /// Refuses an existing target that is not a regular file, so a FIFO or device named
-    /// by the caller is not opened.
+    /// On Unix the file is opened without following a final symlink and without blocking,
+    /// and only truncated once the open handle is known to be a regular file, so a FIFO or
+    /// device swapped in after the check is refused rather than opened or waited on.
     pub(crate) fn write(&self, path: &str, bytes: &[u8]) -> Result<()> {
+        use std::io::Write as _;
+
         let resolved = self.check_write(path)?;
-        if let Ok(metadata) = std::fs::metadata(&resolved) {
-            anyhow::ensure!(
-                metadata.is_file(),
-                "Refusing to write to {path}: it is not a regular file"
-            );
+        let mut options = std::fs::OpenOptions::new();
+        options.write(true).create(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt as _;
+            options.custom_flags(nix::libc::O_NONBLOCK | nix::libc::O_NOFOLLOW);
         }
-        std::fs::write(&resolved, bytes).with_context(|| format!("Failed to write to {path}"))
+        #[cfg(not(unix))]
+        options.truncate(true);
+        let mut file = options
+            .open(&resolved)
+            .with_context(|| format!("Failed to write to {path}"))?;
+        anyhow::ensure!(
+            file.metadata()
+                .with_context(|| format!("Failed to stat {path}"))?
+                .is_file(),
+            "Refusing to write to {path}: it is not a regular file"
+        );
+        #[cfg(unix)]
+        {
+            file.set_len(0)
+                .with_context(|| format!("Failed to truncate {path}"))?;
+            clear_nonblocking(&file)
+                .with_context(|| format!("Failed to clear O_NONBLOCK on {path}"))?;
+        }
+        file.write_all(bytes)
+            .with_context(|| format!("Failed to write to {path}"))
     }
 
     fn authorize(&self, given: &str, resolved: &Path, verb: &str) -> Result<()> {
@@ -219,6 +306,19 @@ impl PathPolicy {
             resolved.display()
         )
     }
+}
+
+/// Clears `O_NONBLOCK` on an open file description.
+///
+/// The flag is set only so that opening a FIFO cannot block; once the handle is known to
+/// be a regular file, a leftover flag can turn a read or write on some FUSE and network
+/// mounts into a confusing `EAGAIN` error.
+#[cfg(unix)]
+pub(crate) fn clear_nonblocking(file: &std::fs::File) -> nix::Result<()> {
+    use nix::fcntl::{fcntl, FcntlArg, OFlag};
+
+    let flags = OFlag::from_bits_retain(fcntl(file, FcntlArg::F_GETFL)?);
+    fcntl(file, FcntlArg::F_SETFL(flags & !OFlag::O_NONBLOCK)).map(|_| ())
 }
 
 /// Expands one `allowed_paths` entry: absolute, or `~/…` against the home directory.
@@ -447,6 +547,15 @@ mod tests {
         let policy = sandbox.policy_allowing(&[home]);
 
         for location in [
+            ".config/gwi/settings.json",
+            ".zshrc",
+            ".bashrc",
+            ".profile",
+            ".gitconfig",
+            ".git-credentials",
+            ".npmrc",
+            ".config/gh/hosts.yml",
+            ".zsh_history",
             ".gwi/settings.json",
             ".omni-dev/settings.json",
             ".ssh/id_rsa",
@@ -665,6 +774,87 @@ mod tests {
         assert_eq!(std::fs::read_to_string(&target).unwrap(), "original");
     }
 
+    #[test]
+    fn a_project_local_gwi_directory_under_the_working_directory_is_protected() {
+        let sandbox = Sandbox::new();
+        let local = sandbox.work.join(".gwi/settings.json");
+        std::fs::create_dir_all(local.parent().unwrap()).unwrap();
+        std::fs::write(&local, "{}").unwrap();
+
+        let message = refusal(sandbox.policy().check_read(local.to_str().unwrap()));
+        assert!(
+            message.contains("protected credential location"),
+            "{message}"
+        );
+    }
+
+    #[test]
+    fn a_working_directory_that_is_the_root_the_home_or_above_it_is_not_allowed() {
+        let sandbox = Sandbox::new();
+        let file = sandbox.file_in(&sandbox.home, "notes.txt");
+        let elsewhere = sandbox.file_in(&sandbox.elsewhere, "a.txt");
+        let above_home = sandbox.home.parent().unwrap().to_path_buf();
+
+        for cwd in [PathBuf::from("/"), sandbox.home.clone(), above_home] {
+            let mut dirs = sandbox.dirs();
+            dirs.cwd = Some(cwd.clone());
+            let policy = PathPolicy::from_settings(&McpSettings::default(), &dirs).unwrap();
+            for path in [&file, &elsewhere] {
+                let message = refusal(policy.check_read(path));
+                assert!(
+                    message.contains("outside the allowed"),
+                    "{cwd:?}: {message}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn an_explicit_allowed_path_may_still_name_the_home_directory() {
+        let sandbox = Sandbox::new();
+        let file = sandbox.file_in(&sandbox.home, "notes.txt");
+
+        sandbox
+            .policy_allowing(&[sandbox.home.to_str().unwrap()])
+            .check_read(&file)
+            .unwrap();
+    }
+
+    #[test]
+    fn settings_that_cannot_be_read_give_a_policy_that_refuses_everything() {
+        let sandbox = Sandbox::new();
+        let file = sandbox.file_in(&sandbox.work, "a.txt");
+
+        let policy =
+            PathPolicy::from_load_result(Err(anyhow::anyhow!("trailing comma")), &sandbox.dirs());
+
+        let message = refusal(policy.check_read(&file));
+        assert!(
+            message.contains("could not be read: trailing comma"),
+            "{message}"
+        );
+        let ok = PathPolicy::from_load_result(Ok(Settings::default()), &sandbox.dirs());
+        ok.check_read(&file).unwrap();
+        let bad: Settings =
+            serde_json::from_str(r#"{"mcp": {"allowed_paths": ["relative"]}}"#).unwrap();
+        let policy = PathPolicy::from_load_result(Ok(bad), &sandbox.dirs());
+        assert!(refusal(policy.check_read(&file)).contains("unusable"));
+    }
+
+    #[test]
+    fn write_truncates_a_longer_existing_file() {
+        let sandbox = Sandbox::new();
+        let target = sandbox.work.join("out.txt");
+        std::fs::write(&target, "a much longer previous body").unwrap();
+
+        sandbox
+            .policy()
+            .write(target.to_str().unwrap(), b"short")
+            .unwrap();
+
+        assert_eq!(std::fs::read_to_string(&target).unwrap(), "short");
+    }
+
     #[cfg(unix)]
     #[test]
     fn write_refuses_an_existing_fifo_without_opening_it() {
@@ -676,11 +866,11 @@ mod tests {
         )
         .unwrap();
 
-        let err = sandbox
+        // Opening a FIFO for writing without a reader fails at once rather than blocking.
+        assert!(sandbox
             .policy()
             .write(fifo.to_str().unwrap(), b"x")
-            .unwrap_err();
-        assert!(err.to_string().contains("not a regular file"), "{err}");
+            .is_err());
     }
 
     #[test]

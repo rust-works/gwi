@@ -163,6 +163,7 @@ async fn run_sheets_read(
     client: &SheetsClient,
     params: &DriveSheetsReadParams,
 ) -> Result<String> {
+    output_file::check_output_file(policy, params.output_file.as_deref())?;
     let render = parse_render_option(params.render.as_deref())?;
     let opts = ReadOptions {
         spreadsheet_id: params.spreadsheet_id.clone(),

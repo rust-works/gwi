@@ -23,6 +23,13 @@ pub struct WriteFileSummary {
     pub format: String,
 }
 
+/// Refuses an `output_file` the policy would not let [`write_to_file_yaml`] write, so a
+/// tool can fail before it spends an API call fetching content it may not save.
+pub(crate) fn check_output_file(policy: &PathPolicy, path: Option<&str>) -> Result<()> {
+    path.map(|path| policy.check_write(path)).transpose()?;
+    Ok(())
+}
+
 /// Writes `content` to `path`, if `policy` allows it, and returns a YAML-encoded
 /// [`WriteFileSummary`].
 pub(crate) fn write_to_file_yaml(
@@ -113,5 +120,17 @@ mod tests {
 
         assert!(err.to_string().contains("outside the allowed"), "{err}");
         assert!(!target.exists());
+    }
+
+    #[test]
+    fn check_output_file_passes_none_and_allowed_paths_and_refuses_others() {
+        let allowed = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        let policy = PathPolicy::allowing_only(allowed.path());
+
+        check_output_file(&policy, None).unwrap();
+        check_output_file(&policy, allowed.path().join("a.md").to_str()).unwrap();
+        let err = check_output_file(&policy, outside.path().join("a.md").to_str()).unwrap_err();
+        assert!(err.to_string().contains("outside the allowed"), "{err}");
     }
 }

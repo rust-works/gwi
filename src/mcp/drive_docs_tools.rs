@@ -192,6 +192,7 @@ async fn run_docs_read(
     docs: &DocsClient,
     params: &DriveDocsReadParams,
 ) -> Result<String> {
+    output_file::check_output_file(policy, params.output_file.as_deref())?;
     let suggestions = parse_suggestions_view(params.suggestions_view.as_deref())?;
     let opts = ReadOptions {
         document_id: params.document_id.clone(),
@@ -584,6 +585,14 @@ mod tests {
 
         assert!(err.to_string().contains("outside the allowed"), "{err}");
         assert!(!out_path.exists());
+        // The refusal comes before the fetch, so no document was requested.
+        let requests = server.received_requests().await.unwrap();
+        assert!(
+            requests
+                .iter()
+                .all(|r| !r.url.path().contains("/documents/")),
+            "{requests:?}"
+        );
     }
 
     #[tokio::test]

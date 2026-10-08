@@ -44,18 +44,9 @@ fn open_regular_file(
         "`{field}_path` must be a regular UTF-8 file"
     );
     #[cfg(unix)]
-    clear_nonblocking(&file)
+    super::path_policy::clear_nonblocking(&file)
         .with_context(|| format!("Failed to clear O_NONBLOCK on `{field}_path` file {shown}"))?;
     Ok((file, metadata))
-}
-
-/// Clears `O_NONBLOCK` on an open file description.
-#[cfg(unix)]
-fn clear_nonblocking(file: &std::fs::File) -> nix::Result<()> {
-    use nix::fcntl::{fcntl, FcntlArg, OFlag};
-
-    let flags = OFlag::from_bits_retain(fcntl(file, FcntlArg::F_GETFL)?);
-    fcntl(file, FcntlArg::F_SETFL(flags & !OFlag::O_NONBLOCK)).map(|_| ())
 }
 
 /// Resolves mandatory inline/file UTF-8 content with a byte cap.
