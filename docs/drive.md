@@ -1763,7 +1763,7 @@ or deletes its content, the same exemption it has from
 `GWI_LOG_DISABLE` and `gwi log prune`'s own rotation — see
 [Audit log](#audit-log).
 
-### Coming from omni-dev
+### Importing omni-dev's ledger
 
 gwi keeps its ledger at `<state_dir>/gwi/lease-ledger.jsonl` and never reads
 omni-dev's `<state_dir>/omni-dev/lease-ledger.jsonl`. `gwi import` copies it
@@ -4900,8 +4900,8 @@ coexist.
 | omni-dev state | In gwi |
 |---|---|
 | The `drive` block (default account and accounts), the `lease` block, the `DRIVE_*` variables, and `OMNI_DEV_DRIVE_*` variables (renamed to `GWI_DRIVE_*`) in `~/.omni-dev/settings.json` | Copied by `gwi import` into `~/.gwi/settings.json`. Credentials in a `_file` that points inside `~/.omni-dev/` keep working only while that file exists. |
-| Lease ledger, `<state dir>/omni-dev/lease-ledger.jsonl` | **Not copied yet.** gwi reads `<state dir>/gwi/lease-ledger.jsonl`, so a lease taken with `omni-dev drive lease acquire` cannot be used or restored through `gwi drive`: acquire a new one. Backups already taken stay in `<state dir>/omni-dev/drive-backups`; restore one by hand from there, or from the Drive copy the lease recorded. Importing the ledger is tracked by [#27](https://github.com/rust-works/gwi/issues/27). |
-| Sync manifest, `<DIR>/.omni-dev-sync.json` | **Not read.** gwi writes and reads `<DIR>/.gwi-sync.json`, and refuses a non-empty `--dest` with no such file (`destination is non-empty without a sync manifest`) rather than starting a fresh mirror. The format is identical (the sync code differs from omni-dev's only in the file name), so a mirror that omni-dev made can be adopted by copying the file (`cp .omni-dev-sync.json .gwi-sync.json`); keep both if omni-dev should still be able to sync it. Whether gwi should read the old name itself is decided in [#27](https://github.com/rust-works/gwi/issues/27). |
+| Lease ledger, `<state dir>/omni-dev/lease-ledger.jsonl` | Copied by `gwi import` (`--source-ledger PATH` for another file), expired and released leases included, so a lease taken with `omni-dev drive lease acquire` works and can be restored through `gwi drive`. A live lease stays live until it expires, in both tools, and the two ledgers are copies: releasing it in omni-dev does not release gwi's. The backups themselves are not copied; a row keeps pointing at where omni-dev put them. See [Importing omni-dev's ledger](#importing-omni-devs-ledger). |
+| Sync manifest, `<DIR>/.omni-dev-sync.json` | Nothing to do. When `<DIR>/.gwi-sync.json` is absent, `gwi drive sync` reads the old manifest (same version-1 format, same checks) and writes `.gwi-sync.json` from the first checkpoint on; if both exist, `.gwi-sync.json` wins. gwi never changes or deletes `.omni-dev-sync.json`. See [Sync](#sync). |
 | Request and audit logs | Not copied; gwi starts its own (see [Request and audit logs](#request-and-audit-logs)). The audit history stays in omni-dev ([ADR-0001](adrs/adr-0001.md)). |
 | MCP tools | `gwi-mcp` does not serve the Drive tools yet ([#26](https://github.com/rust-works/gwi/issues/26)). |
 
