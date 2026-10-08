@@ -151,15 +151,16 @@ pub(crate) struct LeaseRecord {
     /// is expected to proceed through.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) restored_sheet_id: Option<i64>,
-    /// Every field of the row this build does not know, kept verbatim and
-    /// written back on every rewrite (issue #46).
+    /// Every field of the row this build does not know, kept as parsed JSON
+    /// values and written back on every rewrite (issue #46).
     ///
     /// The ledger is rewritten whole on each change and `gwi import` copies
     /// rows through this type, so without this a field added by a newer
     /// omni-dev — or by a later gwi, read by an older one after a downgrade —
     /// would be silently dropped the next time the row was saved. Only
     /// top-level row fields are kept: a field inside `backup` is still
-    /// dropped. Keys come back sorted, not in their original order.
+    /// dropped. Keys come back sorted, not in their original order, and a
+    /// number outside the `i64`/`u64` range comes back as an `f64`.
     #[serde(flatten)]
     pub(crate) extra: serde_json::Map<String, serde_json::Value>,
 }
