@@ -1,5 +1,4 @@
 # Dead documentation links known today, one `<file>: <link as written>` per line, which
-# scripts/check_doc_links.py tolerates. All are omni-dev links in files seeded from omni-dev
-# that the pruning issue (#54) removes. Remove an entry when its link goes: an entry that
-# matches no dead link fails the check, so this list can only shrink. Do not add to it; fix
-# the link instead.
+# scripts/check_doc_links.py tolerates. It is empty: the omni-dev links the pruning issue (#54)
+# removed are gone. An entry that matches no dead link fails the check, so this list can only
+# shrink. Do not add to it; fix the link instead.
