@@ -256,10 +256,12 @@ impl GwiServer {
     ) -> Result<CallToolResult, McpError> {
         let client = create_client_for(params.account.as_deref()).map_err(tool_error)?;
         let wrote_to_file = params.output_file.is_some();
+        // patchcov: coverage ignore reason="handler glue after create_client_for: the OAuth token endpoint is not overridable, so no in-process test can get a client to this line; the run_* function it calls is covered against wiremock"
         let policy = PathPolicy::load();
         let text = run_message_read(&policy, &client, &params)
             .await
             .map_err(tool_error)?;
+        // patchcov: coverage end
         if wrote_to_file {
             Ok(CallToolResult::success(vec![Content::text(text)]))
         } else {
@@ -364,10 +366,12 @@ impl GwiServer {
     ) -> Result<CallToolResult, McpError> {
         let client = create_client_for(params.account.as_deref()).map_err(tool_error)?;
         let wrote_to_file = params.output_file.is_some();
+        // patchcov: coverage ignore reason="handler glue after create_client_for: the OAuth token endpoint is not overridable, so no in-process test can get a client to this line; the run_* function it calls is covered against wiremock"
         let policy = PathPolicy::load();
         let text = run_draft_show(&policy, &client, &params)
             .await
             .map_err(tool_error)?;
+        // patchcov: coverage end
         if wrote_to_file {
             Ok(CallToolResult::success(vec![Content::text(text)]))
         } else {

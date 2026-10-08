@@ -841,6 +841,137 @@ mod tests {
         assert!(refusal(policy.check_read(&file)).contains("unusable"));
     }
 
+    /// A `Write` that appends to a shared buffer, so a test can read what was logged.
+    #[derive(Clone, Default)]
+    struct LogBuffer(std::sync::Arc<std::sync::Mutex<Vec<u8>>>);
+
+    impl std::io::Write for LogBuffer {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            self.0.lock().unwrap().extend_from_slice(bytes);
+            Ok(bytes.len())
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    /// Runs `action` with a `warn`-level subscriber installed and returns what it logged.
+    /// The arguments of a disabled `tracing` event are never evaluated, so the lines that
+    /// format them only run under a subscriber.
+    fn logged_during(action: impl FnOnce()) -> String {
+        let buffer = LogBuffer::default();
+        let writer = buffer.clone();
+        let subscriber = tracing_subscriber::fmt()
+            .with_max_level(tracing::Level::WARN)
+            .with_ansi(false)
+            .with_writer(move || writer.clone())
+            .finish();
+        tracing::subscriber::with_default(subscriber, action);
+        let bytes = buffer.0.lock().unwrap().clone();
+        String::from_utf8(bytes).unwrap()
+    }
+
+    #[test]
+    fn an_ignored_allowed_directory_is_logged_with_its_path() {
+        let sandbox = Sandbox::new();
+        let missing = sandbox.elsewhere.join("absent");
+
+        let log = logged_during(|| {
+            sandbox.policy_allowing(&[missing.to_str().unwrap()]);
+        });
+
+        assert!(log.contains("was ignored: cannot resolve"), "{log}");
+        assert!(log.contains(missing.to_str().unwrap()), "{log}");
+    }
+
+    #[test]
+    fn a_working_directory_that_is_too_broad_is_logged() {
+        let sandbox = Sandbox::new();
+        let mut dirs = sandbox.dirs();
+        dirs.cwd = Some(sandbox.home.clone());
+
+        let log = logged_during(|| {
+            PathPolicy::from_settings(&McpSettings::default(), &dirs).unwrap();
+        });
+
+        assert!(log.contains("is too broad to allow by default"), "{log}");
+        assert!(log.contains(sandbox.home.to_str().unwrap()), "{log}");
+    }
+
+    #[test]
+    fn a_policy_without_a_working_directory_or_a_home_still_allows_the_temp_directory() {
+        let sandbox = Sandbox::new();
+        let temp = sandbox.elsewhere.clone();
+        let file = sandbox.file_in(&temp, "a.txt");
+        let dirs = PolicyDirs {
+            cwd: None,
+            temp,
+            home: None,
+            state: None,
+        };
+
+        let policy = PathPolicy::from_settings(&McpSettings::default(), &dirs).unwrap();
+
+        policy.check_read(&file).unwrap();
+        assert!(policy
+            .check_read(&sandbox.file_in(&sandbox.work, "b.txt"))
+            .is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_protected_location_under_a_linked_parent_is_protected_under_its_target() {
+        let sandbox = Sandbox::new();
+        // `link -> home`, so a home of `<link>` resolves to `<home>`.
+        let link = sandbox.elsewhere.join("link");
+        std::os::unix::fs::symlink(&sandbox.home, &link).unwrap();
+        // Not created: only the link's target names it, since there is nothing to resolve.
+        let ssh = sandbox.home.join(".ssh");
+        let mut dirs = sandbox.dirs();
+        dirs.home = Some(link);
+        let policy = PathPolicy::from_settings(
+            &McpSettings {
+                allowed_paths: Some(vec![sandbox.home.to_str().unwrap().to_string()]),
+                ..McpSettings::default()
+            },
+            &dirs,
+        )
+        .unwrap();
+
+        let message = refusal(policy.check_write(ssh.to_str().unwrap()));
+
+        assert!(
+            message.contains("protected credential location"),
+            "{message}"
+        );
+    }
+
+    #[test]
+    fn resolve_for_write_puts_a_bare_file_name_in_the_current_directory() {
+        let resolved = resolve_for_write(Path::new("gwi-no-such-file.tmp")).unwrap();
+
+        assert_eq!(
+            resolved,
+            std::env::current_dir()
+                .unwrap()
+                .canonicalize()
+                .unwrap()
+                .join("gwi-no-such-file.tmp")
+        );
+    }
+
+    #[test]
+    fn resolve_for_write_passes_on_an_error_that_is_not_a_missing_file() {
+        let sandbox = Sandbox::new();
+        let file = sandbox.file_in(&sandbox.work, "plain.txt");
+
+        // A file used as a directory is `NotADirectory`, not `NotFound`.
+        let err = resolve_for_write(&Path::new(&file).join("child")).unwrap_err();
+
+        assert_ne!(err.kind(), ErrorKind::NotFound);
+    }
+
     #[test]
     fn write_truncates_a_longer_existing_file() {
         let sandbox = Sandbox::new();
