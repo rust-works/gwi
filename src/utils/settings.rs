@@ -1204,6 +1204,32 @@ mod tests {
     }
 
     #[test]
+    fn settings_load_from_path() {
+        // Create a temporary directory (use current dir to avoid TMPDIR issues in tarpaulin)
+        let temp_dir = {
+            std::fs::create_dir_all("tmp").ok();
+            TempDir::new_in("tmp").unwrap()
+        };
+        let settings_path = temp_dir.path().join("settings.json");
+
+        // Create a test settings file
+        let settings_json = r#"{
+            "env": {
+                "TEST_VAR": "test_value",
+                "CLAUDE_API_KEY": "test_api_key"
+            }
+        }"#;
+        fs::write(&settings_path, settings_json).unwrap();
+
+        // Load settings
+        let settings = Settings::load_from_path(&settings_path).unwrap();
+
+        // Check env vars
+        assert_eq!(settings.env.get("TEST_VAR").unwrap(), "test_value");
+        assert_eq!(settings.env.get("CLAUDE_API_KEY").unwrap(), "test_api_key");
+    }
+
+    #[test]
     fn load_warn_dedup_warns_once_per_distinct_failure() {
         let dedup = LoadWarnDedup::new();
         assert!(dedup.observe(Some("broken A")));
@@ -1220,6 +1246,27 @@ mod tests {
         assert!(dedup.observe(Some("broken")));
         assert!(!dedup.observe(None), "a success never warns");
         assert!(dedup.observe(Some("broken")));
+    }
+
+    #[test]
+    fn load_or_warn_default_warns_and_falls_back_when_settings_json_fails_to_parse() {
+        // The shared loader every non-`Result` call site now uses (issue
+        // #1744) — a missing settings.json resolves to defaults with no
+        // warning (the ordinary case); this covers "file exists but doesn't
+        // parse", which must warn rather than silently drop configuration.
+        let guard = crate::gmail::test_support::EnvGuard::take();
+        let dir = guard.clear_credentials();
+        let settings_dir = dir.path().join(".gwi");
+        fs::create_dir_all(&settings_dir).unwrap();
+        fs::write(settings_dir.join("settings.json"), "{not valid json").unwrap();
+
+        let logs = crate::test_support::capture_at(tracing::Level::WARN, || {
+            let settings = Settings::load_or_warn_default();
+            assert!(settings.env.is_empty());
+            assert!(settings.profiles.is_empty());
+            assert!(settings.gmail.accounts.is_empty());
+        });
+        assert!(logs.contains("settings.json"), "{logs}");
     }
 
     #[test]
@@ -1246,6 +1293,54 @@ mod tests {
             Settings::warn_bootstrap_failure(message);
         });
         assert!(logs.contains("/bootstrap-test/settings.json"), "{logs}");
+    }
+
+    #[test]
+    fn settings_get_env_var() {
+        // Reads `GWI_PROFILE` and mutates the process environment, so it
+        // serialises with every other test that does, and starts with no
+        // profile selected.
+        let guard = crate::gmail::test_support::EnvGuard::take();
+        let home = guard.clear_credentials();
+
+        /// Removes the variables the test exports, even when an assertion fails.
+        struct Unset;
+        impl Drop for Unset {
+            fn drop(&mut self) {
+                std::env::remove_var("GWI_TEST_GET_ENV_VAR");
+                std::env::remove_var("GWI_TEST_GET_ENV_VAR_ONLY");
+            }
+        }
+        let _unset = Unset;
+
+        let settings_path = home.path().join("settings.json");
+        fs::write(
+            &settings_path,
+            r#"{"env": {"GWI_TEST_GET_ENV_VAR": "test_value", "OTHER_KEY": "other_value"}}"#,
+        )
+        .unwrap();
+        let settings = Settings::load_from_path(&settings_path).unwrap();
+
+        // The process environment takes precedence over settings.
+        std::env::set_var("GWI_TEST_GET_ENV_VAR", "env_override");
+        assert_eq!(
+            settings.get_env_var("GWI_TEST_GET_ENV_VAR").unwrap(),
+            "env_override"
+        );
+
+        // With it unset, the settings value is the fallback.
+        std::env::remove_var("GWI_TEST_GET_ENV_VAR");
+        assert_eq!(
+            settings.get_env_var("GWI_TEST_GET_ENV_VAR").unwrap(),
+            "test_value"
+        );
+
+        // A variable only the process environment has still resolves.
+        std::env::set_var("GWI_TEST_GET_ENV_VAR_ONLY", "env_value");
+        assert_eq!(
+            settings.get_env_var("GWI_TEST_GET_ENV_VAR_ONLY").unwrap(),
+            "env_value"
+        );
     }
 
     // ── profile resolution (pure: MapEnv raw env, explicit active profile) ──
@@ -1382,6 +1477,54 @@ mod tests {
                 .unwrap_err()
                 .to_string();
         assert!(err.contains("profiles.work.env"), "{err}");
+    }
+
+    #[test]
+    fn upsert_ignores_an_empty_command_and_other_maps_commands() {
+        let (_tmp, path) = temp_settings_path();
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(
+            &path,
+            r#"{"env": {"GMAIL_REFRESH_TOKEN_COMMAND": ""},
+                "profiles": {"work": {"env": {"DRIVE_REFRESH_TOKEN_COMMAND": "/w"}}}}"#,
+        )
+        .unwrap();
+        Settings::upsert_env_vars_in(&path, None, &[("GMAIL_REFRESH_TOKEN", "v")]).unwrap();
+        assert_eq!(read_json(&path)["env"]["GMAIL_REFRESH_TOKEN"], "v");
+        // A command in another map, or for a non-secret key, never blocks.
+        Settings::upsert_env_vars_in(&path, None, &[("DRIVE_REFRESH_TOKEN", "v")]).unwrap();
+        Settings::upsert_env_vars_in(&path, None, &[("GMAIL_SCOPE", "s")]).unwrap();
+    }
+
+    #[test]
+    fn ensure_secrets_replaceable_is_the_same_check_without_writing() {
+        let (_tmp, path) = temp_settings_path();
+        let none = MapEnv::new();
+        // A missing file passes.
+        Settings::ensure_secrets_replaceable(&path, None, &["GMAIL_REFRESH_TOKEN"], &none).unwrap();
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(&path, r#"{"env": {"GMAIL_REFRESH_TOKEN_COMMAND": "/c"}}"#).unwrap();
+        assert!(
+            Settings::ensure_secrets_replaceable(&path, None, &["GMAIL_REFRESH_TOKEN"], &none)
+                .is_err()
+        );
+        // Another key, another map, or an absent map passes.
+        Settings::ensure_secrets_replaceable(&path, None, &["DRIVE_REFRESH_TOKEN"], &none).unwrap();
+        Settings::ensure_secrets_replaceable(&path, Some("work"), &["GMAIL_REFRESH_TOKEN"], &none)
+            .unwrap();
+
+        // A command exported in the process environment shadows whatever a
+        // login would write, so it is refused even when settings.json is clean.
+        let (_tmp2, clean) = temp_settings_path();
+        let exported = MapEnv::new().with("GMAIL_REFRESH_TOKEN_COMMAND", "op read op://v/gmail");
+        let err =
+            Settings::ensure_secrets_replaceable(&clean, None, &["GMAIL_REFRESH_TOKEN"], &exported)
+                .unwrap_err()
+                .to_string();
+        assert!(err.contains("set in the environment"), "{err}");
+        assert!(!err.contains("op read"), "{err}");
+        Settings::ensure_secrets_replaceable(&clean, None, &["DRIVE_REFRESH_TOKEN"], &exported)
+            .unwrap();
     }
 
     #[test]
@@ -1543,6 +1686,51 @@ mod tests {
             Some("from-settings".to_string())
         );
         assert_eq!(env_ref.var("GWI_TEST_SETTINGS_ENV_REF_MISSING"), None);
+    }
+
+    #[test]
+    fn settings_env_ref_var_triple_reads_the_settings_layer() {
+        // Starts with no profile selected, so the base `env` is the layer read.
+        let guard = crate::gmail::test_support::EnvGuard::take();
+        let _home = guard.clear_credentials();
+        let settings = settings_with_env(&[("GWI_TEST_REF_TRIPLE_FILE", "/f")], &[]);
+
+        assert_eq!(
+            settings.env_source().var_triple(
+                "GWI_TEST_REF_TRIPLE",
+                "GWI_TEST_REF_TRIPLE_FILE",
+                "GWI_TEST_REF_TRIPLE_COMMAND",
+            ),
+            (None, Some("/f".to_string()), None)
+        );
+    }
+
+    #[test]
+    fn replace_env_vars_in_removes_obsolete_secrets_and_their_companions() {
+        let (_tmp, path) = temp_settings_path();
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(
+            &path,
+            r#"{"env": {"DRIVE_REFRESH_TOKEN": "old", "DRIVE_REFRESH_TOKEN_FILE": "/f",
+                        "DRIVE_REFRESH_TOKEN_COMMAND": "/c", "GMAIL_SCOPE": "s", "KEEP": "k"}}"#,
+        )
+        .unwrap();
+
+        Settings::replace_env_vars_in(
+            &path,
+            None,
+            &[("GMAIL_REFRESH_TOKEN", "new")],
+            &["DRIVE_REFRESH_TOKEN", "GMAIL_SCOPE"],
+        )
+        .unwrap();
+
+        // A removed secret takes its companions with it; a removed plain key
+        // has none; everything else is kept.
+        let env = &read_json(&path)["env"];
+        assert_eq!(
+            *env,
+            serde_json::json!({"GMAIL_REFRESH_TOKEN": "new", "KEEP": "k"})
+        );
     }
 
     // ── sourced resolution (issue #1143: provenance for warnings) ──
@@ -1799,6 +1987,50 @@ mod tests {
                 EnvValueSource::SettingsProfile("work".to_string())
             )
         );
+    }
+
+    /// Points `HOME` at a fresh tempdir whose settings.json holds `env`, for the
+    /// loaders that read the default location. The guard must outlive the dir.
+    fn home_with_env(guard: &crate::gmail::test_support::EnvGuard, env: &str) -> TempDir {
+        let dir = guard.clear_credentials();
+        fs::create_dir_all(dir.path().join(".gwi")).unwrap();
+        fs::write(
+            dir.path().join(".gwi").join("settings.json"),
+            format!(r#"{{"env": {env}}}"#),
+        )
+        .unwrap();
+        dir
+    }
+
+    #[test]
+    fn get_env_var_sourced_reports_where_the_default_settings_supplied_the_value() {
+        let guard = crate::gmail::test_support::EnvGuard::take();
+        let _home = home_with_env(&guard, r#"{"GWI_TEST_SOURCED": "from-settings"}"#);
+
+        assert_eq!(
+            get_env_var_sourced("GWI_TEST_SOURCED").unwrap(),
+            ("from-settings".to_string(), EnvValueSource::SettingsEnv)
+        );
+        assert_eq!(get_env_var("GWI_TEST_SOURCED").unwrap(), "from-settings");
+        assert!(get_env_var_sourced("GWI_TEST_SOURCED_MISSING").is_err());
+    }
+
+    #[test]
+    fn get_env_vars_returns_the_first_key_that_resolves() {
+        let guard = crate::gmail::test_support::EnvGuard::take();
+        let _home = home_with_env(
+            &guard,
+            r#"{"GWI_TEST_VARS_B": "b", "GWI_TEST_VARS_C": "c"}"#,
+        );
+
+        assert_eq!(
+            get_env_vars(&["GWI_TEST_VARS_A", "GWI_TEST_VARS_B", "GWI_TEST_VARS_C"]).unwrap(),
+            "b"
+        );
+        let err = get_env_vars(&["GWI_TEST_VARS_A", "GWI_TEST_VARS_Z"])
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("GWI_TEST_VARS_Z"), "{err}");
     }
 
     #[test]
@@ -2280,11 +2512,95 @@ mod tests {
         assert_eq!(fs::read_to_string(&secret_file).unwrap(), "fresh\n");
     }
 
+    /// Writes `settings.json` at `path` with one `work` Gmail account holding
+    /// `refresh_token_file` (and optionally `client_secret_file`).
+    fn settings_with_secret_files(
+        path: &Path,
+        client_secret_file: Option<&Path>,
+        refresh_token_file: &Path,
+    ) {
+        let mut work = serde_json::json!({
+            "client_id": "id",
+            "refresh_token_file": refresh_token_file.to_str().unwrap(),
+        });
+        if let Some(file) = client_secret_file {
+            work["client_secret_file"] = serde_json::json!(file.to_str().unwrap());
+        }
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(
+            path,
+            serde_json::json!({ "gmail": { "accounts": { "work": work } } }).to_string(),
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn account_secret_file_fields_deserialize() {
+        let (_tmp, path) = temp_settings_path();
+        settings_with_secret_files(&path, Some(Path::new("/s/cs")), Path::new("/s/rt"));
+        let settings = Settings::load_from_path(&path).unwrap();
+        let work = &settings.gmail.accounts["work"];
+        assert_eq!(work.client_secret_file.as_deref(), Some("/s/cs"));
+        assert_eq!(work.refresh_token_file.as_deref(), Some("/s/rt"));
+        assert!(work.client_secret.is_none());
+    }
+
+    #[test]
+    fn upsert_account_writes_a_secret_into_its_file_not_settings() {
+        let (tmp, path) = temp_settings_path();
+        let token_file = tmp.path().join("refresh-token");
+        settings_with_secret_files(&path, None, &token_file);
+
+        Settings::upsert_gmail_account(
+            &path,
+            "work",
+            &[
+                ("client_secret", serde_json::json!("plain-secret")),
+                ("refresh_token", serde_json::json!("new-token")),
+                ("scope", serde_json::json!("s")),
+            ],
+        )
+        .unwrap();
+
+        let raw = fs::read_to_string(&path).unwrap();
+        assert!(!raw.contains("new-token"), "{raw}");
+        let val = read_json(&path);
+        let work = &val["gmail"]["accounts"]["work"];
+        assert!(work.get("refresh_token").is_none());
+        assert_eq!(work["refresh_token_file"], token_file.to_str().unwrap());
+        // A secret field without a companion is written as before.
+        assert_eq!(work["client_secret"], "plain-secret");
+        assert_eq!(work["scope"], "s");
+        assert_eq!(fs::read_to_string(&token_file).unwrap(), "new-token\n");
+    }
+
+    #[test]
+    fn upsert_account_leaves_settings_untouched_when_the_secret_write_fails() {
+        let (tmp, path) = temp_settings_path();
+        let token_file = tmp.path().join("missing-dir").join("refresh-token");
+        settings_with_secret_files(&path, None, &token_file);
+        let before = fs::read_to_string(&path).unwrap();
+
+        let err = Settings::upsert_gmail_account(
+            &path,
+            "work",
+            &[
+                ("scope", serde_json::json!("s")),
+                ("refresh_token", serde_json::json!("new-token")),
+            ],
+        )
+        .unwrap_err();
+
+        assert!(
+            err.to_string()
+                .contains("gmail.accounts.work.refresh_token_file"),
+            "{err}"
+        );
+        assert!(!err.to_string().contains("new-token"), "{err}");
+        assert_eq!(fs::read_to_string(&path).unwrap(), before);
+    }
+
     /// Writes `contents` owner-only to `name` under `dir`.
-    #[expect(
-        dead_code,
-        reason = "used by the Drive tests, wired in with the Drive slice"
-    )]
     fn owner_only(dir: &Path, name: &str, contents: &str) -> std::path::PathBuf {
         let file = dir.join(name);
         fs::write(&file, contents).unwrap();
@@ -2294,6 +2610,82 @@ mod tests {
             fs::set_permissions(&file, fs::Permissions::from_mode(0o600)).unwrap();
         }
         file
+    }
+
+    #[test]
+    fn upsert_account_checks_every_secret_file_before_writing_any() {
+        let (tmp, path) = temp_settings_path();
+        let secret_file = owner_only(tmp.path(), "client-secret", "old-secret\n");
+        let token_file = tmp.path().join("missing-dir").join("refresh-token");
+        settings_with_secret_files(&path, Some(&secret_file), &token_file);
+
+        Settings::upsert_gmail_account(
+            &path,
+            "work",
+            &[
+                ("client_secret", serde_json::json!("new-secret")),
+                ("refresh_token", serde_json::json!("new-token")),
+            ],
+        )
+        .unwrap_err();
+
+        assert_eq!(fs::read_to_string(&secret_file).unwrap(), "old-secret\n");
+    }
+
+    #[test]
+    fn upsert_account_refuses_to_replace_a_client_secret_file_of_another_client() {
+        let (tmp, path) = temp_settings_path();
+        let secret_file = owner_only(tmp.path(), "client-secret", "old-secret\n");
+        let token_file = tmp.path().join("refresh-token");
+        settings_with_secret_files(&path, Some(&secret_file), &token_file);
+        let before = fs::read_to_string(&path).unwrap();
+
+        let err = Settings::upsert_gmail_account(
+            &path,
+            "work",
+            &[
+                ("client_id", serde_json::json!("other-id")),
+                ("client_secret", serde_json::json!("other-secret")),
+                ("refresh_token", serde_json::json!("new-token")),
+            ],
+        )
+        .unwrap_err();
+
+        let message = err.to_string();
+        assert!(
+            message.contains("gmail.accounts.work.client_secret_file"),
+            "{message}"
+        );
+        assert!(message.contains("other-id"), "{message}");
+        assert!(!message.contains("other-secret"), "{message}");
+        assert_eq!(fs::read_to_string(&secret_file).unwrap(), "old-secret\n");
+        assert!(!token_file.exists());
+        assert_eq!(fs::read_to_string(&path).unwrap(), before);
+    }
+
+    #[test]
+    fn upsert_account_replaces_a_client_secret_file_for_the_same_client() {
+        let (tmp, path) = temp_settings_path();
+        let secret_file = owner_only(tmp.path(), "client-secret", "old-secret\n");
+        let token_file = tmp.path().join("refresh-token");
+        settings_with_secret_files(&path, Some(&secret_file), &token_file);
+
+        Settings::upsert_gmail_account(
+            &path,
+            "work",
+            &[
+                ("client_id", serde_json::json!("id")),
+                ("client_secret", serde_json::json!("rotated-secret")),
+                ("refresh_token", serde_json::json!("new-token")),
+            ],
+        )
+        .unwrap();
+
+        assert_eq!(
+            fs::read_to_string(&secret_file).unwrap(),
+            "rotated-secret\n"
+        );
+        assert_eq!(fs::read_to_string(&token_file).unwrap(), "new-token\n");
     }
 
     #[test]
