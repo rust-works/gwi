@@ -105,7 +105,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 url = "2.5.8"
 
 [target.'cfg(unix)'.dependencies]
-nix = { version = "0.31", default-features = false, features = ["fs", "hostname", "resource", "signal", "user"] }
+nix = { version = "0.31", default-features = false, features = ["fs", "hostname", "poll", "resource", "signal", "user"] }
 
 [dev-dependencies]
 rmcp = { version = "3.1", features = ["client", "server", "transport-io", "macros"] }
