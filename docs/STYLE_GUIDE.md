@@ -1466,8 +1466,8 @@ whose behaviour depends on the environment (`HOME`, `XDG_CONFIG_HOME`,
 
 **Read the environment only at a thin boundary wrapper; put the logic in an
 inner seam that takes the resolved input as a value.** Then tests exercise the
-inner seam with a constructed value and **never mutate the process-global
-environment**. Pick the seam by what is read:
+inner seam with a constructed value and have no reason to mutate the
+process-global environment. Pick the seam by what is read:
 
 1. **Resolved domain value** — incidental config. Provide a `*_from(value)`
    constructor alongside the env-resolving entry point. (e.g.
@@ -1498,33 +1498,54 @@ environment**. Pick the seam by what is read:
    `dirs::home_dir()`). For a subprocess that needs `HOME`, set it scoped on
    the `Command` (`.env("HOME", …)`), never on the process.
 
-   > **gwi:** prefer the injected seam (`default_local_state_path_for(os)`,
-   > `import_client_credentials_to(…, home, …)`) so the test reads no `HOME`
-   > at all. Where a test must read one anyway, `EnvGuard`
-   > (`crate::gmail::test_support` / `crate::drive::test_support`, both holding
-   > `crate::test_support::HOME_ENV_MUTEX`) is the sanctioned exception to the
-   > "never" below: take it when the test reads a `HOME`-derived value
-   > **more than once**, compares it, or relies on it staying put, because
-   > another test repointing `HOME` between the reads makes them disagree
-   > (#14, #15, #17). "Reads a `HOME`-derived value" includes everything that
-   > reaches `dirs::*`: `Settings::get_settings_path`, `request_log::gwi_state_subpath`
-   > and so its callers (the request and audit logs, `lease::ledger::ledger_path`,
-   > `default_backup_dir`), `resolve_config_file`, `guard_output_dir`. The guard
-   > excludes only tests that also take the mutex, so anything that sets `HOME`
-   > must hold it too. A single read whose use holds for any `HOME`
-   > (`path.ends_with("Local State")`) needs no guard.
+**gwi convention.** Prefer an injected seam (`default_local_state_path_for(os)`,
+`import_client_credentials_to(…, home, …)`, a `*_with(&MapEnv)` function) so the
+test reads no `HOME` and mutates no variable. Some tests cannot: they drive
+product code that reads `std::env` itself (credentials, the `*_API_URL` hosts
+pointed at a mock server), or they exist to hold `HOME` still
+(`drive::chrome_profile`). Those tests take `EnvGuard`
+(`crate::gmail::test_support` / `crate::drive::test_support`) and are the only
+tests that call `std::env::set_var` / `remove_var`:
 
-**Never** call `std::env::set_var` / `remove_var` in a test, and **never** add
-a per-module env mutex to "protect" such mutation.
+- **One lock.** Both guards hold `crate::test_support::HOME_ENV_MUTEX`. A new
+  module aliases that static and **never declares its own `Mutex<()>`**: a
+  per-module lock excludes only that module's tests, so two modules still race
+  on the same global (omni-dev #950, #1465). Anything that sets `HOME`, or a
+  variable resolved through it, must hold the guard.
+- **Mutate only under the guard.** Take `EnvGuard::take()` before the first
+  `set_var` / `remove_var`. Drop restores only the keys in its snapshot, so
+  add a new variable to that list before a test mutates it. A test that also
+  restores by hand (`ScopedEnvVar`, a local `Drop`) still takes the guard.
+- **Enforcement is partial.** `every_drive_env_mutation_holds_the_env_guard`
+  fails a function that mutates a Drive key without `EnvGuard::take()`. Gmail
+  keys and `HOME` have no such check.
+- **When a `HOME`-derived read needs the guard.** When the test reads one
+  **more than once**, compares it, or relies on it staying put, because another
+  test repointing `HOME` between the reads makes them disagree (#14, #15, #17).
+  "Reads a `HOME`-derived value" includes everything that reaches `dirs::*`:
+  `Settings::get_settings_path`, `request_log::gwi_state_subpath` and so its
+  callers (the request and audit logs, `lease::ledger::ledger_path`,
+  `default_backup_dir`), `resolve_config_file`, `guard_output_dir`. The guard
+  excludes only tests that also take the mutex, so anything that sets `HOME`
+  must hold it too. A single read whose use holds for any `HOME`
+  (`path.ends_with("Local State")`) needs no guard.
+
+Everywhere else, do not call `std::env::set_var` / `remove_var` in a test.
 
 ### Motivation
 
-The process environment is a single shared mutable global. Per-module mutexes
-over it provide **no** mutual exclusion across modules (issue #821/#950/#1030),
-and `set_var`/`remove_var` are `unsafe` in Rust 2024. Injecting the resolved
-value removes the shared hazard entirely: env-dependent tests become pure,
-order-independent, lock-free, and fully parallel. A fresh bespoke env lock
-added *after* #821 (`datadog/*`) is exactly the regression this rule prevents.
+The process environment is a single shared mutable global. Injecting the
+resolved value removes the hazard entirely: env-dependent tests become pure,
+order-independent, lock-free, and fully parallel. Where a test has to mutate it
+anyway, every mutation must share the one lock, because per-module mutexes
+provide **no** mutual exclusion across modules.
+
+`set_var` / `remove_var` are safe in the crate's edition (`edition = "2021"`)
+and `unsafe` in Rust 2024. The crate also sets `unsafe_code = "deny"`, so
+moving to 2024 will not compile until the mutations are either confined to the
+two `test_support` modules (with `unsafe_code` allowed there) or injected away.
+Each new direct `set_var` adds to that bill, which is why a seam is the first
+choice.
 
 ## STYLE-0029: MCP tool & parameter description checklist
 
