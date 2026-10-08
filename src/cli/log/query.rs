@@ -1694,6 +1694,18 @@ mod tests {
     }
 
     #[test]
+    fn a_drivemutation_record_without_a_status_counts_but_offers_no_hint() {
+        let bare = LogRecord {
+            kind: RecordKind::DriveMutation,
+            ..LogRecord::default()
+        };
+        let w = status_warnings(Some("blocked"), &[], &[bare]);
+        assert_eq!(w.len(), 1, "{w:?}");
+        assert!(w[0].contains("the 1 drivemutation record scanned"), "{w:?}");
+        assert!(!w[0].contains("Did you mean"), "{w:?}");
+    }
+
+    #[test]
     fn a_status_seen_in_any_record_stops_the_warning() {
         let recs = [rec_http(), drive_rec("written"), drive_rec("BLOCKED")];
         assert!(status_warnings(Some("blocked"), &[], &recs).is_empty());
