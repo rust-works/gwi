@@ -1774,15 +1774,21 @@ file, and `--dry-run` shows the plan and writes nothing.
   freshness check: a write made through either tool changes the file's version, so
   the other tool's copy of the lease is then refused as stale rather than
   overwriting the change. The import warns when it carries a live lease across.
-  The two ledgers are copies, not one shared file, so **releasing a lease in
-  omni-dev does not release gwi's copy**; use `gwi drive lease release` for that,
-  or let it expire.
+  The two ledgers are copies, not one shared file, so a lease you release in
+  omni-dev afterwards stays live in gwi **until you run `gwi import` again**, which
+  releases it here too (see the next point); `gwi drive lease release` does it
+  at once, and an unreleased lease expires on its own.
 - **It merges token by token.** A token gwi does not have is added, an identical row
   is unchanged (so running the import twice changes nothing), and a different row
   for a token gwi already has is a conflict: it is left alone and the command exits
   `1` unless `--force` replaces it. Other rows in gwi's ledger are never touched.
   A lease you have released in gwi is never brought back to life, with or without
   `--force`: omni-dev's copy of it is stale, so the row is left as it is.
+- **A release made in omni-dev propagates.** When omni-dev has released a lease that
+  gwi still has live, and the rows differ in nothing else, the import sets gwi's
+  `released_at` (and `superseded_by`) and reports the lease as `released`. It needs no
+  flag, because it can only end authority and never grants it, and a second run
+  changes nothing. A row that differs in any other way is still a conflict.
 - **The source is never modified.** Both ledgers' advisory locks are held while
   copying (omni-dev's only when its lock file already exists, since taking a lock
   creates one; if that file cannot be opened the import warns and reads the ledger
@@ -4897,7 +4903,7 @@ coexist.
 | omni-dev state | In gwi |
 |---|---|
 | The `drive` block (default account and accounts), the `lease` block, the `DRIVE_*` variables, and `OMNI_DEV_DRIVE_*` variables (renamed to `GWI_DRIVE_*`) in `~/.omni-dev/settings.json` | Copied by `gwi import` into `~/.gwi/settings.json`. Credentials in a `_file` that points inside `~/.omni-dev/` keep working only while that file exists. |
-| Lease ledger, `<state dir>/omni-dev/lease-ledger.jsonl` | Copied by `gwi import` (`--source-ledger PATH` for another file), expired and released leases included, so a lease taken with `omni-dev drive lease acquire` works and can be restored through `gwi drive`. A live lease stays live until it expires, in both tools, and the two ledgers are copies: releasing it in omni-dev does not release gwi's. The backups themselves are not copied; a row keeps pointing at where omni-dev put them. See [Importing omni-dev's ledger](#importing-omni-devs-ledger). |
+| Lease ledger, `<state dir>/omni-dev/lease-ledger.jsonl` | Copied by `gwi import` (`--source-ledger PATH` for another file), expired and released leases included, so a lease taken with `omni-dev drive lease acquire` works and can be restored through `gwi drive`. A live lease stays live until it expires, in both tools, and the two ledgers are copies: a lease released in omni-dev is released in gwi by the next `gwi import`, not before. The backups themselves are not copied; a row keeps pointing at where omni-dev put them. See [Importing omni-dev's ledger](#importing-omni-devs-ledger). |
 | Sync manifest, `<DIR>/.omni-dev-sync.json` | Nothing to do. When `<DIR>/.gwi-sync.json` is absent, `gwi drive sync` reads the old manifest (same version-1 format, same checks) and writes `.gwi-sync.json` from the first checkpoint on; if both exist, `.gwi-sync.json` wins. gwi never changes or deletes `.omni-dev-sync.json`. See [Sync](#sync). |
 | Request and audit logs | Not copied; gwi starts its own (see [Request and audit logs](#request-and-audit-logs)). The audit history stays in omni-dev ([ADR-0001](adrs/adr-0001.md)). |
 | MCP tools | gwi's `gwi-mcp` serves its own `drive_*` tools; omni-dev's keep working alongside. |
