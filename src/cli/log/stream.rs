@@ -234,10 +234,12 @@ fn follow_loop<W: Write>(
     mut reader_gone: impl FnMut() -> bool,
 ) -> Result<()> {
     loop {
-        drain_appended(path, filter, format, &mut tail, out)?;
+        // Before the drain, so a reader that left during the sleep ends the loop
+        // cleanly even if the drain would fail.
         if reader_gone() {
             return Ok(());
         }
+        drain_appended(path, filter, format, &mut tail, out)?;
         std::thread::sleep(FOLLOW_POLL);
     }
 }
@@ -625,6 +627,22 @@ mod tests {
 
         assert_eq!(ticks, 3);
         assert!(out.is_empty());
+    }
+
+    #[test]
+    fn follow_loop_prefers_the_hangup_exit_to_a_failing_drain() {
+        let dir = tempfile::tempdir().unwrap();
+        // A directory where the log should be: opening it succeeds but reading fails.
+        let path = dir.path().join("log.jsonl");
+        std::fs::create_dir(&path).unwrap();
+        let tail = Tail { pos: 0, id: None };
+        let mut out = Vec::new();
+
+        let result = follow_loop(&path, &empty_filter(), Format::Json, tail, &mut out, || {
+            true
+        });
+
+        assert!(result.is_ok());
     }
 
     #[cfg(unix)]
