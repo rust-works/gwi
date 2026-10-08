@@ -368,6 +368,7 @@ pub(crate) fn gwi_state_subpath(component: &str) -> Option<PathBuf> {
 
 /// Resolves the log file path: `GWI_LOG_FILE` override, else
 /// `state_dir` (falling back to `data_dir`) joined with `gwi/log.jsonl`.
+///
 /// In a test build the fallback is a scratch file instead (see
 /// [`default_log_file_path`]).
 pub fn log_file_path() -> Option<PathBuf> {
@@ -3082,11 +3083,7 @@ mod tests {
         // The fallback must be a stable scratch path, distinct from the
         // audit scratch file, and never the `state_dir`/`data_dir`-based
         // default the non-test build resolves to.
-        let real_default = dirs::state_dir()
-            .or_else(dirs::data_dir)
-            .unwrap()
-            .join("gwi")
-            .join(LOG_FILE_NAME);
+        let real_state_dir = dirs::state_dir().or_else(dirs::data_dir);
 
         let unset = MapEnv::new();
         let resolved = log_file_path_with(&unset).unwrap();
@@ -3095,12 +3092,16 @@ mod tests {
             log_file_path_with(&unset).unwrap(),
             "the fallback path must be stable across calls"
         );
+        if let Some(real_state_dir) = real_state_dir {
+            assert!(
+                !resolved.starts_with(&real_state_dir),
+                "{} must not lie under the real state directory {}",
+                resolved.display(),
+                real_state_dir.display()
+            );
+        }
         assert_ne!(
-            resolved, real_default,
-            "must never fall back to the real machine's default log path in a test build"
-        );
-        assert_ne!(
-            Some(resolved.clone()),
+            Some(resolved),
             audit_file_path_with(&unset),
             "the request log and the audit log must not share a scratch file"
         );
