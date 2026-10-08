@@ -110,7 +110,7 @@ mirroring `filter_view_id`'s precedent exactly.
   color, must use the Sheets UI.** Documented in `docs/drive.md`, the same
   stance every prior curated-surface ADR takes.
 - **Sync obligation.** `docs/drive.md` documents the four new verbs and the
-  `sheets-structure` row's expanded scope; [omni-dev docs/log.md](https://github.com/rust-works/omni-dev/blob/main/docs/log.md) documents the new
+  `sheets-structure` row's expanded scope; [docs/log.md](../log.md) documents the new
   `sheets-add-banding`/`sheets-update-banding`/`sheets-delete-banding`
   operations and the `banded_range_id` context field. Keep both in sync
   when this ADR's decisions change.

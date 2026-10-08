@@ -46,6 +46,14 @@ copied. See [Coming from omni-dev](docs/drive.md#coming-from-omni-dev) for the d
 A folder you synced with `omni-dev drive sync` needs nothing: `gwi drive sync` reads its
 `.omni-dev-sync.json` and continues in `.gwi-sync.json`, leaving the old file alone.
 
+### Request and audit logs
+
+gwi records every run, every Google API request and every Drive write attempt in a local JSON
+Lines log, and keeps a separate fail-closed audit log for leased Drive writes. Read them with
+`gwi log` and `gwi log --audit`; see the [log reference](docs/log.md) for the location,
+environment variables (`GWI_LOG_*`, `GWI_AUDIT_LOG_FILE`), the `--query` language, pruning
+and the record schema.
+
 ## MCP server
 
 `gwi-mcp` serves the Gmail and Drive tools to an AI assistant over the Model Context Protocol (stdio).

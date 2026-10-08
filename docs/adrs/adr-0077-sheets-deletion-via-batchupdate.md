@@ -213,7 +213,7 @@ dimension deletes reuse the existing `sheet_id`/`sheet_title`/
 `delete-range` cannot: `dimension_range` only ever spans one axis, and a
 rectangle needs both, so `DriveMutationOutcome` gains one more
 omit-if-absent key, `grid_range` (e.g. `"rows 2-4, columns 2-3"`), the
-`deleteRange` analogue of `dimension_range`. [omni-dev docs/log.md](https://github.com/rust-works/omni-dev/blob/main/docs/log.md)
+`deleteRange` analogue of `dimension_range`. [docs/log.md](../log.md)
 documents it alongside the rest.
 
 ## Consequences
@@ -248,6 +248,6 @@ documents it alongside the rest.
 - **Sync obligation.** [docs/drive.md](../drive.md) documents the four new
   verbs, the `sheets-delete` row in the write-permission table, and removes
   the "no deletion, at all" limitation it used to state;
-  [omni-dev docs/log.md](https://github.com/rust-works/omni-dev/blob/main/docs/log.md) documents the new `drivemutation` operations and
+  [docs/log.md](../log.md) documents the new `drivemutation` operations and
   the `grid_range` context field. Keep both in sync when this ADR's
   decisions change.
