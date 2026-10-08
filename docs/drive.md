@@ -1,5 +1,9 @@
 # Drive Integration
 
+> Issue numbers such as `#1643` and `#2008` in this document are
+> [omni-dev](https://github.com/rust-works/omni-dev/issues) issues, where the Drive code was
+> written; gwi's own issues are linked with `rust-works/gwi`.
+
 gwi exposes access to the Google Drive v3 API through the `gwi
 drive` command tree — search, read a file's metadata or content, find
 duplicates, rename a file, move it between folders, and create/upload/edit
@@ -35,14 +39,16 @@ alone is sufficient. See [Write permissions](#write-permissions) and
 until it does, use omni-dev's, and see the [MCP section of the README](../README.md#mcp-server)
 for the server. The 15 tools are file, Docs and Sheets reads, Docs replace/append, Sheets
 write/append/clear, and `drive_lease_acquire`.
-The content write tools use the same operator rules, leases, freshness checks
+(The MCP details in this document describe the tools as omni-dev serves them today and as
+`gwi-mcp` will; gwi has no MCP reference of its own yet.) The content write tools use the same operator rules, leases, freshness checks
 and audit paths as the CLI. Per-call `account` selects credentials, rules and
 native backup folder together. Preview first (`dry_run: true`), acquire a backup
 lease through the device-owner prompt, then supply the token to the write.
 Operator headless/biometrics policy applies unchanged; no tool can set it.
 Plain Drive writes, Docs/Sheets create and typed structure/format/delete/protection
-operations, and lease restore/release/prune remain CLI-only. The MCP reference
-explains refusal statuses, stale-lease renewal and token recovery after a timeout.
+operations, and lease restore/release/prune remain CLI-only. Refusal statuses, stale-lease
+renewal and token recovery after a timeout are explained in omni-dev's
+[MCP reference](https://github.com/rust-works/omni-dev/blob/main/docs/mcp.md#drive-15-tools).
 
 New to this integration? Follow the
 [Drive Quickstart](drive-quickstart.md) for a linear, zero-to-first-search
@@ -258,9 +264,9 @@ pass `--account NAME` to target a specific named account.
 
 ## Multiple accounts
 
-`--profile` (see [Prerequisites](#prerequisites) and
-[omni-dev ADR-0045](https://github.com/rust-works/omni-dev/blob/main/docs/adrs/adr-0045.md)) selects a whole credential bundle — Atlassian,
-Datadog, the Claude API key, Gmail, *and* Drive all at once. That's the
+`--profile` (the top-level flag; see
+[omni-dev ADR-0045](https://github.com/rust-works/omni-dev/blob/main/docs/adrs/adr-0045.md)) selects a whole credential bundle — Gmail
+*and* Drive all at once. That's the
 wrong tool for "I just want a second Drive account while everything else
 about my environment stays the same," so Drive accounts are a second,
 independent axis: named entries in a `drive` block of
@@ -269,7 +275,7 @@ NAME` flag or the `GWI_DRIVE_ACCOUNT` environment variable (AWS-CLI
 style, mirroring `--profile`). `--account` is scoped to the `drive`
 command tree — usable after the `drive` subcommand name, but not before it,
 since it isn't a CLI-wide flag (this also keeps it from colliding with
-Snowflake's own unrelated `snowflake ... --account`). See
+another subcommand's own `--account`, such as `gwi gmail`'s). See
 [ADR-0069](adrs/adr-0069.md) for the full design rationale, and
 [ADR-0066](adrs/adr-0066.md) for the Gmail precedent it applies unchanged.
 
@@ -444,7 +450,7 @@ Every subcommand that renders a list or record (`search`, `read`, `dedupe`,
 `rename`, `move`, `create`, `upload`, `edit`, `account list`,
 `permissions show`/`check`, `sheets info`, `sheets read`) accepts
 `-o <format>` (`table` / `json` / `yaml` / `yamls` / `jsonl`, default `table`) — the same convention as every
-other `gwi` domain (see [omni-dev ADR-0046](https://github.com/rust-works/omni-dev/blob/main/docs/adrs/adr-0046.md)). `auth login`/
+other domain gwi inherited from omni-dev (see [omni-dev ADR-0046](https://github.com/rust-works/omni-dev/blob/main/docs/adrs/adr-0046.md)). `auth login`/
 `auth logout`/`auth status`/`account set-default` print a fixed
 human-readable status line instead and have no `-o` flag. `--out-file`
 exists only on `drive read --content` — metadata always renders via
@@ -4894,8 +4900,8 @@ coexist.
 | omni-dev state | In gwi |
 |---|---|
 | The `drive` block (default account and accounts), the `lease` block, the `DRIVE_*` variables, and `OMNI_DEV_DRIVE_*` variables (renamed to `GWI_DRIVE_*`) in `~/.omni-dev/settings.json` | Copied by `gwi import` into `~/.gwi/settings.json`. Credentials in a `_file` that points inside `~/.omni-dev/` keep working only while that file exists. |
-| Lease ledger, `<state dir>/omni-dev/lease-ledger.jsonl` | **Not copied yet.** gwi reads `<state dir>/gwi/lease-ledger.jsonl`, so a lease taken with `omni-dev drive lease acquire` cannot be used or restored through `gwi drive`: acquire a new one. Backups already taken stay where they are. Importing the ledger is tracked by [#27](https://github.com/rust-works/gwi/issues/27). |
-| Sync manifest, `<DIR>/.omni-dev-sync.json` | **Not read.** gwi writes and reads `<DIR>/.gwi-sync.json`, and refuses a non-empty `--dest` with no such file (`destination is non-empty without a sync manifest`) rather than starting a fresh mirror. The format is identical, so a mirror that omni-dev made can be adopted by renaming the file (`mv .omni-dev-sync.json .gwi-sync.json`); after that omni-dev no longer sees it. Whether gwi should read the old name itself is decided in [#27](https://github.com/rust-works/gwi/issues/27). |
+| Lease ledger, `<state dir>/omni-dev/lease-ledger.jsonl` | **Not copied yet.** gwi reads `<state dir>/gwi/lease-ledger.jsonl`, so a lease taken with `omni-dev drive lease acquire` cannot be used or restored through `gwi drive`: acquire a new one. Backups already taken stay in `<state dir>/omni-dev/drive-backups`; restore one by hand from there, or from the Drive copy the lease recorded. Importing the ledger is tracked by [#27](https://github.com/rust-works/gwi/issues/27). |
+| Sync manifest, `<DIR>/.omni-dev-sync.json` | **Not read.** gwi writes and reads `<DIR>/.gwi-sync.json`, and refuses a non-empty `--dest` with no such file (`destination is non-empty without a sync manifest`) rather than starting a fresh mirror. The format is identical (the sync code differs from omni-dev's only in the file name), so a mirror that omni-dev made can be adopted by copying the file (`cp .omni-dev-sync.json .gwi-sync.json`); keep both if omni-dev should still be able to sync it. Whether gwi should read the old name itself is decided in [#27](https://github.com/rust-works/gwi/issues/27). |
 | Request and audit logs | Not copied; gwi starts its own (see [Request and audit logs](#request-and-audit-logs)). The audit history stays in omni-dev ([ADR-0001](adrs/adr-0001.md)). |
 | MCP tools | `gwi-mcp` does not serve the Drive tools yet ([#26](https://github.com/rust-works/gwi/issues/26)). |
 

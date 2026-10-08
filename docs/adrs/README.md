@@ -12,7 +12,9 @@ filenames they have there. They are historical records: the commands, paths and
 environment variables they quote are omni-dev's at the time (`omni-dev gmail`, `omni-dev drive`,
 `~/.omni-dev`, `OMNI_DEV_*`), which gwi spells `gwi gmail`, `gwi drive`, `~/.gwi` and `GWI_*`.
 Links to ADRs and docs that stay in omni-dev point there, among them the secret-handling ADRs
-0089 and 0090.
+0089 and 0090. The other missing numbers (0072, 0087, 0088 and the rest) belong to
+subsystems that are not part of gwi. Issue numbers quoted in the ADRs (`#1520`, `#1664`, ...) are
+omni-dev's.
 
 ## Status Legend
 
