@@ -14,6 +14,7 @@ use crate::drive::auth::{
 use crate::drive::docs::client::DOCS_API_URL;
 use crate::drive::sheets::client::SHEETS_API_URL;
 use crate::drive::slides::client::SLIDES_API_URL;
+use crate::utils::settings::PROFILE_ENV_VAR;
 
 /// Process-wide mutex serialising tests that mutate `HOME` and the Drive
 /// credential environment variables.
@@ -25,14 +26,41 @@ use crate::drive::slides::client::SLIDES_API_URL;
 /// Gmail and Datadog in issue #1465.
 static DRIVE_ENV_MUTEX: &Mutex<()> = &crate::test_support::HOME_ENV_MUTEX;
 
-/// RAII guard: snapshots `HOME` + every Drive credential env var on
-/// construction and restores them on drop.
+/// RAII guard: snapshots `HOME`, `GWI_PROFILE` + every Drive credential and
+/// endpoint env var on construction and restores them on drop.
 pub(crate) struct EnvGuard {
     _lock: MutexGuard<'static, ()>,
-    snapshot: Vec<(&'static str, Option<String>)>,
+    snapshot: Vec<(String, Option<String>)>,
 }
 
 impl EnvGuard {
+    /// Every variable this guard snapshots, restores and clears.
+    fn keys() -> Vec<String> {
+        let mut keys = vec![
+            "HOME".to_string(),
+            PROFILE_ENV_VAR.to_string(),
+            DRIVE_CLIENT_ID.to_string(),
+            DRIVE_CLIENT_SECRET.to_string(),
+            DRIVE_REFRESH_TOKEN.to_string(),
+            DRIVE_SCOPE.to_string(),
+            DRIVE_ACCOUNT_ENV.to_string(),
+            DRIVE_API_URL.to_string(),
+            SHEETS_API_URL.to_string(),
+            DOCS_API_URL.to_string(),
+            SLIDES_API_URL.to_string(),
+        ];
+        // The `_FILE` / `_COMMAND` companions of every Drive secret, derived from
+        // the registry so a new secret is covered without touching this list:
+        // a developer who exports one changes the outcome of any test that
+        // resolves credentials.
+        keys.extend(
+            crate::utils::secret_env::companion_vars()
+                .into_iter()
+                .filter(|var| var.starts_with("DRIVE_")),
+        );
+        keys
+    }
+
     pub(crate) fn take() -> Self {
         let lock = DRIVE_ENV_MUTEX
             .lock()
@@ -45,21 +73,12 @@ impl EnvGuard {
         // and `DOCS_API_URL` make it sharper, since without an override
         // those clients default to the *real* `sheets.googleapis.com` /
         // `docs.googleapis.com`.
-        let keys = [
-            "HOME",
-            DRIVE_CLIENT_ID,
-            DRIVE_CLIENT_SECRET,
-            DRIVE_REFRESH_TOKEN,
-            DRIVE_SCOPE,
-            DRIVE_ACCOUNT_ENV,
-            DRIVE_API_URL,
-            SHEETS_API_URL,
-            DOCS_API_URL,
-            SLIDES_API_URL,
-        ];
-        let snapshot = keys
+        let snapshot = Self::keys()
             .into_iter()
-            .map(|k| (k, std::env::var(k).ok()))
+            .map(|k| {
+                let value = std::env::var(&k).ok();
+                (k, value)
+            })
             .collect();
         Self {
             _lock: lock,
@@ -67,7 +86,8 @@ impl EnvGuard {
         }
     }
 
-    /// Sets `HOME` to a fresh tempdir and clears all `DRIVE_*` env vars.
+    /// Sets `HOME` to a fresh tempdir and clears `GWI_PROFILE` and all
+    /// `DRIVE_*` env vars.
     ///
     /// Returns the tempdir so the caller can inspect the
     /// `.gwi/settings.json` written inside it.
@@ -76,17 +96,10 @@ impl EnvGuard {
             std::fs::create_dir_all("tmp").ok();
             tempfile::TempDir::new_in("tmp").unwrap()
         };
+        for key in Self::keys() {
+            std::env::remove_var(key);
+        }
         std::env::set_var("HOME", dir.path());
-        std::env::remove_var(crate::utils::settings::PROFILE_ENV_VAR);
-        std::env::remove_var(DRIVE_CLIENT_ID);
-        std::env::remove_var(DRIVE_CLIENT_SECRET);
-        std::env::remove_var(DRIVE_REFRESH_TOKEN);
-        std::env::remove_var(DRIVE_SCOPE);
-        std::env::remove_var(DRIVE_ACCOUNT_ENV);
-        std::env::remove_var(DRIVE_API_URL);
-        std::env::remove_var(SHEETS_API_URL);
-        std::env::remove_var(DOCS_API_URL);
-        std::env::remove_var(SLIDES_API_URL);
         dir
     }
 
@@ -261,9 +274,10 @@ pub(crate) async fn client_with_bootstrapped_token(
 mod tests {
     use std::path::{Path, PathBuf};
 
-    /// The identifiers of every Drive key [`super::EnvGuard::take`]
-    /// snapshots. `HOME` is left out: Gmail's, Atlassian's and other
-    /// domains' own guards mutate it legitimately without this one.
+    /// The identifiers of every Drive and Gmail key the two `EnvGuard`s
+    /// snapshot. `HOME` is left out: Atlassian's and other domains' own
+    /// guards mutate it legitimately without these. `GWI_PROFILE` is left
+    /// out too: `Cli::propagate_profile_flag` sets it in production code.
     const GUARDED_KEYS: &[&str] = &[
         "DRIVE_CLIENT_ID",
         "DRIVE_CLIENT_SECRET",
@@ -273,6 +287,13 @@ mod tests {
         "DRIVE_API_URL",
         "SHEETS_API_URL",
         "DOCS_API_URL",
+        "SLIDES_API_URL",
+        "GMAIL_CLIENT_ID",
+        "GMAIL_CLIENT_SECRET",
+        "GMAIL_REFRESH_TOKEN",
+        "GMAIL_SCOPE",
+        "GMAIL_ACCOUNT_ENV",
+        "GMAIL_API_URL",
     ];
 
     fn rust_sources(dir: &Path, out: &mut Vec<PathBuf>) {
@@ -286,8 +307,8 @@ mod tests {
         }
     }
 
-    /// Grep guard: any function that sets or removes one of the Drive keys
-    /// must hold [`super::EnvGuard`], or it races every guarded test that
+    /// Grep guard: any function that sets or removes one of the Drive or
+    /// Gmail keys must hold an `EnvGuard`, or it races every guarded test that
     /// points the same key at its own server — exactly how an unguarded
     /// `set_var(SHEETS_API_URL, …)` in a text-to-columns test broke
     /// `the_pivot_table_dispatch_arms_reach_their_leaf_commands` (#2035).
@@ -296,7 +317,7 @@ mod tests {
     /// mutation would hide the `take()` above it and fail here, which is
     /// the loud direction.
     #[test]
-    fn every_drive_env_mutation_holds_the_env_guard() {
+    fn every_gmail_and_drive_env_mutation_holds_the_env_guard() {
         let mutation = regex::Regex::new(&format!(
             r#"(?:set_var|remove_var)\(\s*"?(?:[A-Za-z_][A-Za-z0-9_]*::)*(?:{})\b"#,
             GUARDED_KEYS.join("|")
@@ -312,7 +333,7 @@ mod tests {
             let text = std::fs::read_to_string(&path).unwrap();
             for body in text.split("fn ").skip(1) {
                 if mutation.is_match(body) && !body.contains("EnvGuard::take()") {
-                    // patchcov: coverage ignore reason="only runs if a function mutates a Drive env var without EnvGuard::take(); offenders.is_empty() below is this test's whole point"
+                    // patchcov: coverage ignore reason="only runs if a function mutates a Gmail or Drive env var without EnvGuard::take(); offenders.is_empty() below is this test's whole point"
                     let name = body.split(['(', '<']).next().unwrap_or_default();
                     offenders.push(format!(
                         "{}: fn {name}",
@@ -324,9 +345,55 @@ mod tests {
         }
         assert!(
             offenders.is_empty(),
-            "these functions mutate a Drive env var without \
-             `crate::drive::test_support::EnvGuard::take()`:\n{}",
+            "these functions mutate a Gmail or Drive env var without \
+             `EnvGuard::take()`:\n{}",
             offenders.join("\n") // patchcov: coverage ignore-line reason="assert! message args only evaluate when the condition is false, i.e. an offender was found"
         );
+    }
+
+    #[test]
+    fn drop_restores_the_profile_and_endpoint_variables_it_clears() {
+        // `GWI_PROFILE` was cleared by `clear_credentials` but never
+        // snapshotted, so the first test to call it erased an ambient value
+        // for every later test (#62).
+        use super::{EnvGuard, PROFILE_ENV_VAR};
+        let read = || -> Vec<Option<String>> {
+            [PROFILE_ENV_VAR, super::DRIVE_API_URL]
+                .into_iter()
+                .map(|key| std::env::var(key).ok())
+                .collect()
+        };
+        let before = {
+            let guard = EnvGuard::take();
+            let before = read();
+            guard.clear_credentials();
+            std::env::set_var(PROFILE_ENV_VAR, "leaked-profile");
+            std::env::set_var(super::DRIVE_API_URL, "http://127.0.0.1:1");
+            before
+        };
+        let _guard = EnvGuard::take();
+        assert_eq!(read(), before);
+    }
+
+    #[test]
+    fn clear_credentials_clears_every_variable_the_guard_snapshots() {
+        // Includes the `_FILE` / `_COMMAND` companions of each secret, which a
+        // developer's shell can export.
+        let guard = super::EnvGuard::take();
+        let keys = super::EnvGuard::keys();
+        // `HOME` stays put: tests that do not hold the mutex still log under it.
+        for key in keys.iter().filter(|key| *key != "HOME") {
+            std::env::set_var(key, "hostile");
+        }
+        let _home = guard.clear_credentials();
+        for key in keys.iter().filter(|key| *key != "HOME") {
+            assert_eq!(std::env::var(key).ok(), None, "{key}");
+        }
+        for companion in crate::utils::secret_env::companion_vars()
+            .into_iter()
+            .filter(|var| var.starts_with("DRIVE_"))
+        {
+            assert!(keys.contains(&companion), "{companion}");
+        }
     }
 }
