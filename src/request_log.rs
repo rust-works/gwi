@@ -3694,8 +3694,6 @@ mod tests {
 
     #[test]
     fn prune_by_age_drops_old_records_and_rewrites_atomically() {
-        use std::os::unix::fs::PermissionsExt;
-
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("log.jsonl");
         let body = format!(
@@ -3705,7 +3703,12 @@ mod tests {
             http_line("3", "2026-12-31T00:00:00.000Z"),
         );
         std::fs::write(&path, &body).unwrap();
-        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
+        // Modes are Unix-only; the pruning itself is checked everywhere.
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
+        }
 
         let cutoff = DateTime::parse_from_rfc3339("2026-06-01T00:00:00.000Z")
             .unwrap()
@@ -3727,10 +3730,14 @@ mod tests {
         assert!(contents.contains(r#""id":"2""#));
         assert!(contents.contains(r#""id":"3""#));
         // The atomic rewrite lands a fresh 0600 file regardless of the old mode.
-        assert_eq!(
-            std::fs::metadata(&path).unwrap().permissions().mode() & 0o777,
-            0o600
-        );
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(
+                std::fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+                0o600
+            );
+        }
     }
 
     #[test]
