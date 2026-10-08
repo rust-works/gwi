@@ -12,6 +12,7 @@ pub mod drive;
 pub mod format;
 pub mod gmail;
 pub mod import;
+pub mod log;
 
 /// Google Workspace Interface: Gmail, Drive, Docs, Sheets and Slides from the command line.
 #[derive(Parser)]
@@ -52,6 +53,9 @@ pub enum Commands {
     Drive(Box<drive::DriveCommand>),
     /// Import: copy Gmail and Drive settings from omni-dev.
     Import(import::ImportCommand),
+    /// Log: search the request and audit logs, and prune the request log.
+    // Boxed: its flag set makes it the largest variant (`clippy::large_enum_variant`).
+    Log(Box<log::LogCommand>),
 }
 
 impl Cli {
@@ -110,6 +114,7 @@ impl Cli {
             Commands::Gmail(cmd) => (*cmd).execute().await,
             Commands::Drive(cmd) => (*cmd).execute().await,
             Commands::Import(cmd) => cmd.execute(),
+            Commands::Log(cmd) => cmd.execute(),
         }
     }
 }

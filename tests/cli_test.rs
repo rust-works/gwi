@@ -47,6 +47,7 @@ fn gwi(home: &Path, args: &[&str]) -> Output {
         .args(args)
         .env("HOME", home)
         .env("GWI_LOG_FILE", home.join("log.jsonl"))
+        .env("GWI_AUDIT_LOG_FILE", home.join("audit.jsonl"))
         .env("GWI_LOG_DISABLE", "1");
     for ambient in [
         "GMAIL_CLIENT_ID",
@@ -226,4 +227,80 @@ fn import_without_a_source_file_says_how_to_find_one() {
 
     assert_eq!(output.status.code(), Some(1));
     assert!(String::from_utf8_lossy(&output.stderr).contains("--source"));
+}
+
+/// A request-log line: an HTTP record and a Drive mutation, both well in the past.
+const HTTP_LINE: &str = r#"{"id":"rec-1","invocation_id":"inv-1","kind":"http","timestamp":"2020-01-01T00:00:00.000Z","service":"gmail","method":"GET","status_code":200,"url":"https://gmail.googleapis.com/gmail/v1/users/me/messages"}"#;
+const DRIVE_MUTATION_LINE: &str = r#"{"id":"rec-2","invocation_id":"inv-2","kind":"drivemutation","timestamp":"2020-01-01T00:00:01.000Z","command":["drive","move"],"service":"drive","context":{"file_id":"f1","file_name":"report.pdf","status":"blocked"}}"#;
+/// An audit-log line.
+const AUDIT_LINE: &str = r#"{"id":"rec-3","invocation_id":"inv-2","kind":"audit","timestamp":"2020-01-01T00:00:02.000Z","command":["drive","lease-acquire"],"context":{"integration":"drive","lease_id":"lease-1","verdict":"acquired"}}"#;
+
+fn write_logs(home: &Path) {
+    std::fs::write(
+        home.join("log.jsonl"),
+        format!("{HTTP_LINE}\n{DRIVE_MUTATION_LINE}\n"),
+    )
+    .unwrap();
+    std::fs::write(home.join("audit.jsonl"), format!("{AUDIT_LINE}\n")).unwrap();
+}
+
+#[test]
+fn log_reads_the_request_log_and_audit_reads_the_audit_log() {
+    let home = tempfile::tempdir().unwrap();
+    write_logs(home.path());
+
+    let requests = gwi(home.path(), &["log", "-o", "json"]);
+    assert!(requests.status.success());
+    let stdout = String::from_utf8_lossy(&requests.stdout);
+    assert_eq!(stdout, format!("{HTTP_LINE}\n{DRIVE_MUTATION_LINE}\n"));
+
+    let audit = gwi(home.path(), &["log", "--audit", "-o", "json"]);
+    assert!(audit.status.success());
+    let stdout = String::from_utf8_lossy(&audit.stdout);
+    assert_eq!(stdout, format!("{AUDIT_LINE}\n"));
+}
+
+#[test]
+fn log_query_selects_drive_mutations() {
+    let home = tempfile::tempdir().unwrap();
+    write_logs(home.path());
+
+    let output = gwi(home.path(), &["log", "--query", "kind:drivemutation"]);
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert_eq!(stdout.lines().count(), 1, "{stdout}");
+    assert!(stdout.contains("drive move"), "{stdout}");
+    assert!(stdout.contains("report.pdf"), "{stdout}");
+}
+
+#[test]
+fn log_prune_trims_the_request_log_but_never_the_audit_log() {
+    let home = tempfile::tempdir().unwrap();
+    write_logs(home.path());
+
+    let output = gwi(home.path(), &["log", "prune", "--older-than", "1d"]);
+
+    assert!(output.status.success());
+    assert!(String::from_utf8_lossy(&output.stdout).contains("Removed 2 record(s)"));
+    assert_eq!(
+        std::fs::read_to_string(home.path().join("log.jsonl")).unwrap(),
+        ""
+    );
+    assert_eq!(
+        std::fs::read_to_string(home.path().join("audit.jsonl")).unwrap(),
+        format!("{AUDIT_LINE}\n")
+    );
+
+    // `--audit` is refused rather than ignored.
+    let refused = gwi(
+        home.path(),
+        &["log", "prune", "--audit", "--older-than", "1d"],
+    );
+    assert_eq!(refused.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&refused.stderr).contains("does not support --audit"));
+    assert_eq!(
+        std::fs::read_to_string(home.path().join("audit.jsonl")).unwrap(),
+        format!("{AUDIT_LINE}\n")
+    );
 }
