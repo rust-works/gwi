@@ -35,10 +35,15 @@ network; only the run is sandboxed, with `--offline`. Loopback stays reachable b
 wiremock and MCP stdio tests bind `127.0.0.1`. The script first checks that the opener is
 really blocked and refuses to run otherwise.
 
-| Platform | Mechanism                                                                                        |
-|----------|--------------------------------------------------------------------------------------------------|
-| macOS    | `sandbox-exec` with [scripts/sandbox.sb](scripts/sandbox.sb): network denied except loopback, `/usr/bin/open` not executable |
-| Linux    | `sudo unshare --net` with only loopback up, `xdg-open`, `open`, `gio` and `sensible-browser` replaced by failing stubs; needs `sudo`, `unshare`, `setpriv` and `ip` (iproute2) and must be run as a non-root user |
+- **macOS:** `sandbox-exec` with [scripts/sandbox.sb](scripts/sandbox.sb). The network is denied
+  except loopback, and `/usr/bin/open` cannot be executed.
+- **Linux:** `sudo unshare --net` with only loopback up, then back to your user. `xdg-open`,
+  `open`, `gio` and similar resolve to stubs that record the call; the run fails if any was
+  made. Needs passwordless `sudo`, `unshare`, `setpriv` and `ip` (iproute2), and must run as a
+  non-root user.
+
+[tests/sandbox_test.rs](tests/sandbox_test.rs) runs inside the sandbox and checks that an
+external connect is refused and loopback works.
 
 CI runs the same script in the `Sandboxed Test` job. A test that cannot run under the
 sandbox must be fixed, or gated with a comment saying why.
