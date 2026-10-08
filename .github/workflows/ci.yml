@@ -49,6 +49,9 @@ jobs:
     - uses: actions/checkout@v7
     - uses: dtolnay/rust-toolchain@stable
     - uses: Swatinem/rust-cache@v2
+    # The script needs an unprivileged user namespace (`unshare -rn`), which the runner's
+    # AppArmor profile restricts by default since Ubuntu 23.10.
+    - run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
     - run: scripts/sandbox-test.sh
 
   windows-build:

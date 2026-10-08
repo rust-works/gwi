@@ -41,10 +41,15 @@ really blocked and refuses to run otherwise.
 
 - **macOS:** `sandbox-exec` with [scripts/sandbox.sb](scripts/sandbox.sb). The network is denied
   except loopback, and `/usr/bin/open` cannot be executed.
-- **Linux:** `sudo unshare --net` with only loopback up, then back to your user. `xdg-open`,
+- **Linux:** `unshare -rn`, a new user and network namespace with only loopback up. `xdg-open`,
   `open`, `gio` and similar resolve to stubs that record the call; the run fails if any was
-  made. Needs passwordless `sudo`, `unshare`, `setpriv` and `ip` (iproute2), and must run as a
-  non-root user.
+  made. Needs `unshare` and `ip` (iproute2) but not `sudo`, and runs as root or as an ordinary
+  user. Inside the namespace the run is uid 0, so the tests that need file-permission
+  enforcement skip themselves there (`skip_as_root!` in
+  [src/test_support.rs](src/test_support.rs)); the ordinary `cargo test` run covers them.
+  Distributions that restrict unprivileged user namespaces (Ubuntu 23.10+) need
+  `sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0` first. In a container,
+  Docker's default seccomp profile blocks `unshare`, so start it with `--privileged`.
 
 The sandbox is the backstop for the browser, not the guarantee. Every browser launch goes
 through `launch_detached` in [src/utils/browser_launch.rs](src/utils/browser_launch.rs), which
