@@ -182,8 +182,11 @@ mod tests {
         assert_eq!(render_list(&rows, "No bandings."), "id 1\nid [31m2\n");
     }
 
-    #[test]
-    fn create_client_from_uses_drive_api_host() {
+    /// The default host holds only while no `DRIVE_API_URL` is exported, and
+    /// other tests export one, so this reads it under the env guard.
+    fn assert_create_client_from_targets_the_default_drive_host() {
+        let env_guard = crate::drive::test_support::EnvGuard::take();
+        let _env_home = env_guard.clear_credentials();
         let creds = DriveCredentials {
             client_id: "client".to_string(),
             client_secret: Secret::new("secret"),
@@ -192,6 +195,20 @@ mod tests {
         };
         let client = create_client_from(creds).unwrap();
         assert_eq!(client.base_url(), "https://www.googleapis.com");
+    }
+
+    #[test]
+    fn create_client_from_uses_drive_api_host() {
+        assert_create_client_from_targets_the_default_drive_host();
+    }
+
+    #[test]
+    fn create_client_from_ignores_a_drive_api_url_exported_by_another_thread() {
+        crate::test_support::while_another_thread_exports(
+            &[(crate::drive::auth::DRIVE_API_URL, "http://127.0.0.1:1")],
+            200,
+            assert_create_client_from_targets_the_default_drive_host,
+        );
     }
 
     #[test]

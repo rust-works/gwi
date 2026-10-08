@@ -321,6 +321,20 @@ impl fmt::Display for OctalMode {
     }
 }
 
+/// Every `<NAME>_FILE` and `<NAME>_COMMAND` companion of a registered secret.
+///
+/// For the test `EnvGuard`s, which must snapshot, clear and restore them: a
+/// developer who exports one changes the outcome of any test that resolves
+/// credentials. Lives here because only this module may spell the
+/// companions (see `only_the_resolver_writers_and_scrub_name_command_companions`).
+#[cfg(test)]
+pub(crate) fn companion_vars() -> Vec<String> {
+    SECRET_ENV_VARS
+        .iter()
+        .flat_map(|name| [file_var_name(name), command_var_name(name)])
+        .collect()
+}
+
 /// Returns `<name>_FILE`.
 #[must_use]
 pub fn file_var_name(name: &str) -> String {

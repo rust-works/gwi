@@ -1734,6 +1734,9 @@ mod tests {
 
     #[tokio::test]
     async fn login_to_refuses_before_the_browser_flow_when_the_token_is_command_fetched() {
+        // `login_to` reads the process env; a stray `*_COMMAND` must not reach it.
+        let env_guard = crate::gmail::test_support::EnvGuard::take();
+        let _env_home = env_guard.clear_credentials();
         let temp_dir = tempfile::TempDir::new().unwrap();
         let settings_path = temp_dir.path().join("settings.json");
         std::fs::write(
@@ -1894,6 +1897,9 @@ mod tests {
 
     #[tokio::test]
     async fn login_to_rejects_a_callback_with_mismatched_state() {
+        // `login_to` reads the process env; a stray `*_COMMAND` must not reach it.
+        let env_guard = crate::gmail::test_support::EnvGuard::take();
+        let _env_home = env_guard.clear_credentials();
         let err =
             run_login_to_expect_err(b"GET /?code=abc&state=the-wrong-state HTTP/1.1\r\n\r\n").await;
 
@@ -1905,6 +1911,9 @@ mod tests {
 
     #[tokio::test]
     async fn login_to_surfaces_access_denied_from_the_callback() {
+        // `login_to` reads the process env; a stray `*_COMMAND` must not reach it.
+        let env_guard = crate::gmail::test_support::EnvGuard::take();
+        let _env_home = env_guard.clear_credentials();
         let err = run_login_to_expect_err(
             b"GET /?error=access_denied&error_description=user+declined HTTP/1.1\r\n\r\n",
         )
@@ -1921,6 +1930,9 @@ mod tests {
 
     #[tokio::test]
     async fn login_to_rejects_a_callback_missing_code_and_state() {
+        // `login_to` reads the process env; a stray `*_COMMAND` must not reach it.
+        let env_guard = crate::gmail::test_support::EnvGuard::take();
+        let _env_home = env_guard.clear_credentials();
         let err = run_login_to_expect_err(b"GET /?foo=bar HTTP/1.1\r\n\r\n").await;
 
         assert!(matches!(
@@ -1931,6 +1943,9 @@ mod tests {
 
     #[tokio::test]
     async fn login_to_completes_full_success_flow_and_persists_credentials() {
+        // `login_to` reads the process env; a stray `*_COMMAND` must not reach it.
+        let env_guard = crate::gmail::test_support::EnvGuard::take();
+        let _env_home = env_guard.clear_credentials();
         // Reads the real authorization URL `login_to` generates (with its
         // randomly-generated CSRF `state`) from the launch recorder rather
         // than from a browser: `open_browser` hands `{url}`-substituted args
@@ -2087,6 +2102,9 @@ mod tests {
 
     #[tokio::test]
     async fn login_to_rejects_a_grant_with_no_gmail_scope() {
+        // `login_to` reads the process env; a stray `*_COMMAND` must not reach it.
+        let env_guard = crate::gmail::test_support::EnvGuard::take();
+        let _env_home = env_guard.clear_credentials();
         let (result, settings_path) = run_login_to_with_token_response(serde_json::json!({
             "access_token": "at-1",
             "refresh_token": "rt-1",
@@ -2105,6 +2123,9 @@ mod tests {
 
     #[tokio::test]
     async fn login_to_rejects_a_grant_with_missing_scope_field() {
+        // `login_to` reads the process env; a stray `*_COMMAND` must not reach it.
+        let env_guard = crate::gmail::test_support::EnvGuard::take();
+        let _env_home = env_guard.clear_credentials();
         let (result, settings_path) = run_login_to_with_token_response(serde_json::json!({
             "access_token": "at-1",
             "refresh_token": "rt-1",

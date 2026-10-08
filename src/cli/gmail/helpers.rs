@@ -122,8 +122,11 @@ mod tests {
     use crate::gmail::auth::{GmailCredentials, GmailScope};
     use crate::utils::secret::Secret;
 
-    #[test]
-    fn create_client_from_uses_gmail_api_host() {
+    /// The default host holds only while no `GMAIL_API_URL` is exported, and
+    /// other tests export one, so this reads it under the env guard.
+    fn assert_create_client_from_targets_the_default_gmail_host() {
+        let env_guard = crate::gmail::test_support::EnvGuard::take();
+        let _env_home = env_guard.clear_credentials();
         let creds = GmailCredentials {
             client_id: "client".to_string(),
             client_secret: Secret::new("secret"),
@@ -132,6 +135,20 @@ mod tests {
         };
         let client = create_client_from(creds).unwrap();
         assert_eq!(client.base_url(), "https://gmail.googleapis.com");
+    }
+
+    #[test]
+    fn create_client_from_uses_gmail_api_host() {
+        assert_create_client_from_targets_the_default_gmail_host();
+    }
+
+    #[test]
+    fn create_client_from_ignores_a_gmail_api_url_exported_by_another_thread() {
+        crate::test_support::while_another_thread_exports(
+            &[(crate::gmail::auth::GMAIL_API_URL, "http://127.0.0.1:1")],
+            200,
+            assert_create_client_from_targets_the_default_gmail_host,
+        );
     }
 
     #[test]
