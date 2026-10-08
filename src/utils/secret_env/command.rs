@@ -13,7 +13,7 @@
 //! - The child inherits the environment minus every registered secret and its
 //!   `_FILE`/`_COMMAND` companion, so a helper never receives sibling secrets.
 //! - A timeout (default 60 s: a biometric prompt needs a human) kills the
-//!   child. With no terminal attached (the daemon, the MCP server, a pipe) the
+//!   child. With no terminal attached (the MCP server, a pipe) the
 //!   helper runs in its own process group and the whole group is killed. With
 //!   a terminal it stays in the foreground group, so a helper that prompts on
 //!   `/dev/tty` (`pass`, `gpg`'s curses pinentry) is not stopped by `SIGTTIN`,
@@ -528,20 +528,20 @@ mod tests {
 
     #[test]
     fn a_missing_bare_program_names_it_and_hints_at_an_absolute_path() {
-        let err = resolve_now("omni-dev-no-such-helper --flag").unwrap_err();
+        let err = resolve_now("gwi-no-such-helper --flag").unwrap_err();
         assert!(matches!(err, SecretEnvError::CommandSpawn { .. }), "{err}");
         let text = err.to_string();
-        assert!(text.contains("omni-dev-no-such-helper"), "{text}");
+        assert!(text.contains("gwi-no-such-helper"), "{text}");
         assert!(text.contains("absolute path"), "{text}");
         assert!(!text.contains("--flag"), "arguments leaked: {text}");
     }
 
     #[test]
     fn a_missing_absolute_program_does_not_advise_what_it_already_did() {
-        let text = resolve_now("/nonexistent/omni-dev-helper")
+        let text = resolve_now("/nonexistent/gwi-helper")
             .unwrap_err()
             .to_string();
-        assert!(text.contains("/nonexistent/omni-dev-helper"), "{text}");
+        assert!(text.contains("/nonexistent/gwi-helper"), "{text}");
         assert!(!text.contains("absolute path"), "{text}");
     }
 

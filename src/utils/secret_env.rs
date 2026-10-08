@@ -5,7 +5,7 @@
 //! [ADR-0090](../../docs/adrs/adr-0090.md),
 //! [STYLE-0030](../../docs/STYLE_GUIDE.md)).
 //!
-//! Every secret omni-dev reads from the environment (or the settings.json
+//! Every secret gwi reads from the environment (or the settings.json
 //! `env` fallback) is registered in [`SECRET_ENV_VARS`] and read only through
 //! [`secret_var`] / [`secret_var_any`]. Each accepts a `<NAME>_FILE` companion
 //! naming a file whose contents are the secret — the Docker/Kubernetes secrets
