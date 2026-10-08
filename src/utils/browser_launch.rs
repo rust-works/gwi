@@ -68,6 +68,9 @@ pub(crate) mod testing {
         pub(crate) args: Vec<String>,
     }
 
+    /// How long [`RecordedLaunches::wait_for_first`] waits for a launch.
+    const WAIT_TIMEOUT: Duration = Duration::from_secs(10);
+
     thread_local! {
         static LAUNCHER: RefCell<Option<RecordedLaunches>> = const { RefCell::new(None) };
     }
@@ -83,36 +86,53 @@ pub(crate) mod testing {
         }
 
         /// Waits for the first launch and returns it.
+        ///
+        /// # Panics
+        ///
+        /// If none is recorded within [`WAIT_TIMEOUT`], so a test whose code never
+        /// launches fails instead of hanging.
         pub(crate) async fn wait_for_first(&self) -> Launch {
-            loop {
-                if let Some(first) = self.0.lock().unwrap().first() {
-                    return first.clone();
+            let wait = async {
+                loop {
+                    if let Some(first) = self.0.lock().unwrap().first() {
+                        return first.clone();
+                    }
+                    tokio::time::sleep(Duration::from_millis(2)).await;
                 }
-                tokio::time::sleep(Duration::from_millis(2)).await;
-            }
+            };
+            tokio::time::timeout(WAIT_TIMEOUT, wait)
+                .await
+                .expect("no browser launch was recorded")
         }
     }
 
     /// Replaces the launch on this thread with a recorder until dropped, then restores
-    /// the default, which panics.
+    /// what was installed before (the default, which panics, unless guards are nested).
+    ///
+    /// Drop it on the thread that installed it (a test body does; `future_not_send` would
+    /// reject a `!Send` guard held across an `.await`).
     #[must_use = "the recorder is removed when the guard is dropped"]
-    pub(crate) struct LaunchGuard(RecordedLaunches);
+    pub(crate) struct LaunchGuard {
+        recorded: RecordedLaunches,
+        previous: Option<RecordedLaunches>,
+    }
 
     impl LaunchGuard {
         pub(crate) fn install() -> Self {
             let recorded = RecordedLaunches::default();
-            LAUNCHER.with(|slot| *slot.borrow_mut() = Some(recorded.clone()));
-            Self(recorded)
+            let previous = LAUNCHER.with(|slot| slot.borrow_mut().replace(recorded.clone()));
+            Self { recorded, previous }
         }
 
         pub(crate) fn launches(&self) -> RecordedLaunches {
-            self.0.clone()
+            self.recorded.clone()
         }
     }
 
     impl Drop for LaunchGuard {
         fn drop(&mut self) {
-            LAUNCHER.with(|slot| *slot.borrow_mut() = None);
+            let previous = self.previous.take();
+            LAUNCHER.with(|slot| *slot.borrow_mut() = previous);
         }
     }
 
@@ -174,6 +194,16 @@ mod tests {
         let _ = launch_detached("open", &args(&["https://example"]));
     }
 
+    #[test]
+    fn a_nested_guard_restores_the_outer_recorder_when_dropped() {
+        let outer = LaunchGuard::install();
+        drop(LaunchGuard::install());
+
+        launch_detached("browser", &args(&["https://example"])).unwrap();
+
+        assert_eq!(outer.launches().calls().len(), 1);
+    }
+
     #[tokio::test]
     async fn wait_for_first_sees_a_launch_made_after_it_started_waiting() {
         let guard = LaunchGuard::install();
@@ -185,6 +215,7 @@ mod tests {
         assert_eq!(waiter.await.unwrap().program, "browser");
     }
 
+    #[cfg(unix)]
     #[test]
     fn the_real_launch_starts_a_process() {
         // `true` ignores its arguments and opens nothing.
