@@ -1332,6 +1332,9 @@ mod tests {
         // block the very `failed` record the test asserts on.
         use std::os::unix::fs::PermissionsExt;
 
+        // Root bypasses the missing write permission this relies on.
+        crate::test_support::skip_as_root!();
+
         let dir = tempfile::tempdir().unwrap();
         let audit = AuditLogGuard::redirect(dir.path());
         let ledger_dir = dir.path().join("locked");

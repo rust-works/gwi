@@ -1005,6 +1005,9 @@ mod tests {
     fn ledger_lock_acquire_reports_a_non_collision_failure_distinctly() {
         use std::os::unix::fs::PermissionsExt;
 
+        // Root bypasses the missing write permission this relies on.
+        crate::test_support::skip_as_root!();
+
         // A permission failure only arises from the lock file's *first*
         // creation (a persistent lock file needs dir-write only then) —
         // exercised here against a lock path that does not yet exist, in a

@@ -1602,6 +1602,9 @@ mod tests {
     async fn a_ledger_persist_failure_after_clearing_the_backup_is_reported_loudly() {
         use std::os::unix::fs::PermissionsExt;
 
+        // Root bypasses the missing write permission this relies on.
+        crate::test_support::skip_as_root!();
+
         let dir = tempfile::tempdir().unwrap();
         let _audit = AuditGuard::redirect(dir.path());
         let ledger_path = dir.path().join("lease-ledger.jsonl");
