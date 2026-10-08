@@ -1515,14 +1515,24 @@ tests that call `std::env::set_var` / `remove_var`:
   variable resolved through it, must hold the guard.
 - **Mutate only under the guard.** Take `EnvGuard::take()` before the first
   `set_var` / `remove_var`. Drop restores only the keys in its snapshot, so
-  add a new variable to that list before a test mutates it. Today neither
-  snapshot covers `GWI_PROFILE` (which `clear_credentials` removes) or
-  `GWI_LOG_FILE` / `GWI_LOG_DISABLE`: a test that mutates those restores them
-  itself (`ScopedEnvVar`, a local `Drop`) *and* still takes the guard.
-- **Enforcement is partial.** `every_drive_env_mutation_holds_the_env_guard`
-  fails a function that mutates one of the keys in its `GUARDED_KEYS` without
-  `EnvGuard::take()`. That list omits `SLIDES_API_URL`, and Gmail keys and
-  `HOME` have no such check.
+  add a new variable to that list (`EnvGuard::keys()`) before a test mutates
+  it. Today neither snapshot covers `GWI_LOG_FILE` / `GWI_LOG_DISABLE`: a test
+  that mutates those restores them itself (`ScopedEnvVar`, a local `Drop`)
+  *and* still takes the guard. A new secret's `_FILE` / `_COMMAND`
+  companions are picked up from `SECRET_ENV_VARS`.
+- **A test that needs a variable unset takes the guard.** The credential,
+  account, profile and endpoint variables (`GMAIL_*`, `DRIVE_*` with their
+  `_FILE` / `_COMMAND` companions, `GWI_PROFILE`, `GWI_*_ACCOUNT`, the
+  `*_API_URL` overrides) are exported by guarded tests, and by a developer's
+  shell. A test whose result depends on one being **unset** (a default API
+  host, "no profile selected", "not configured") takes the guard and calls
+  `clear_credentials()`, even for a single read (#62). A spawned `gwi`
+  removes them with `tests/common`'s `scrub_ambient_env`.
+- **Enforcement is partial.**
+  `every_gmail_and_drive_env_mutation_holds_the_env_guard` fails a function
+  that mutates one of the credential or endpoint variables in its
+  `GUARDED_KEYS` without `EnvGuard::take()`. That list omits `GWI_PROFILE`
+  (`--profile` sets it in production), and `HOME` has no such check.
 - **When a `HOME`-derived read needs the guard.** When the test reads one
   **more than once**, compares it, or relies on it staying put, because another
   test repointing `HOME` between the reads makes them disagree (#14, #15, #17).
