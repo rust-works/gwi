@@ -2,7 +2,9 @@
 //!
 //! The backlog is read without buffering the whole file (a `--limit` keeps only
 //! the most recent N matches in a ring buffer); `--follow` then tails newly
-//! appended complete lines. A broken pipe (e.g. piping into `head`) is treated
+//! appended complete lines; a final line with no newline yet (a writer mid-append)
+//! is printed by the backlog only in a one-shot run, and left for the follow loop
+//! otherwise so it is printed once. A broken pipe (e.g. piping into `head`) is treated
 //! as a clean exit, not an error, and ends the scan at once. A reader that goes
 //! away while `--follow` is idle is only noticed on the next write.
 //!
@@ -76,7 +78,7 @@ pub fn run(
             // point is seen as a change of identity by the follow loop.
             tail.id = file.metadata().ok().and_then(|m| file_id(&m));
             let mut reader = BufReader::new(file);
-            match emit_backlog(&mut reader, filter, format, limit, &mut out)? {
+            match emit_backlog(&mut reader, filter, format, limit, follow, &mut out)? {
                 Backlog::Complete(pos) => tail.pos = pos,
                 Backlog::ReaderGone => return Ok(()),
             }
@@ -131,14 +133,17 @@ fn read_line_lossy<R: BufRead>(
 /// Reads every existing line, emitting matches. With `limit`, only the most
 /// recent N matches are kept (ring buffer) and printed at the end; without it,
 /// matches stream out as they are read. Returns the byte offset just past the last
-/// newline-terminated line: a trailing partial line (a writer mid-append) is
-/// still tried, but is not counted, so `--follow` re-reads it once complete.
+/// newline-terminated line. A trailing partial line (a writer mid-append) is not
+/// counted, so when `follow` is set it is also not printed: `--follow` reads it
+/// from that offset and prints it once, when it is complete. A one-shot scan has
+/// nothing to complete it, so it still prints the line if it parses.
 /// Stops at the first write to a closed pipe, without reading the rest.
 fn emit_backlog<R: BufRead, W: Write>(
     reader: &mut R,
     filter: &Filter,
     format: Format,
     limit: Option<usize>,
+    follow: bool,
     out: &mut W,
 ) -> Result<Backlog> {
     let mut pos = 0u64;
@@ -152,6 +157,8 @@ fn emit_backlog<R: BufRead, W: Write>(
         }
         if line.ends_with('\n') {
             pos += n as u64;
+        } else if follow {
+            break; // a partial last line: left for the follow loop to print once
         }
         if let Some(rendered) = render_if_match(&line, filter, format) {
             match limit {
@@ -310,7 +317,15 @@ mod tests {
     fn backlog_emits_all_without_limit() {
         let mut reader = BufReader::new(Cursor::new(sample_lines()));
         let mut out = Vec::new();
-        emit_backlog(&mut reader, &empty_filter(), Format::Json, None, &mut out).unwrap();
+        emit_backlog(
+            &mut reader,
+            &empty_filter(),
+            Format::Json,
+            None,
+            false,
+            &mut out,
+        )
+        .unwrap();
         let text = String::from_utf8(out).unwrap();
         assert_eq!(text.lines().count(), 5);
         // JSON format is byte-identical to the input lines.
@@ -327,6 +342,7 @@ mod tests {
             &empty_filter(),
             Format::Json,
             Some(2),
+            false,
             &mut out,
         )
         .unwrap();
@@ -342,10 +358,159 @@ mod tests {
         let input = "not json\n\n{\"id\":\"1\",\"kind\":\"http\"}\n";
         let mut reader = BufReader::new(Cursor::new(input));
         let mut out = Vec::new();
-        emit_backlog(&mut reader, &empty_filter(), Format::Json, None, &mut out).unwrap();
+        emit_backlog(
+            &mut reader,
+            &empty_filter(),
+            Format::Json,
+            None,
+            false,
+            &mut out,
+        )
+        .unwrap();
         let text = String::from_utf8(out).unwrap();
         assert_eq!(text.lines().count(), 1);
         assert!(text.contains(r#""id":"1""#));
+    }
+
+    /// A complete record with no trailing newline: a writer caught mid-append.
+    const UNTERMINATED: &str = r#"{"id":"tail","kind":"http","url":"/tail"}"#;
+
+    #[test]
+    fn one_shot_backlog_prints_an_unterminated_final_line() {
+        let complete = sample_lines();
+        let input = format!("{complete}{UNTERMINATED}");
+        let mut reader = BufReader::new(Cursor::new(input));
+        let mut out = Vec::new();
+
+        let result = emit_backlog(
+            &mut reader,
+            &empty_filter(),
+            Format::Json,
+            None,
+            false,
+            &mut out,
+        )
+        .unwrap();
+
+        // Nothing will complete the line, so it is printed; the offset still stops before it.
+        let text = String::from_utf8(out).unwrap();
+        assert_eq!(text.lines().count(), 6, "text was: {text}");
+        assert_eq!(text.lines().last(), Some(UNTERMINATED));
+        assert_eq!(result, Backlog::Complete(complete.len() as u64));
+    }
+
+    #[test]
+    fn following_backlog_holds_back_an_unterminated_final_line() {
+        let complete = sample_lines();
+        let input = format!("{complete}{UNTERMINATED}");
+        let mut reader = BufReader::new(Cursor::new(input));
+        let mut out = Vec::new();
+
+        let result = emit_backlog(
+            &mut reader,
+            &empty_filter(),
+            Format::Json,
+            None,
+            true,
+            &mut out,
+        )
+        .unwrap();
+
+        let text = String::from_utf8(out).unwrap();
+        assert_eq!(text.lines().count(), 5, "text was: {text}");
+        assert!(!text.contains("/tail"), "text was: {text}");
+        assert_eq!(result, Backlog::Complete(complete.len() as u64));
+    }
+
+    #[test]
+    fn following_backlog_with_a_limit_does_not_spend_a_slot_on_the_held_back_line() {
+        let input = format!("{}{UNTERMINATED}", sample_lines());
+        let mut reader = BufReader::new(Cursor::new(input));
+        let mut out = Vec::new();
+
+        emit_backlog(
+            &mut reader,
+            &empty_filter(),
+            Format::Json,
+            Some(2),
+            true,
+            &mut out,
+        )
+        .unwrap();
+
+        let text = String::from_utf8(out).unwrap();
+        assert_eq!(text.lines().count(), 2, "text was: {text}");
+        assert!(text.contains(r#""url":"/x/3""#), "text was: {text}");
+        assert!(text.contains(r#""url":"/x/4""#), "text was: {text}");
+    }
+
+    #[test]
+    fn following_backlog_prints_a_terminated_final_line() {
+        let input = format!("{}{UNTERMINATED}\n", sample_lines());
+        let mut reader = BufReader::new(Cursor::new(input.clone()));
+        let mut out = Vec::new();
+
+        let result = emit_backlog(
+            &mut reader,
+            &empty_filter(),
+            Format::Json,
+            None,
+            true,
+            &mut out,
+        )
+        .unwrap();
+
+        let text = String::from_utf8(out).unwrap();
+        assert_eq!(text.lines().count(), 6, "text was: {text}");
+        assert_eq!(result, Backlog::Complete(input.len() as u64));
+    }
+
+    #[test]
+    fn follow_prints_a_record_once_when_it_starts_mid_append() {
+        use std::io::Write as _;
+
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("log.jsonl");
+        std::fs::write(&path, format!("{}{UNTERMINATED}", sample_lines())).unwrap();
+
+        // The backlog scan, as `run` does it with `--follow`.
+        let file = File::open(&path).unwrap();
+        let id = file_id(&file.metadata().unwrap());
+        let mut reader = BufReader::new(file);
+        let mut backlog = Vec::new();
+        let Backlog::Complete(pos) = emit_backlog(
+            &mut reader,
+            &empty_filter(),
+            Format::Json,
+            None,
+            true,
+            &mut backlog,
+        )
+        .unwrap() else {
+            panic!("the scan should complete");
+        };
+        let mut tail = Tail { pos, id };
+
+        // The writer has not finished: the follow loop prints nothing yet.
+        let mut out = Vec::new();
+        drain_appended(&path, &empty_filter(), Format::Json, &mut tail, &mut out).unwrap();
+        assert!(out.is_empty());
+
+        // The writer finishes the line.
+        let mut f = std::fs::OpenOptions::new()
+            .append(true)
+            .open(&path)
+            .unwrap();
+        writeln!(f).unwrap();
+        drain_appended(&path, &empty_filter(), Format::Json, &mut tail, &mut out).unwrap();
+
+        let all = format!(
+            "{}{}",
+            String::from_utf8(backlog).unwrap(),
+            String::from_utf8(out).unwrap()
+        );
+        assert_eq!(all.matches("/tail").count(), 1, "output was: {all}");
+        assert_eq!(all.lines().count(), 6, "output was: {all}");
     }
 
     /// A `drivemutation` line from `log.jsonl`.
@@ -370,6 +535,7 @@ mod tests {
             &empty_filter(),
             Format::Oneline,
             None,
+            false,
             &mut out,
         )
         .unwrap();
@@ -401,7 +567,15 @@ mod tests {
         // JSON output stays byte-identical to what is on disk.
         let mut reader = BufReader::new(Cursor::new(input));
         let mut out = Vec::new();
-        emit_backlog(&mut reader, &empty_filter(), Format::Json, None, &mut out).unwrap();
+        emit_backlog(
+            &mut reader,
+            &empty_filter(),
+            Format::Json,
+            None,
+            false,
+            &mut out,
+        )
+        .unwrap();
         let text = String::from_utf8(out).unwrap();
         assert_eq!(text.lines().next(), Some(DRIVE_MUTATION_LINE));
         assert_eq!(text.lines().nth(1), Some(AUDIT_LINE));
@@ -425,7 +599,7 @@ mod tests {
         .unwrap();
         let mut reader = BufReader::new(Cursor::new(sample_lines()));
         let mut out = Vec::new();
-        emit_backlog(&mut reader, &filter, Format::Json, None, &mut out).unwrap();
+        emit_backlog(&mut reader, &filter, Format::Json, None, false, &mut out).unwrap();
         // All sample lines are status 200, so nothing matches 5xx.
         assert!(String::from_utf8(out).unwrap().is_empty());
     }
@@ -507,8 +681,15 @@ mod tests {
         let mut reader = BufReader::new(Cursor::new(input.clone()));
         let mut out = PipeWriter::failing_with(io::ErrorKind::BrokenPipe, 0);
 
-        let result =
-            emit_backlog(&mut reader, &empty_filter(), Format::Json, None, &mut out).unwrap();
+        let result = emit_backlog(
+            &mut reader,
+            &empty_filter(),
+            Format::Json,
+            None,
+            false,
+            &mut out,
+        )
+        .unwrap();
 
         assert_eq!(result, Backlog::ReaderGone);
         // `writeln!` may split a record into a few writes, but never goes on to later lines.
@@ -531,6 +712,7 @@ mod tests {
             &empty_filter(),
             Format::Json,
             Some(3),
+            false,
             &mut out,
         )
         .unwrap();
@@ -543,7 +725,15 @@ mod tests {
     fn backlog_propagates_other_write_errors() {
         let mut reader = BufReader::new(Cursor::new(sample_lines()));
         let mut out = PipeWriter::failing_with(io::ErrorKind::PermissionDenied, 0);
-        assert!(emit_backlog(&mut reader, &empty_filter(), Format::Json, None, &mut out).is_err());
+        assert!(emit_backlog(
+            &mut reader,
+            &empty_filter(),
+            Format::Json,
+            None,
+            false,
+            &mut out
+        )
+        .is_err());
     }
 
     #[test]
