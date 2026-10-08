@@ -35,12 +35,9 @@ Both the OAuth scope and the local gate must allow an operation — neither
 alone is sufficient. See [Write permissions](#write-permissions) and
 [ADR-0071](adrs/adr-0071.md) for the full design.
 
-`gwi-mcp` does not serve the Drive tools yet ([#26](https://github.com/rust-works/gwi/issues/26));
-until it does, use omni-dev's, and see the [MCP section of the README](../README.md#mcp-server)
+`gwi-mcp` serves the Drive tools; see the [MCP section of the README](../README.md#mcp-server)
 for the server. The 15 tools are file, Docs and Sheets reads, Docs replace/append, Sheets
-write/append/clear, and `drive_lease_acquire`.
-(The MCP details in this document describe the tools as omni-dev serves them today and as
-`gwi-mcp` will; gwi has no MCP reference of its own yet.) The content write tools use the same operator rules, leases, freshness checks
+write/append/clear, and `drive_lease_acquire`. The content write tools use the same operator rules, leases, freshness checks
 and audit paths as the CLI. Per-call `account` selects credentials, rules and
 native backup folder together. Preview first (`dry_run: true`), acquire a backup
 lease through the device-owner prompt, then supply the token to the write.
@@ -4903,7 +4900,7 @@ coexist.
 | Lease ledger, `<state dir>/omni-dev/lease-ledger.jsonl` | Copied by `gwi import` (`--source-ledger PATH` for another file), expired and released leases included, so a lease taken with `omni-dev drive lease acquire` works and can be restored through `gwi drive`. A live lease stays live until it expires, in both tools, and the two ledgers are copies: releasing it in omni-dev does not release gwi's. The backups themselves are not copied; a row keeps pointing at where omni-dev put them. See [Importing omni-dev's ledger](#importing-omni-devs-ledger). |
 | Sync manifest, `<DIR>/.omni-dev-sync.json` | Nothing to do. When `<DIR>/.gwi-sync.json` is absent, `gwi drive sync` reads the old manifest (same version-1 format, same checks) and writes `.gwi-sync.json` from the first checkpoint on; if both exist, `.gwi-sync.json` wins. gwi never changes or deletes `.omni-dev-sync.json`. See [Sync](#sync). |
 | Request and audit logs | Not copied; gwi starts its own (see [Request and audit logs](#request-and-audit-logs)). The audit history stays in omni-dev ([ADR-0001](adrs/adr-0001.md)). |
-| MCP tools | `gwi-mcp` does not serve the Drive tools yet ([#26](https://github.com/rust-works/gwi/issues/26)). |
+| MCP tools | gwi's `gwi-mcp` serves its own `drive_*` tools; omni-dev's keep working alongside. |
 
 The design records in [docs/adrs/](adrs/README.md) quote omni-dev's commands, paths and
 variables as they were when written; read `omni-dev drive` as `gwi drive`, `~/.omni-dev` as
