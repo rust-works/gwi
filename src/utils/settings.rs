@@ -3169,7 +3169,7 @@ mod tests {
 
     /// A settings file whose `drive.accounts.work` names `refresh_token_file`
     /// (and optionally `client_secret_file`) under `dir`.
-    fn settings_with_secret_files(
+    fn drive_settings_with_secret_files(
         path: &Path,
         client_secret_file: Option<&Path>,
         refresh_token_file: &Path,
@@ -3190,9 +3190,9 @@ mod tests {
     }
 
     #[test]
-    fn account_secret_file_fields_deserialize() {
+    fn drive_account_secret_file_fields_deserialize() {
         let (_tmp, path) = temp_settings_path();
-        settings_with_secret_files(&path, Some(Path::new("/s/cs")), Path::new("/s/rt"));
+        drive_settings_with_secret_files(&path, Some(Path::new("/s/cs")), Path::new("/s/rt"));
         let settings = Settings::load_from_path(&path).unwrap();
         let work = &settings.drive.accounts["work"];
         assert_eq!(work.client_secret_file.as_deref(), Some("/s/cs"));
@@ -3201,10 +3201,10 @@ mod tests {
     }
 
     #[test]
-    fn upsert_account_writes_a_secret_into_its_file_not_settings() {
+    fn drive_upsert_account_writes_a_secret_into_its_file_not_settings() {
         let (tmp, path) = temp_settings_path();
         let token_file = tmp.path().join("refresh-token");
-        settings_with_secret_files(&path, None, &token_file);
+        drive_settings_with_secret_files(&path, None, &token_file);
 
         Settings::upsert_drive_account(
             &path,
@@ -3230,10 +3230,10 @@ mod tests {
     }
 
     #[test]
-    fn upsert_account_leaves_settings_untouched_when_the_secret_write_fails() {
+    fn drive_upsert_account_leaves_settings_untouched_when_the_secret_write_fails() {
         let (tmp, path) = temp_settings_path();
         let token_file = tmp.path().join("missing-dir").join("refresh-token");
-        settings_with_secret_files(&path, None, &token_file);
+        drive_settings_with_secret_files(&path, None, &token_file);
         let before = fs::read_to_string(&path).unwrap();
 
         let err = Settings::upsert_drive_account(
@@ -3256,11 +3256,11 @@ mod tests {
     }
 
     #[test]
-    fn upsert_account_refuses_to_replace_a_client_secret_file_of_another_client() {
+    fn drive_upsert_account_refuses_to_replace_a_client_secret_file_of_another_client() {
         let (tmp, path) = temp_settings_path();
         let secret_file = owner_only(tmp.path(), "client-secret", "old-secret\n");
         let token_file = tmp.path().join("refresh-token");
-        settings_with_secret_files(&path, Some(&secret_file), &token_file);
+        drive_settings_with_secret_files(&path, Some(&secret_file), &token_file);
         let before = fs::read_to_string(&path).unwrap();
 
         let err = Settings::upsert_drive_account(
