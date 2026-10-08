@@ -214,6 +214,7 @@ pub(crate) fn resolve_launch_command(email: &str) -> Option<Vec<String>> {
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use super::*;
+    use crate::drive::test_support::EnvGuard;
 
     /// Thread-scoped log buffer, mirroring the `capture_info`/`CaptureWriter`
     /// pattern in `daemon/services/worktrees.rs`: `tracing`'s events only
@@ -420,10 +421,62 @@ mod tests {
 
     #[test]
     fn default_local_state_path_delegates_to_the_current_host_os() {
+        // Both sides read `dirs::config_dir()`, which derives from `HOME`.
+        // Hold the shared `HOME` lock so a test that repoints `HOME` cannot
+        // run between the two reads and make them disagree.
+        let _guard = EnvGuard::take();
         assert_eq!(
             default_local_state_path(),
             default_local_state_path_for(current_chrome_os())
         );
+    }
+
+    #[test]
+    fn default_local_state_path_is_stable_while_another_thread_rewrites_home() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+
+        // Regression for the race the lock above closes: a writer thread
+        // repoints `HOME` at alternating directories, each time under the
+        // shared lock, while this thread compares the two reads under the
+        // same lock. With the lock held the writer can never run between
+        // the reads; without it the comparison fails intermittently.
+        let dir_a = tempfile::tempdir().unwrap();
+        let dir_b = tempfile::tempdir().unwrap();
+        let stop = AtomicBool::new(false);
+
+        /// Stops the writer even when an assertion panics, so a failing run
+        /// fails instead of hanging in the scope's implicit join.
+        struct StopOnDrop<'a>(&'a AtomicBool);
+        impl Drop for StopOnDrop<'_> {
+            fn drop(&mut self) {
+                self.0.store(true, Ordering::Relaxed);
+            }
+        }
+
+        std::thread::scope(|scope| {
+            scope.spawn(|| {
+                while !stop.load(Ordering::Relaxed) {
+                    {
+                        let _guard = EnvGuard::take();
+                        std::env::set_var("HOME", dir_a.path());
+                        std::thread::yield_now();
+                        std::env::set_var("HOME", dir_b.path());
+                    }
+                    // `std::sync::Mutex` is unfair: yield after releasing so
+                    // the comparing thread is not starved of the lock.
+                    std::thread::yield_now();
+                }
+            });
+
+            let _stop = StopOnDrop(&stop);
+            for _ in 0..500 {
+                let _guard = EnvGuard::take();
+                assert_eq!(
+                    default_local_state_path(),
+                    default_local_state_path_for(current_chrome_os())
+                );
+            }
+        });
     }
 
     // ── resolve_launch_command (public entry point) ─────────────────────
