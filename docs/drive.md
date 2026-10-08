@@ -579,8 +579,18 @@ An incomplete page, repeated pagination token, listing failure, or a folder reac
 listing cap aborts discovery before local writes.
 
 The first run requires an empty (or nonexistent) destination. Later runs use
-`<DIR>/.omni-dev-sync.json`; keep that file with the mirror. A different root,
+`<DIR>/.gwi-sync.json`; keep that file with the mirror. A different root,
 unsupported manifest version, or invalid path in the manifest is refused.
+
+**A folder you synced with omni-dev carries on.** When `.gwi-sync.json` is absent
+and `.omni-dev-sync.json` is present, `gwi drive sync` reads that manifest (it is
+the same version-1 format, with the same checks) and writes `.gwi-sync.json` from
+the first checkpoint on; nothing is re-downloaded that omni-dev already mirrored.
+If both files exist, `.gwi-sync.json` is the one used. gwi never changes or deletes
+`.omni-dev-sync.json`, so you can still go back to omni-dev, but once gwi has synced
+the two manifests drift apart. The legacy name is reserved like the new one, so a
+remote file called `.omni-dev-sync.json` is never written over it. `gwi import` does
+not touch sync folders (it cannot know where they are); there is nothing to do.
 The version-1 JSON records the root folder ID and a `files` map keyed by Drive
 ID, including folders. Entries contain `rel_path`, `remote_name`, `mime_type`,
 `export_mime_type`, `modified_time`, `md5`, `sha256`, `size`, and `pending`.
@@ -1742,6 +1752,37 @@ file is append-only forensic history by design
 or deletes its content, the same exemption it has from
 `OMNI_DEV_LOG_DISABLE` and `omni-dev log prune`'s own rotation — see
 [docs/log.md](log.md#audit-log).
+
+### Coming from omni-dev
+
+gwi keeps its ledger at `<state_dir>/gwi/lease-ledger.jsonl` and never reads
+omni-dev's `<state_dir>/omni-dev/lease-ledger.jsonl`. `gwi import` copies it
+([ADR-0001](adrs/adr-0001.md) §2); `--source-ledger PATH` points it at another
+file, and `--dry-run` shows the plan and writes nothing.
+
+- **Every lease is copied, expired and released ones too**, because a restore finds
+  its backup by token and is usually wanted after the lease has expired.
+- **A lease that is still live when you switch stays live.** It is copied unchanged
+  and is valid in gwi until its absolute expiry, with the same backup and the same
+  freshness check: a write made through either tool changes the file's version, so
+  the other tool's copy of the lease is then refused as stale rather than
+  overwriting the change. The import warns when it carries a live lease across.
+  The two ledgers are copies, not one shared file, so **releasing a lease in
+  omni-dev does not release gwi's copy**; use `gwi drive lease release` for that,
+  or let it expire.
+- **It merges token by token.** A token gwi does not have is added, an identical row
+  is unchanged (so running the import twice changes nothing), and a different row
+  for a token gwi already has is a conflict: it is left alone and the command exits
+  `1` unless `--force` replaces it. Other rows in gwi's ledger are never touched.
+- **The source is never modified.** Both ledgers' advisory locks are held while
+  copying (omni-dev's only when its lock file already exists, since taking a lock
+  creates one). A dry run takes no lock.
+- **No audit history is copied** (ADR-0001 §3). Records omni-dev wrote stay in its
+  `audit.jsonl`; `gwi log --audit` starts fresh.
+- The backups themselves are not copied: a row keeps pointing at the local path or
+  Drive file where omni-dev put it. `gwi drive lease prune` deletes the backup and
+  the row it prunes, so once you prune in gwi, stop using omni-dev's copy of that
+  lease.
 
 ### Exit codes
 
@@ -4522,8 +4563,10 @@ invocation.
 ### Sync destination refused
 
 If sync reports “manifest belongs to a different Drive folder”, choose a separate
-`--dest` for that root. If the destination is non-empty without a manifest, use an
-empty directory; do not fabricate a manifest to claim unrelated files. Resolve
+`--dest` for that root (this includes an `.omni-dev-sync.json` left by omni-dev for
+another folder). If the destination is non-empty without a manifest, use an
+empty directory; do not fabricate a manifest to claim unrelated files. A mirror made by
+omni-dev already has the manifest gwi needs: see [Sync](#sync). Resolve
 symlink/path errors without pointing the mirror at unrelated local content.
 
 
