@@ -3165,6 +3165,21 @@ mod tests {
     }
 
     #[test]
+    fn record_swallows_the_error_when_try_record_refuses() {
+        // An audit-kind entry makes `try_record` fail before it touches the
+        // filesystem, so this reaches `record`'s swallow-and-debug-log arm
+        // deterministically (no unwritable path, no env, no other test's
+        // incidental failure) and proves the error never escapes to the caller.
+        let rec = LogRecord {
+            kind: RecordKind::Audit,
+            id: new_id(),
+            invocation_id: new_id(),
+            ..LogRecord::default()
+        };
+        record(&rec);
+    }
+
+    #[test]
     fn record_audit_refuses_a_non_audit_kind_entry() {
         let dir = tempfile::tempdir().unwrap();
         let env = MapEnv::new().with(
