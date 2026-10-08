@@ -1441,7 +1441,7 @@ Adding or substantially editing a file in [`docs/plan/`](plan/).
 2. **ADR cross-links.** When one or more ADRs describe the same decisions, add an `**ADRs:**` line immediately after the Status line, listing each ADR as a relative link separated by ` · ` (middle dot, surrounded by spaces). Example:
 
    ```markdown
-   **ADRs:** [ADR-0002](https://github.com/rust-works/omni-dev/blob/main/docs/adrs/adr-0002.md) · [ADR-0014](https://github.com/rust-works/omni-dev/blob/main/docs/adrs/adr-0014.md)
+   **ADRs:** [ADR-0000](../adrs/adr-0000.md) · [ADR-0001](../adrs/adr-0001.md)
    ```
 
 3. **When to retire.** Once a plan's decisions are captured in one or more ADRs, change its status to `Built` (with ADR cross-links) or `Historical` rather than deleting it — preserving the doc keeps prior reasoning discoverable.
@@ -1585,8 +1585,8 @@ The reference exemplars are [`LinkCreateParams`](https://github.com/rust-works/o
     `Option<T>` (per STYLE-0026) and the doc comment states the default
     behaviour when the field is omitted.
 
-Keep the tool catalog (omni-dev's [`docs/mcp.md`](https://github.com/rust-works/omni-dev/blob/main/docs/mcp.md); gwi's lives in the README and the Drive and Gmail docs) in sync when a tool's purpose or CLI
-mapping changes, and run the [`update-snapshots`](https://github.com/rust-works/omni-dev/blob/main/.claude/skills/update-snapshots/SKILL.md)
+Keep the tool catalog (gwi's lives in the [README](../README.md#mcp-server), [drive.md](drive.md) and [gmail.md](gmail.md); omni-dev's is [`docs/mcp.md`](https://github.com/rust-works/omni-dev/blob/main/docs/mcp.md)) in sync when a tool's purpose or CLI
+mapping changes, and run omni-dev's [`update-snapshots`](https://github.com/rust-works/omni-dev/blob/main/.claude/skills/update-snapshots/SKILL.md)
 skill whenever the reverse-reference edits change CLI `--help` text.
 
 The `present and non-empty` floor of this checklist (items 1 and 6) is enforced
