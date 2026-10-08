@@ -144,9 +144,9 @@ impl DriveGrantedScopes {
 
     /// Returns the canonical, order-stable, space-separated wire string —
     /// used both for `DRIVE_SCOPE`/`drive.accounts.<name>.scope` storage
-    /// and directly as [`build_authorization_url`]'s requested `scope=`
+    /// and directly as `build_authorization_url`'s requested `scope=`
     /// value, since `readonly` is now just one of four independent bits
-    /// rather than a request shape [`build_authorization_url`] has to
+    /// rather than a request shape `build_authorization_url` has to
     /// derive separately.
     #[must_use]
     pub fn as_str(self) -> String {

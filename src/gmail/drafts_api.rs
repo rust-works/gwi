@@ -231,7 +231,7 @@ impl<'a> DraftsApi<'a> {
     /// (`drafts.create?uploadType=multipart`).
     ///
     /// Uses [`MessagesApi::insert`]'s `/upload/` multipart transport
-    /// ([`upload_rfc822`]), so large attachments work: the draft resource as
+    /// (`upload_rfc822`), so large attachments work: the draft resource as
     /// the JSON part, then `raw` **verbatim** as `message/rfc822`. Content
     /// over [`MAX_INSERT_BYTES`] is refused before the request body is even
     /// built.

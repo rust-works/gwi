@@ -113,7 +113,7 @@ impl DriveCommand {
     /// `Permissions` and `Lease` resolve their own client lazily, per leaf
     /// (see the comments below); every other subcommand resolves one
     /// shared client **once** here and threads it down via
-    /// [`DriveSubcommands::dispatch`].
+    /// `DriveSubcommands::dispatch`.
     pub async fn execute(self) -> Result<()> {
         // Propagates --account to DRIVE_ACCOUNT_ENV for the duration of this
         // call only (crate::drive::account::resolve_account reads it),

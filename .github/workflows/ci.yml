@@ -99,9 +99,16 @@ jobs:
     - uses: actions/checkout@v7
     - uses: dtolnay/rust-toolchain@stable
     - uses: Swatinem/rust-cache@v2
-    # Matches omni-dev's docs job: the crate denies `rustdoc::broken_intra_doc_links`,
-    # but not links from public docs to private items, which the imported docs use.
+    # Matches omni-dev's docs job, but denies every rustdoc warning (private intra-doc links,
+    # redundant explicit links, bare `<ID>` read as an HTML tag) so doc bugs fail here rather
+    # than accumulating.
     - run: cargo doc --no-deps --document-private-items --features mcp
+      env:
+        RUSTDOCFLAGS: -D warnings
+    # The public build (what docs.rs renders) must be clean too, not just the private-items one.
+    - run: cargo doc --no-deps --features mcp
+      env:
+        RUSTDOCFLAGS: -D warnings
 
   # Dead relative links, dead anchors and dead ADR names in docs and doc comments (#52). Not
   # `cargo doc`'s job: it does not read markdown, and rustdoc links are not checked for files.

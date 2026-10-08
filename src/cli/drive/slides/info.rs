@@ -12,7 +12,7 @@ use serde::Serialize;
 /// Shows the presentation identity and its ordinary-slide outline.
 #[derive(Parser)]
 pub struct InfoCommand {
-    /// Presentation id (the /d/<ID>/ segment of a Slides URL).
+    /// Presentation id (the `/d/<ID>/` segment of a Slides URL).
     pub presentation_id: String,
     /// Output format.
     #[arg(short = 'o', long, value_enum, default_value_t = OutputFormat::Table)]

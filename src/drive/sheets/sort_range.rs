@@ -15,7 +15,7 @@
 //! row (e.g. `=B3*2` becomes `=B2*2` when its row moves up one). Formatting
 //! is `SheetsStructure`'s own subject matter, so §5's fixed consequence
 //! applies and the gate is the union of `SheetsWrite` and
-//! `SheetsStructure` — [`target_gate::resolve_all`], the same shape
+//! `SheetsStructure` — `target_gate::resolve_all`, the same shape
 //! `randomize_range.rs` (#1845) and `text_to_columns.rs` took.
 //! `sort-range` shipped first on `SheetsWrite` alone (#1842) and was
 //! re-gated by #1870 after this verification. The same live run also
@@ -99,7 +99,7 @@ pub enum SortRangeResult {
         available: Vec<String>,
     },
     Blocked {
-        /// Which of [`GATE_OPERATIONS`] denied first — the union gate
+        /// Which of `GATE_OPERATIONS` denied first — the union gate
         /// refuses as soon as one of the two does, and which one it was
         /// is the only actionable part of the message.
         operation: DriveOperation,

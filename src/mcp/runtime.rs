@@ -36,7 +36,7 @@ fn resolve_log_directive(env: &impl EnvSource, settings_log_level: Option<&str>)
 
 /// Initialises the MCP server's tracing subscriber.
 ///
-/// The filter directive is resolved via [`resolve_log_directive`]: `RUST_LOG`
+/// The filter directive is resolved via `resolve_log_directive`: `RUST_LOG`
 /// wins when set, otherwise the caller-supplied `settings_log_level` (from
 /// `settings.mcp.log_level`), otherwise `"warn"`. Directives are parsed
 /// leniently, so an unrecognised fragment is dropped rather than aborting

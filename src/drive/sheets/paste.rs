@@ -12,7 +12,7 @@
 //! [`PasteType::writes_presentation`]): a value-only type needs
 //! `SheetsWrite` alone, a presentation-only type `SheetsStructure` alone,
 //! and `PASTE_NORMAL` needs both, going through
-//! [`target_gate::resolve_all`] uniformly like `pivot.rs`'s union gate —
+//! `target_gate::resolve_all` uniformly like `pivot.rs`'s union gate —
 //! this module has one gate-handling code path, not three.
 //!
 //! **Curated `PasteType`: four of the API's seven variants** —
@@ -33,7 +33,7 @@
 //! **`--dry-run` reports counts and A1 locations, never cell values**
 //! (ADR-0083 §6 — the posture every verb but `merge-cells` holds to). The
 //! written extent is computed from the request plus the workbook's
-//! structure alone — [`copy_paste_extent`] for `copy-paste` (the larger of
+//! structure alone — `copy_paste_extent` for `copy-paste` (the larger of
 //! source and destination anchored at the destination's top-left, per the
 //! API's own spill/repeat rule), the source's own dimensions for
 //! `cut-paste` (a move, never a spill or repeat), and a locally-split
@@ -60,7 +60,7 @@
 //! — and a preview whose extent exceeds the sheet's known dimensions
 //! carries a caveat naming that growth rather than an uncertainty. The
 //! *preview read* is a separate question from the written extent and is
-//! clipped to the sheet's current grid ([`grid_range::clamp_to_sheet`]):
+//! clipped to the sheet's current grid (`grid_range::clamp_to_sheet`):
 //! `values.get` refuses a range past the edge outright, so reading the
 //! unclipped extent would turn the very case the caveat exists to report
 //! into an opaque failure. (`cutPaste`'s destination *coordinate* is a
@@ -137,7 +137,7 @@ pub enum PasteVerb {
         paste_type: PasteType,
     },
     /// Copy `source` to `destination`, spilling or repeating per the
-    /// API's own rule ([`copy_paste_extent`]).
+    /// API's own rule (`copy_paste_extent`).
     CopyPaste {
         /// Default sheet for `source`/`destination` when either lacks its
         /// own `'Sheet'!` prefix.
@@ -333,7 +333,7 @@ pub enum PasteResult {
     },
     /// The folder write-permission gate refused it.
     Blocked {
-        /// Which of [`PasteVerb::gate_operations`] denied first.
+        /// Which of `PasteVerb::gate_operations` denied first.
         operation: DriveOperation,
         /// The rule that decided the refusal, if any.
         decided_by: Option<DecidingRule>,

@@ -5,7 +5,7 @@
 //! Issue #1843, [ADR-0083](../../../docs/adrs/adr-0083.md). Unblocked by
 //! issue #1831. Gated by **both** [`DriveOperation::SheetsWrite`] and
 //! [`DriveOperation::SheetsStructure`], through
-//! [`target_gate::resolve_all`] — the same union `pivot.rs`'s
+//! `target_gate::resolve_all` — the same union `pivot.rs`'s
 //! `add-pivot-table` uses.
 //!
 //! ADR-0083 §1 proposed `SheetsWrite` alone, on the argument that the
@@ -36,11 +36,11 @@
 //! **`--delimiter auto` is the one exception to the bound.** For every
 //! other delimiter the local split uses the same separator the API is
 //! told to use, so it can only over-count; under `auto` the separator is
-//! the API's own choice, and [`Delimiter::local_split_candidates`] can
+//! the API's own choice, and `Delimiter::local_split_candidates` can
 //! only guess it by trying the four fixed types. Whether Sheets' own
 //! detection is confined to those four is undocumented and unverified
 //! (ADR-0083 §5's live-verification list), so an `auto` run's width is
-//! reported as an estimate — see [`AUTO_DELIMITER_CAVEAT`], the extra
+//! reported as an estimate — see `AUTO_DELIMITER_CAVEAT`, the extra
 //! line those runs carry.
 //!
 //! ## `source` must span exactly one column
@@ -232,7 +232,7 @@ pub enum TextToColumnsResult {
         /// server's real answer, which this crate cannot predict. Under
         /// [`Delimiter::Auto`] it is an estimate rather than a bound,
         /// and the rendered output says so
-        /// ([`AUTO_DELIMITER_CAVEAT`]).
+        /// (`AUTO_DELIMITER_CAVEAT`).
         width_upper_bound: usize,
         /// The non-blank cells within the spill span that would be
         /// overwritten, as bare A1 addresses — **never their values**,
@@ -241,7 +241,7 @@ pub enum TextToColumnsResult {
         /// columns the split needs, so some of the listed cells may not
         /// actually be touched — and under [`Delimiter::Auto`] it picks
         /// the separator too, which can reach cells this list does not
-        /// name ([`AUTO_DELIMITER_CAVEAT`]).
+        /// name (`AUTO_DELIMITER_CAVEAT`).
         #[serde(skip_serializing_if = "Vec::is_empty")]
         overwritten_cells: Vec<String>,
         /// The spill span runs past the sheet's current row/column count.
@@ -278,7 +278,7 @@ pub enum TextToColumnsResult {
     },
     /// The folder write-permission gate refused it.
     Blocked {
-        /// Which of [`GATE_OPERATIONS`] denied first — the union gate
+        /// Which of `GATE_OPERATIONS` denied first — the union gate
         /// refuses as soon as one of the two does, and which one it was
         /// is the only actionable part of the message.
         operation: DriveOperation,

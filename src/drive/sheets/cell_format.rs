@@ -58,7 +58,7 @@ pub struct ReadCellFormatOptions {
 ///
 /// A cell present in the response but carrying none of the three — the
 /// common case for most of a real range — is never turned into an entry;
-/// see [`entries_from_grid`].
+/// see `entries_from_grid`.
 #[derive(Debug, Clone, Serialize, PartialEq)]
 pub struct CellFormatEntry {
     /// The cell's absolute A1 address within its sheet (e.g. `"B3"`).

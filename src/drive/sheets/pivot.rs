@@ -14,9 +14,9 @@
 //! than one [`DriveOperation`] to independently resolve `Allow`
 //! (ADR-0081 §5). `delete-pivot-table` needs `SheetsWrite` alone: it only
 //! ever clears the anchor's own value, no structural effect. Both verbs go
-//! through [`target_gate::resolve_all`] uniformly (`add` with two
+//! through `target_gate::resolve_all` uniformly (`add` with two
 //! operations, `delete` with one), rather than branching between it and
-//! the single-operation [`target_gate::resolve`], so this module has one
+//! the single-operation `target_gate::resolve`, so this module has one
 //! gate-handling code path instead of two.
 //!
 //! **`updateCells` stays value-incapable.** Issue #1643 decided
@@ -49,7 +49,7 @@
 //! pairs its `delete-*` with a `list-*`: `delete-pivot-table` addresses a
 //! pivot by its anchor cell, and nothing else in the CLI can discover
 //! anchors. It is a plain, ungated read — its engine-facing pieces
-//! ([`describe_pivot_table`], [`Sheet::data`](crate::drive::sheets::types::Sheet::data))
+//! (`describe_pivot_table`, [`Sheet::data`](crate::drive::sheets::types::Sheet::data))
 //! are `pub(crate)`, and the CLI leaf in
 //! `crate::cli::drive::sheets::pivot` renders them directly, mirroring
 //! `list-conditional-formats`.
@@ -437,7 +437,7 @@ pub enum PivotResult {
     },
     /// The folder write-permission gate refused it.
     Blocked {
-        /// Which of [`PivotVerb::gate_operations`] denied first.
+        /// Which of `PivotVerb::gate_operations` denied first.
         operation: DriveOperation,
         /// The rule that decided the refusal, if any.
         decided_by: Option<DecidingRule>,

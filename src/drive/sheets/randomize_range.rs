@@ -17,7 +17,7 @@
 //! with its relative references rewritten** to keep pointing at its own
 //! row. Formatting is `SheetsStructure`'s own subject matter, so §5's
 //! fixed consequence applies and the gate is the union of `SheetsWrite`
-//! and `SheetsStructure` — [`target_gate::resolve_all`], the same shape
+//! and `SheetsStructure` — `target_gate::resolve_all`, the same shape
 //! `text_to_columns.rs` took. The same live run also confirmed §3's
 //! record-decoupling caveat: cells in the same rows but outside the
 //! selected columns do not move, so a range narrower than its rows can
@@ -101,7 +101,7 @@ pub enum RandomizeRangeResult {
         available: Vec<String>,
     },
     Blocked {
-        /// Which of [`GATE_OPERATIONS`] denied first — the union gate
+        /// Which of `GATE_OPERATIONS` denied first — the union gate
         /// refuses as soon as one of the two does, and which one it was
         /// is the only actionable part of the message.
         operation: DriveOperation,

@@ -27,7 +27,7 @@
 //!    is large but bounded; a spreadsheet's cell count has no comparable
 //!    ceiling.
 //!
-//! [`MAX_DOCUMENT_BYTES`] is the guard that replaces it. If payload size
+//! `MAX_DOCUMENT_BYTES` is the guard that replaces it. If payload size
 //! ever does become a problem, a mask belongs on the `info` path **only**
 //! (which needs a shallow skeleton and no recursion) and must never be
 //! applied to `read`.
@@ -106,7 +106,7 @@ impl<'a> DocsApi<'a> {
     /// Fetches a document's full structural model.
     ///
     /// Always sends `includeTabsContent=true`; see
-    /// [`build_document_get_url`]. Never `fields`-masked; see the module
+    /// `build_document_get_url`. Never `fields`-masked; see the module
     /// docs.
     pub async fn get_document(
         &self,

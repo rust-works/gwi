@@ -14,7 +14,7 @@
 //!
 //! Like every Drive tool, each handler takes an optional `account` parameter
 //! (see `drive_tools.rs`'s module doc); the doc string is shared via
-//! [`crate::mcp::drive_tools::account_param_doc`] rather than forked.
+//! `crate::mcp::drive_tools::account_param_doc` rather than forked.
 
 use anyhow::{Context, Result};
 use rmcp::{

@@ -1,6 +1,6 @@
 //! Slides v1 REST API client.
 //!
-//! A typed wrapper around [`GoogleApiClient`] — the same transport
+//! A typed wrapper around `GoogleApiClient` — the same transport
 //! `DriveClient` and `SheetsClient` use — pinned to `slides.googleapis.com`.
 //! Everything interesting (OAuth session, 401 refresh-and-retry, quota
 //! backoff, request logging, error-envelope parsing) is inherited, so this

@@ -14,7 +14,7 @@ use clap::Parser;
 /// Reads ordinary-slide elements and separately identified speaker notes.
 #[derive(Parser)]
 pub struct ReadCommand {
-    /// Presentation id (the /d/<ID>/ segment of a Slides URL).
+    /// Presentation id (the `/d/<ID>/` segment of a Slides URL).
     pub presentation_id: String,
     /// Restrict to an ordinary slide object ID. Repeat for multiple slides.
     #[arg(long = "slide", value_name = "OBJECT_ID")]

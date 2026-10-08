@@ -1,11 +1,11 @@
 //! Drive REST API client.
 //!
-//! A typed wrapper around [`GoogleApiClient`], the shared Google transport
+//! A typed wrapper around `GoogleApiClient`, the shared Google transport
 //! (`crate::drive::api_client`), pinned to the Drive v3 host. The transport
 //! attaches a Bearer access token refreshed by a shared
 //! [`DriveSession`](crate::drive::auth::DriveSession),
 //! retries HTTP 429 and Google's 403-shaped quota signal via the shared
-//! [`retry_if`](crate::utils::http::retry_if) driver, and retries exactly once
+//! `retry_if` driver, and retries exactly once
 //! on HTTP 401 by forcing a session refresh.
 //!
 //! Everything host-agnostic moved into `api_client.rs` in issue #1589 so the
@@ -82,7 +82,7 @@ impl DriveClient {
     ///
     /// Respects `DRIVE_API_URL` as an optional override: when set (and
     /// non-empty) in the process environment it replaces
-    /// [`Self::DEFAULT_BASE_URL`] wholesale — mirrors Gmail's `GMAIL_API_URL`
+    /// `Self::DEFAULT_BASE_URL` wholesale — mirrors Gmail's `GMAIL_API_URL`
     /// (PR #1466), used to exercise CLI output shapes without a real Google
     /// Cloud project or to route through a forced egress proxy.
     pub fn from_credentials(credentials: &DriveCredentials) -> Result<Self> {
@@ -185,7 +185,7 @@ impl DriveClient {
 
     /// Sends an authenticated POST request with a raw byte body and returns
     /// the raw response — for Drive's multipart-upload endpoint, whose
-    /// `multipart/related` body [`crate::drive::files_api::FilesApi::upload`]
+    /// `multipart/related` body `crate::drive::files_api::FilesApi::upload`
     /// hand-assembles (Drive's upload endpoint rejects the
     /// `multipart/form-data` `reqwest::multipart::Form` would produce).
     pub async fn post_bytes(&self, url: &str, body: &[u8], content_type: &str) -> Result<Response> {
@@ -194,7 +194,7 @@ impl DriveClient {
 
     /// Sends an authenticated PATCH request with a raw byte body and
     /// returns the raw response —
-    /// [`crate::drive::files_api::FilesApi::edit_content`]'s simple
+    /// `crate::drive::files_api::FilesApi::edit_content`'s simple
     /// media-only content replacement (`uploadType=media`, no multipart
     /// envelope needed since there's no accompanying metadata change).
     pub async fn patch_bytes(

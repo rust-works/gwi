@@ -23,7 +23,7 @@
 //! **Restricted to `DOCUMENT` visibility everywhere, in two layers.** Every
 //! filter this module builds includes `visibility: DOCUMENT_VISIBILITY`, so
 //! the server itself never returns or is asked to touch a `PROJECT`
-//! entry — the primary mitigation. [`assert_document_visibility`] is the
+//! entry — the primary mitigation. `assert_document_visibility` is the
 //! defense-in-depth second layer, applied to every entry this module ever
 //! reads, on every path (`Set`, `Delete`, `search`). There is no
 //! `--visibility` flag on any of the three CLI commands, so no user input

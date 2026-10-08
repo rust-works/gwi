@@ -52,7 +52,7 @@
 //!   a target's several legacy parents, all at the same level. A file rule
 //!   is not a peer, so a file `allow` still beats a denying parent.
 //!
-//! When no rule anywhere in the chain names `op`, [`DriveOperation::default_policy`]
+//! When no rule anywhere in the chain names `op`, `DriveOperation::default_policy`
 //! decides it: `Read` defaults to [`Verdict::Allow`], every write operation
 //! defaults to [`Verdict::Deny`]. This is where "disabled by default" for
 //! writes actually lives — there is deliberately no separate enabled/
