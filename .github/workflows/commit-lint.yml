@@ -32,3 +32,13 @@ jobs:
         with:
           command: lint
           strict: true
+      # `.omni-dev/scopes.yaml` can drift from the tree without any commit message being
+      # wrong: this fails on a tracked file under a root that no scope or `allow:` entry
+      # covers, and on a `file_patterns` entry that matches nothing (#50). It reuses the
+      # omni-dev binary the step above installed onto PATH (the action installs it even
+      # on `main`, where it skips the commit lint), so there is no second install and no
+      # version skew with the commit lint in the same run. `!cancelled()` runs it even when
+      # the commit lint failed, so one push reports both problems instead of one per round.
+      - name: Lint scopes.yaml against the tree
+        if: ${{ !cancelled() }}
+        run: omni-dev config scopes lint --root src --root .github
