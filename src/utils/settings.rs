@@ -123,6 +123,15 @@ pub struct McpSettings {
     /// `0` disables truncation.
     #[serde(default)]
     pub max_response_bytes: Option<usize>,
+
+    /// Directories the MCP tools may read `*_path` sources from and write `output_file`
+    /// targets to (#45). Each entry is an absolute path or starts with `~/`. When unset
+    /// the server allows its working directory and the system temp directory; when set it
+    /// replaces that default, and `[]` allows nothing. The credential locations
+    /// (`~/.gwi`, `~/.ssh`, ...) are refused whatever this lists. Operator-only: no tool
+    /// parameter can change it.
+    #[serde(default)]
+    pub allowed_paths: Option<Vec<String>>,
 }
 
 /// A single named Gmail account's stored OAuth2 credentials, inside the
@@ -2986,6 +2995,20 @@ mod tests {
 
         assert_eq!(settings.mcp.log_level, None);
         assert_eq!(settings.mcp.max_response_bytes, None);
+        assert_eq!(settings.mcp.allowed_paths, None);
+    }
+
+    #[test]
+    fn the_mcp_block_reads_allowed_paths_and_distinguishes_empty_from_unset() {
+        let settings: Settings =
+            serde_json::from_str(r#"{"mcp": {"allowed_paths": ["~/work", "/srv/out"]}}"#).unwrap();
+        assert_eq!(
+            settings.mcp.allowed_paths,
+            Some(vec!["~/work".to_string(), "/srv/out".to_string()])
+        );
+
+        let settings: Settings = serde_json::from_str(r#"{"mcp": {"allowed_paths": []}}"#).unwrap();
+        assert_eq!(settings.mcp.allowed_paths, Some(Vec::new()));
     }
 
     #[test]

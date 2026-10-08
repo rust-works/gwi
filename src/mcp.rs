@@ -14,6 +14,7 @@ pub mod drive_write_tools;
 pub mod error;
 pub mod gmail_tools;
 pub mod output_file;
+pub mod path_policy;
 pub mod runtime;
 pub mod server;
 pub mod truncate;

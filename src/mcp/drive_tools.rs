@@ -43,6 +43,7 @@ use crate::utils::settings::Settings;
 
 use super::error::tool_error;
 use super::output_file::WriteFileSummary;
+use super::path_policy::PathPolicy;
 use super::server::GwiServer;
 use super::truncate::build_truncated_result;
 
@@ -124,6 +125,8 @@ pub struct DriveFileReadParams {
     /// inline body — required for binary content (this tool refuses to
     /// return it inline), and recommended for large files that would exceed
     /// the response size limit.
+    /// Must be inside the operator's allowed directories (`mcp.allowed_paths`) and outside
+    /// credential locations.
     #[serde(default)]
     pub output_file: Option<String>,
     /// Only valid with `format: "content"`. When true, locally recomputes
@@ -241,7 +244,10 @@ impl GwiServer {
     ) -> Result<CallToolResult, McpError> {
         let client = create_client_for(params.account.as_deref()).map_err(tool_error)?;
         let wrote_to_file = params.output_file.is_some();
-        let text = run_file_read(&client, &params).await.map_err(tool_error)?;
+        let policy = PathPolicy::load();
+        let text = run_file_read(&policy, &client, &params)
+            .await
+            .map_err(tool_error)?;
         if wrote_to_file {
             Ok(CallToolResult::success(vec![Content::text(text)]))
         } else {
@@ -309,7 +315,11 @@ async fn run_dedupe(client: &DriveClient, params: &DriveDedupeParams) -> Result<
     yaml_result(&group_duplicates(&list.files))
 }
 
-async fn run_file_read(client: &DriveClient, params: &DriveFileReadParams) -> Result<String> {
+async fn run_file_read(
+    policy: &PathPolicy,
+    client: &DriveClient,
+    params: &DriveFileReadParams,
+) -> Result<String> {
     let format = parse_read_format(params.format.as_deref())?;
     let api = FilesApi::new(client);
     match format {
@@ -325,14 +335,18 @@ async fn run_file_read(client: &DriveClient, params: &DriveFileReadParams) -> Re
             let meta = api.get_metadata(&params.file_id).await?;
             yaml_result(&meta)
         }
-        ReadFormat::Content => run_file_read_content(&api, params).await,
+        ReadFormat::Content => run_file_read_content(policy, &api, params).await,
     }
 }
 
 /// Content path: mirrors `src/cli/drive/read.rs::run_read_content` —
 /// fetches metadata first, rejects folders/shortcuts, then exports
 /// (Google-native) or downloads (everything else).
-async fn run_file_read_content(api: &FilesApi<'_>, params: &DriveFileReadParams) -> Result<String> {
+async fn run_file_read_content(
+    policy: &PathPolicy,
+    api: &FilesApi<'_>,
+    params: &DriveFileReadParams,
+) -> Result<String> {
     let meta = api.get_metadata(&params.file_id).await?;
 
     if meta.mime_type == GOOGLE_FOLDER {
@@ -371,7 +385,7 @@ async fn run_file_read_content(api: &FilesApi<'_>, params: &DriveFileReadParams)
     }
 
     match params.output_file.as_deref() {
-        Some(path) => write_bytes_to_file_yaml(path, &bytes, &content_mime_type),
+        Some(path) => write_bytes_to_file_yaml(policy, path, &bytes, &content_mime_type),
         None => inline_content(&bytes, &content_mime_type),
     }
 }
@@ -382,8 +396,13 @@ async fn run_file_read_content(api: &FilesApi<'_>, params: &DriveFileReadParams)
 /// `confluence_attachment_download`'s `download_attachment_yaml`
 /// (`src/mcp/confluence_tools.rs`), the existing precedent for writing
 /// arbitrary binary MCP tool output to disk.
-fn write_bytes_to_file_yaml(path: &str, bytes: &[u8], format: &str) -> Result<String> {
-    std::fs::write(path, bytes).with_context(|| format!("Failed to write to {path}"))?;
+fn write_bytes_to_file_yaml(
+    policy: &PathPolicy,
+    path: &str,
+    bytes: &[u8],
+    format: &str,
+) -> Result<String> {
+    policy.write(path, bytes)?;
     let summary = WriteFileSummary {
         path: path.to_string(),
         bytes: bytes.len(),
@@ -438,6 +457,10 @@ mod tests {
     use rmcp::handler::server::wrapper::Parameters;
 
     use super::*;
+
+    fn policy() -> PathPolicy {
+        PathPolicy::for_tests()
+    }
     use crate::drive::auth::{DriveCredentials, DriveGrantedScopes, SCOPE_READONLY};
     use crate::drive::test_support::EnvGuard;
     use crate::utils::secret::Secret;
@@ -734,7 +757,7 @@ mod tests {
             .mount(&server)
             .await;
 
-        let yaml = run_file_read(&client, &read_params("f1", None, None, None))
+        let yaml = run_file_read(&policy(), &client, &read_params("f1", None, None, None))
             .await
             .unwrap();
         assert!(yaml.contains("id: f1"));
@@ -746,6 +769,7 @@ mod tests {
         let client = client_with_bootstrapped_token(&server).await;
 
         let err = run_file_read(
+            &policy(),
             &client,
             &read_params("f1", None, None, Some("/tmp/out.txt")),
         )
@@ -759,9 +783,13 @@ mod tests {
         let server = wiremock::MockServer::start().await;
         let client = client_with_bootstrapped_token(&server).await;
 
-        let err = run_file_read(&client, &read_params("f1", Some("bogus"), None, None))
-            .await
-            .unwrap_err();
+        let err = run_file_read(
+            &policy(),
+            &client,
+            &read_params("f1", Some("bogus"), None, None),
+        )
+        .await
+        .unwrap_err();
         assert!(err.to_string().contains("format"));
     }
 
@@ -789,9 +817,13 @@ mod tests {
             .mount(&server)
             .await;
 
-        let text = run_file_read(&client, &read_params("f1", Some("content"), None, None))
-            .await
-            .unwrap();
+        let text = run_file_read(
+            &policy(),
+            &client,
+            &read_params("f1", Some("content"), None, None),
+        )
+        .await
+        .unwrap();
         assert_eq!(text, "hello");
     }
 
@@ -809,9 +841,13 @@ mod tests {
             .mount(&server)
             .await;
 
-        let err = run_file_read(&client, &read_params("f1", Some("content"), None, None))
-            .await
-            .unwrap_err();
+        let err = run_file_read(
+            &policy(),
+            &client,
+            &read_params("f1", Some("content"), None, None),
+        )
+        .await
+        .unwrap_err();
         let message = err.to_string();
         assert!(message.contains("'My Folder' is a folder"), "{message}");
         assert!(message.contains("drive_search"), "{message}");
@@ -831,9 +867,13 @@ mod tests {
             .mount(&server)
             .await;
 
-        let err = run_file_read(&client, &read_params("f1", Some("content"), None, None))
-            .await
-            .unwrap_err();
+        let err = run_file_read(
+            &policy(),
+            &client,
+            &read_params("f1", Some("content"), None, None),
+        )
+        .await
+        .unwrap_err();
         assert!(err.to_string().contains("'My Shortcut' is a shortcut"));
     }
 
@@ -858,9 +898,13 @@ mod tests {
             .mount(&server)
             .await;
 
-        let text = run_file_read(&client, &read_params("f1", Some("content"), None, None))
-            .await
-            .unwrap();
+        let text = run_file_read(
+            &policy(),
+            &client,
+            &read_params("f1", Some("content"), None, None),
+        )
+        .await
+        .unwrap();
         assert_eq!(text, "# Title");
     }
 
@@ -891,6 +935,7 @@ mod tests {
         let temp_dir = tempfile::tempdir().unwrap();
         let path = temp_dir.path().join("doc.pdf");
         let summary = run_file_read(
+            &policy(),
             &client,
             &read_params(
                 "f1",
@@ -903,6 +948,42 @@ mod tests {
         .unwrap();
         assert!(summary.contains("bytes:"));
         assert_eq!(std::fs::read(&path).unwrap(), b"%PDF");
+    }
+
+    #[tokio::test]
+    async fn run_file_read_content_refuses_an_output_file_outside_the_policy() {
+        let server = wiremock::MockServer::start().await;
+        let client = client_with_bootstrapped_token(&server).await;
+        wiremock::Mock::given(wiremock::matchers::method("GET"))
+            .and(wiremock::matchers::path("/drive/v3/files/f1"))
+            .and(wiremock::matchers::query_param_is_missing("alt"))
+            .respond_with(
+                wiremock::ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                    "id": "f1", "name": "n", "mimeType": "application/pdf",
+                })),
+            )
+            .mount(&server)
+            .await;
+        wiremock::Mock::given(wiremock::matchers::method("GET"))
+            .and(wiremock::matchers::path("/drive/v3/files/f1"))
+            .and(wiremock::matchers::query_param("alt", "media"))
+            .respond_with(wiremock::ResponseTemplate::new(200).set_body_bytes(b"%PDF-1.4".to_vec()))
+            .mount(&server)
+            .await;
+
+        let allowed = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        let path = outside.path().join("out.pdf");
+        let err = run_file_read(
+            &PathPolicy::allowing_only(allowed.path()),
+            &client,
+            &read_params("f1", Some("content"), None, Some(path.to_str().unwrap())),
+        )
+        .await
+        .unwrap_err();
+
+        assert!(err.to_string().contains("outside the allowed"), "{err}");
+        assert!(!path.exists());
     }
 
     #[tokio::test]
@@ -929,6 +1010,7 @@ mod tests {
         let temp_dir = tempfile::tempdir().unwrap();
         let path = temp_dir.path().join("out.pdf");
         let summary = run_file_read(
+            &policy(),
             &client,
             &read_params("f1", Some("content"), None, Some(path.to_str().unwrap())),
         )
@@ -960,9 +1042,13 @@ mod tests {
             .mount(&server)
             .await;
 
-        let err = run_file_read(&client, &read_params("f1", Some("content"), None, None))
-            .await
-            .unwrap_err();
+        let err = run_file_read(
+            &policy(),
+            &client,
+            &read_params("f1", Some("content"), None, None),
+        )
+        .await
+        .unwrap_err();
         assert!(err
             .to_string()
             .contains("refusing to return binary content"));
@@ -999,9 +1085,13 @@ mod tests {
             .mount(&server)
             .await;
 
-        let err = run_file_read(&client, &read_params("f1", Some("content"), None, None))
-            .await
-            .unwrap_err();
+        let err = run_file_read(
+            &policy(),
+            &client,
+            &read_params("f1", Some("content"), None, None),
+        )
+        .await
+        .unwrap_err();
         // Names both surfaces' syntax — an MCP caller can't type a CLI flag.
         assert!(err.to_string().contains("--export-mime-type"));
         assert!(err.to_string().contains("export_mime_type"));
@@ -1019,6 +1109,7 @@ mod tests {
             .await;
 
         let err = run_file_read(
+            &policy(),
             &client,
             &read_params("missing", Some("content"), None, None),
         )
@@ -1053,7 +1144,7 @@ mod tests {
 
         let mut params = read_params("f1", Some("content"), None, None);
         params.verify = Some(true);
-        run_file_read(&client, &params).await.unwrap();
+        run_file_read(&policy(), &client, &params).await.unwrap();
     }
 
     #[tokio::test]
@@ -1080,7 +1171,9 @@ mod tests {
 
         let mut params = read_params("f1", Some("content"), None, None);
         params.verify = Some(true);
-        let err = run_file_read(&client, &params).await.unwrap_err();
+        let err = run_file_read(&policy(), &client, &params)
+            .await
+            .unwrap_err();
         assert!(err.to_string().contains("checksum mismatch"), "{err}");
     }
 
@@ -1104,7 +1197,9 @@ mod tests {
 
         let mut params = read_params("f1", Some("content"), None, None);
         params.verify = Some(true);
-        let err = run_file_read(&client, &params).await.unwrap_err();
+        let err = run_file_read(&policy(), &client, &params)
+            .await
+            .unwrap_err();
         assert!(
             err.to_string()
                 .contains("verify is not supported for Google-native files"),
@@ -1119,7 +1214,9 @@ mod tests {
 
         let mut params = read_params("f1", None, None, None);
         params.verify = Some(true);
-        let err = run_file_read(&client, &params).await.unwrap_err();
+        let err = run_file_read(&policy(), &client, &params)
+            .await
+            .unwrap_err();
         assert!(err.to_string().contains("verify requires format"), "{err}");
     }
 
