@@ -8,6 +8,8 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
+mod common;
+
 use std::path::Path;
 use std::process::{Command, Output};
 
@@ -43,26 +45,31 @@ fn help_all_golden() {
 /// Runs the real `gwi` binary hermetically in `home`.
 fn gwi(home: &Path, args: &[&str]) -> Output {
     let mut command = Command::new(env!("CARGO_BIN_EXE_gwi"));
-    command
+    common::scrub_ambient_env(&mut command)
         .args(args)
         .env("HOME", home)
         .env("GWI_LOG_FILE", home.join("log.jsonl"))
         .env("GWI_AUDIT_LOG_FILE", home.join("audit.jsonl"))
         .env("GWI_LOG_DISABLE", "1");
-    for ambient in [
-        "GMAIL_CLIENT_ID",
-        "GMAIL_CLIENT_SECRET",
-        "GMAIL_CLIENT_SECRET_FILE",
-        "GMAIL_REFRESH_TOKEN",
-        "GMAIL_REFRESH_TOKEN_FILE",
-        "GMAIL_REFRESH_TOKEN_COMMAND",
-        "GWI_PROFILE",
-        "GWI_GMAIL_ACCOUNT",
-        "GWI_CONFIG_DIR",
-    ] {
-        command.env_remove(ambient);
-    }
     command.output().expect("failed to run the gwi binary")
+}
+
+#[test]
+fn scrub_ambient_env_removes_the_variables_a_developer_shell_exports() {
+    let mut command = Command::new(env!("CARGO_BIN_EXE_gwi"));
+    command
+        .env("GWI_PROFILE", "exported")
+        .env("DRIVE_API_URL", "http://127.0.0.1:1")
+        .env("GMAIL_REFRESH_TOKEN_COMMAND", "echo exported");
+    common::scrub_ambient_env(&mut command);
+    for name in [
+        "GWI_PROFILE",
+        "DRIVE_API_URL",
+        "GMAIL_REFRESH_TOKEN_COMMAND",
+    ] {
+        let entry = command.get_envs().find(|(key, _)| *key == name);
+        assert_eq!(entry, Some((std::ffi::OsStr::new(name), None)), "{name}");
+    }
 }
 
 #[test]
@@ -467,7 +474,8 @@ fn log_follow_exits_when_its_output_pipe_closes() {
     )
     .unwrap();
 
-    let mut child = Command::new(env!("CARGO_BIN_EXE_gwi"))
+    let mut child = Command::new(env!("CARGO_BIN_EXE_gwi"));
+    let mut child = common::scrub_ambient_env(&mut child)
         .args(["log", "--follow", "-o", "json"])
         .env("HOME", home.path())
         .env("GWI_LOG_FILE", home.path().join("log.jsonl"))

@@ -23,6 +23,8 @@
 //! always resolve a Drive client first, which needs a wiremock server the
 //! existing in-process unit/CLI tests already provide.
 
+mod common;
+
 fn hermetic_home() -> tempfile::TempDir {
     let tmp_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tmp");
     std::fs::create_dir_all(&tmp_root).unwrap();
@@ -31,14 +33,9 @@ fn hermetic_home() -> tempfile::TempDir {
 
 fn lease_release_cmd(home: &std::path::Path, token: &str) -> std::process::Command {
     let mut cmd = std::process::Command::new(env!("CARGO_BIN_EXE_gwi"));
-    cmd.args(["drive", "lease", "release", token])
-        .env("HOME", home)
-        .env_remove("XDG_DATA_HOME")
-        .env_remove("XDG_STATE_HOME")
-        .env_remove("XDG_CONFIG_HOME")
-        .env_remove("DRIVE_CLIENT_ID")
-        .env_remove("DRIVE_CLIENT_SECRET")
-        .env_remove("DRIVE_REFRESH_TOKEN");
+    common::scrub_ambient_env(&mut cmd)
+        .args(["drive", "lease", "release", token])
+        .env("HOME", home);
     cmd
 }
 
