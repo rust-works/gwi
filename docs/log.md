@@ -308,7 +308,12 @@ from the top of the new file.
 - **`status` is kind-aware.** For every kind but `drivemutation` it matches the HTTP
   `status_code` (a class or a comparison). A `drivemutation` record has no `status_code`; its
   domain status lives in `context`, so `status:` there matches it by exact, case-insensitive
-  equality: `kind:drivemutation status:blocked`.
+  equality: `kind:drivemutation status:blocked`. The status set is free-form text, so a
+  word cannot be checked up front; instead, when a `--status` or `status:` word is the status
+  of none of the scanned `drivemutation` records, a warning on stderr names it and suggests
+  the nearest status it has seen (`blokced` → `blocked`). A valid status that happens to be
+  absent draws the warning without a suggestion, and a log with no `drivemutation` record
+  draws none. The exit code and stdout are unchanged.
 - **Numeric fields** (`exit_code`, `duration_ms`, `elapsed_ms` and `status`) take a leading
   comparator: `>`, `>=`, `<`, `<=`, or a bare `=` or number for equality. A record without
   the field never matches.

@@ -562,6 +562,69 @@ fn log_warns_about_unparseable_lines_but_leaves_stdout_and_exit_code_alone() {
 }
 
 #[test]
+fn log_warns_on_a_status_word_no_drive_mutation_has_but_still_exits_zero() {
+    let home = tempfile::tempdir().unwrap();
+    write_logs(home.path());
+
+    for args in [
+        ["log", "--status", "blokced"],
+        ["log", "--query", "status:blokced"],
+    ] {
+        let typo = gwi(home.path(), &args);
+        assert!(typo.status.success(), "{args:?}");
+        assert_eq!(typo.stdout, b"", "{args:?}");
+        let stderr = String::from_utf8_lossy(&typo.stderr);
+        assert!(stderr.contains("`blokced`"), "{stderr}");
+        assert!(stderr.contains("Did you mean `blocked`?"), "{stderr}");
+    }
+
+    // A status that is present, and a numeric status, stay quiet.
+    for args in [
+        ["log", "--status", "blocked"],
+        ["log", "--query", "status:blocked"],
+        ["log", "--status", "5xx"],
+    ] {
+        let output = gwi(home.path(), &args);
+        assert!(output.status.success(), "{args:?}");
+        assert_eq!(output.stderr, b"", "{args:?}");
+    }
+
+    // A valid word no record has still says so, without a suggestion.
+    let absent = gwi(home.path(), &["log", "--status", "written"]);
+    assert!(absent.status.success());
+    let stderr = String::from_utf8_lossy(&absent.stderr);
+    assert!(stderr.contains("`written`"), "{stderr}");
+    assert!(!stderr.contains("Did you mean"), "{stderr}");
+
+    // With no `drivemutation` record in the log there is nothing to judge by.
+    std::fs::write(home.path().join("log.jsonl"), format!("{HTTP_LINE}\n")).unwrap();
+    let output = gwi(home.path(), &["log", "--status", "blokced"]);
+    assert!(output.status.success());
+    assert_eq!(output.stderr, b"");
+}
+
+#[test]
+fn log_prints_field_and_status_warnings_together_even_with_a_limit() {
+    let home = tempfile::tempdir().unwrap();
+    write_logs(home.path());
+
+    let output = gwi(
+        home.path(),
+        &[
+            "log",
+            "--limit",
+            "1",
+            "--query",
+            "servce:drive status:blokced",
+        ],
+    );
+    assert!(output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("Did you mean `service`?"), "{stderr}");
+    assert!(stderr.contains("Did you mean `blocked`?"), "{stderr}");
+}
+
+#[test]
 fn log_query_quoted_not_is_a_literal_and_status_accepts_drive_statuses() {
     let home = tempfile::tempdir().unwrap();
     write_logs(home.path());

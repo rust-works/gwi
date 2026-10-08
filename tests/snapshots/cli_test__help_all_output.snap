@@ -8452,7 +8452,7 @@ Options:
           Match the HTTP method (case-insensitive), e.g. `GET`
 
       --status <STATUS>
-          Match the status: exact (`200`), class (`5xx`), list (`4xx,5xx`), comparison (`>=400`), or a Drive-mutation status such as `blocked` (exact, case-insensitive; a comma list is accepted). Same values as `status:` in `--query`
+          Match the status: exact (`200`), class (`5xx`), list (`4xx,5xx`), comparison (`>=400`), or a Drive-mutation status such as `blocked` (exact, case-insensitive; a comma list is accepted). Same values as `status:` in `--query`. A Drive-mutation status that no scanned record has draws a warning on stderr (a likely typo); the exit code is unchanged
 
       --service <NAME>
           Match the service tag, e.g. `gmail`, `drive`

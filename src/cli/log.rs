@@ -54,7 +54,8 @@ pub struct LogCommand {
     /// Match the status: exact (`200`), class (`5xx`), list (`4xx,5xx`),
     /// comparison (`>=400`), or a Drive-mutation status such as `blocked`
     /// (exact, case-insensitive; a comma list is accepted). Same values as
-    /// `status:` in `--query`.
+    /// `status:` in `--query`. A Drive-mutation status that no scanned record
+    /// has draws a warning on stderr (a likely typo); the exit code is unchanged.
     #[arg(long, value_name = "STATUS")]
     status: Option<String>,
     /// Match the service tag, e.g. `gmail`, `drive`.
