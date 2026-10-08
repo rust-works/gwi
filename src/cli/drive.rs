@@ -37,8 +37,7 @@ pub struct DriveCommand {
     ///
     /// Orthogonal to `--profile`: switching the Drive account never changes
     /// which profile is active, and vice versa (see
-    /// [ADR-0066](../../../docs/adrs/adr-0066.md),
-    /// [ADR-0069](../../../docs/adrs/adr-0069.md)). Overrides
+    /// ADR-0066, ADR-0069). Overrides
     /// `GWI_DRIVE_ACCOUNT`. Scoped to the `drive` subtree — not usable
     /// before the `drive` subcommand name, only after it, so it can't
     /// collide with an unrelated subcommand's own `--account` flag.
@@ -86,7 +85,7 @@ pub enum DriveSubcommands {
     Untrash(trash::TrashCommand),
     /// Backs up a file and mints a Touch ID-authorised lease token,
     /// required by `drive edit` and (in later phases) every other
-    /// content-mutating verb ([ADR-0080](../../docs/adrs/adr-0080.md)).
+    /// content-mutating verb (ADR-0080).
     Lease(lease::LeaseCommand),
     /// Renames a single Drive file. Requires the `drive.metadata` scope
     /// (`drive auth login --write`).
