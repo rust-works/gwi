@@ -107,6 +107,30 @@ Two optional defaults come from the `mcp` block of `~/.gwi/settings.json`: `log_
 tracing directive; `RUST_LOG` wins) and `max_response_bytes` (the cap before a response is
 truncated, default 100 KB, `0` for no limit). `gwi import` copies both from omni-dev.
 
+### Local paths the tools may use
+
+Two kinds of tool parameter name a local path: the `text_path` and `values_path` sources of
+the Drive write tools (read, then written into a Doc or Sheet) and `output_file` on the read
+tools (written to disk). Both are chosen by the assistant, so `gwi-mcp` checks them before
+touching the file, after following symlinks and collapsing `..`:
+
+- A path must be inside an allowed directory. By default that is the server's working
+  directory and the system temp directory. The `mcp.allowed_paths` list in `settings.json`
+  (absolute or `~/` entries) replaces that default, and `[]` allows nothing:
+
+  ```json
+  { "mcp": { "allowed_paths": ["~/work/exports", "/tmp"] } }
+  ```
+
+- Credential locations are refused whatever the list says: `~/.gwi`, `~/.omni-dev`, `~/.ssh`,
+  `~/.gnupg`, `~/.aws`, `~/.kube`, `~/.docker`, `~/.netrc`, `~/.config/gcloud`,
+  `~/Library/Keychains` and gwi's own state directory (the lease ledger and `audit.jsonl`).
+- A refused path fails the call with an error that names the setting. No tool parameter can
+  change the policy, and the `gwi` CLI is not restricted.
+
+omni-dev's tools accept any readable or writable path; see
+[ADR-0002](docs/adrs/adr-0002.md) for why gwi does not.
+
 ## Planned scope
 
 - `gwi gmail`: search, read, threads, drafts, labels, attachments, sync and insert *(available from source)*
