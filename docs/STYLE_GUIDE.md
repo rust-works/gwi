@@ -1498,6 +1498,18 @@ environment**. Pick the seam by what is read:
    `dirs::home_dir()`). For a subprocess that needs `HOME`, set it scoped on
    the `Command` (`.env("HOME", …)`), never on the process.
 
+   > **gwi:** where a test has to read a `dirs::*` value (or call a function that
+   > does: `Settings::get_settings_path`, `request_log::gwi_state_subpath`, the
+   > `chrome_profile::default_local_state_path*` pair) it takes
+   > `crate::gmail::test_support::EnvGuard` / `crate::drive::test_support::EnvGuard`
+   > (both hold `crate::test_support::HOME_ENV_MUTEX`) when it reads the value
+   > **more than once**, or compares it, or depends on it staying put, because
+   > another test repointing `HOME` between the reads makes them disagree
+   > (#14, #15, #17). A single read of a property that holds for any `HOME`
+   > (`path.ends_with("Local State")`) needs no guard. The #30 sweep found no
+   > other racy test; a new one is found by running the lib tests while a test
+   > flips `HOME` under the mutex, not by grepping.
+
 **Never** call `std::env::set_var` / `remove_var` in a test, and **never** add
 a per-module env mutex to "protect" such mutation.
 
