@@ -93,6 +93,16 @@ jobs:
     # but not links from public docs to private items, which the imported docs use.
     - run: cargo doc --no-deps --document-private-items --features mcp
 
+  # Dead relative links, dead anchors and dead ADR names in docs and doc comments (#52). Not
+  # `cargo doc`'s job: it does not read markdown, and rustdoc links are not checked for files.
+  doc-links:
+    name: Doc links
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v7
+    - run: python3 scripts/test_check_doc_links.py -v
+    - run: python3 scripts/check_doc_links.py
+
   coverage:
     name: Coverage
     # Skip on tag pushes: coverage is meaningful on PRs (diff comment) and main pushes
