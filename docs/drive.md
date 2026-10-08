@@ -4607,7 +4607,8 @@ gwi log prune --max-size 20mb
 ```
 
 `-o` takes `oneline` (the default), `json` (the stored line, verbatim, for `jq`) or `full`.
-`gwi log --help` lists every filter. `GWI_LOG_MAX_SIZE` (for example `10mb`) turns on
+`gwi log --help` lists every filter; the [`gwi log` reference](log.md) covers them, the
+`--query` language and `gwi log prune`. `GWI_LOG_MAX_SIZE` (for example `10mb`) turns on
 size-capped rotation on write, keeping `GWI_LOG_KEEP_FILES` rotated files (default 3); rotation
 on write is unix-only.
 
@@ -4904,8 +4905,8 @@ coexist.
 | MCP tools | gwi's `gwi-mcp` serves its own `drive_*` tools; omni-dev's keep working alongside. |
 
 The design records in [docs/adrs/](adrs/README.md) quote omni-dev's commands, paths and
-variables as they were when written; read `omni-dev drive` as `gwi drive`, `~/.omni-dev` as
-`~/.gwi` and `OMNI_DEV_*` as `GWI_*`.
+variables as they were when written; read `omni-dev drive` as `gwi drive`, `omni-dev log` as
+`gwi log`, `~/.omni-dev` as `~/.gwi` and `OMNI_DEV_*` (`OMNI_DEV_LOG_DISABLE`, for one) as `GWI_*`.
 
 ## See also
 
