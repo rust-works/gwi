@@ -31,6 +31,10 @@ scopes:
     description: "MCP server and tools"
     examples: ["mcp: register gmail tools"]
     file_patterns: ["src/mcp.rs", "src/mcp/**"]
+  - name: "utils"
+    description: "Shared utilities: settings, secrets, local state paths"
+    examples: ["utils: prune omni-dev names from settings", "utils: fix local state path race"]
+    file_patterns: ["src/utils.rs", "src/utils/**"]
   - name: "workflows"
     description: "GitHub Actions workflow files"
     examples: ["workflows: add release workflow"]
@@ -39,8 +43,6 @@ scopes:
 # Paths that legitimately belong to no scope.
 allow:
   - "src/lib.rs"
-  - "src/utils.rs"
-  - "src/utils/**"
   - "src/test_support.rs"
   - "src/main.rs"
   - "LICENSE"
