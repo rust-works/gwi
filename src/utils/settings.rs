@@ -1921,12 +1921,11 @@ mod tests {
         assert_eq!(env.var("GMAIL_REFRESH_TOKEN"), Some("v".to_string()));
     }
 
-    #[test]
-    fn settings_env_ref_var_falls_back_to_the_settings_layer() {
-        // SettingsEnvRef::var is EnvSource's required method; secret_var and
-        // secret_var_is_set (its only production callers) read var_triple alone,
-        // so this exercises it directly against the same fallback chain
-        // SettingsEnv::var uses.
+    /// `env_source` reads `GWI_PROFILE`, so this starts from an environment
+    /// with none selected, under the env guard.
+    fn assert_env_ref_var_falls_back_to_the_settings_layer() {
+        let guard = crate::gmail::test_support::EnvGuard::take();
+        let _home = guard.clear_credentials();
         let settings = settings_with_env(&[("GWI_TEST_SETTINGS_ENV_REF_K", "from-settings")], &[]);
         let env_ref = settings.env_source();
         assert_eq!(
@@ -1934,6 +1933,24 @@ mod tests {
             Some("from-settings".to_string())
         );
         assert_eq!(env_ref.var("GWI_TEST_SETTINGS_ENV_REF_MISSING"), None);
+    }
+
+    #[test]
+    fn settings_env_ref_var_falls_back_to_the_settings_layer() {
+        // SettingsEnvRef::var is EnvSource's required method; secret_var and
+        // secret_var_is_set (its only production callers) read var_triple alone,
+        // so this exercises it directly against the same fallback chain
+        // SettingsEnv::var uses.
+        assert_env_ref_var_falls_back_to_the_settings_layer();
+    }
+
+    #[test]
+    fn settings_env_ref_var_ignores_a_profile_exported_by_another_thread() {
+        crate::test_support::while_another_thread_exports(
+            &[(PROFILE_ENV_VAR, "some-profile")],
+            200,
+            assert_env_ref_var_falls_back_to_the_settings_layer,
+        );
     }
 
     #[test]

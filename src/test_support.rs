@@ -278,3 +278,60 @@ pub(crate) mod env {
         (dir, path)
     }
 }
+
+/// Runs `check` `iterations` times on this thread while a background thread
+/// repeatedly exports `vars` — each time under [`HOME_ENV_MUTEX`], then
+/// restoring what was there — the regression shape for a test that must see
+/// those variables unset: without the lock in `check`, it observes an
+/// export and fails intermittently (issue #62, as #17 did for `HOME`).
+///
+/// `check` takes the `EnvGuard` itself, as the test it stands in for does.
+pub(crate) fn while_another_thread_exports(
+    vars: &[(&str, &str)],
+    iterations: usize,
+    check: impl Fn(),
+) {
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    let stop = AtomicBool::new(false);
+
+    /// Stops the writer even when `check` panics, so a failing run fails
+    /// instead of hanging in the scope's implicit join.
+    struct StopOnDrop<'a>(&'a AtomicBool);
+    impl Drop for StopOnDrop<'_> {
+        fn drop(&mut self) {
+            self.0.store(true, Ordering::Relaxed);
+        }
+    }
+
+    std::thread::scope(|scope| {
+        scope.spawn(|| {
+            while !stop.load(Ordering::Relaxed) {
+                {
+                    let _lock = HOME_ENV_MUTEX
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner);
+                    let before: Vec<_> = vars.iter().map(|(k, _)| std::env::var(k).ok()).collect();
+                    for (key, value) in vars {
+                        std::env::set_var(key, value);
+                    }
+                    std::thread::yield_now();
+                    for ((key, _), previous) in vars.iter().zip(before) {
+                        match previous {
+                            Some(value) => std::env::set_var(key, value),
+                            None => std::env::remove_var(key),
+                        }
+                    }
+                }
+                // `std::sync::Mutex` is unfair: yield after releasing so the
+                // checking thread is not starved of the lock.
+                std::thread::yield_now();
+            }
+        });
+
+        let _stop = StopOnDrop(&stop);
+        for _ in 0..iterations {
+            check();
+        }
+    });
+}
