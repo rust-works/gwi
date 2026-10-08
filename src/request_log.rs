@@ -3703,7 +3703,7 @@ mod tests {
             http_line("3", "2026-12-31T00:00:00.000Z"),
         );
         std::fs::write(&path, &body).unwrap();
-        // Modes are Unix-only; the pruning itself is checked everywhere.
+        // Modes are Unix-only; the pruning assertions below are not.
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
