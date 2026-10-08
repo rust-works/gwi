@@ -148,8 +148,6 @@ Community leaders will follow these Community Impact Guidelines in determining t
 
 ### Learning Resources
 * [Contributing Guidelines](CONTRIBUTING.md)
-* [Developer Guide](docs/DEVELOPER_GUIDE.md)
-* [User Guide](docs/USER_GUIDE.md)
 * [Nushell Community](https://nushell.sh/community/)
 
 ### Mental Health and Well-being

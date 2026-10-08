@@ -374,7 +374,7 @@ Writing a commit message.
 
 Follow [`.omni-dev/commit-guidelines.md`](../.omni-dev/commit-guidelines.md) for the full
 specification including types, scopes, subject line rules, body guidelines, and breaking
-change conventions. See [`omni-dev-directory.md`](omni-dev-directory.md#commit-guidelinesmd)
+change conventions. See [`omni-dev-directory.md`](https://github.com/rust-works/omni-dev/blob/main/docs/omni-dev-directory.md#commit-guidelinesmd)
 for the file's format contract, validation behaviour, and how it is resolved relative to
 local overrides and the global fallback.
 
@@ -400,13 +400,13 @@ with the scope definitions in `.omni-dev/scopes.yaml`:
    least a visible diff in review, unlike a catch-all that absorbs new subsystems silently.
 
 The inventory and example contracts are enforced by
-[`tests/commit_guidelines_scopes_test.rs`](../tests/commit_guidelines_scopes_test.rs), which
+[`tests/commit_guidelines_scopes_test.rs`](https://github.com/rust-works/omni-dev/blob/main/tests/commit_guidelines_scopes_test.rs), which
 also checks that the guidelines' example subjects remain parseable. Prompt unit tests in
-[`src/claude/prompts.rs`](../src/claude/prompts.rs) cover injection with custom guidelines
+[`src/claude/prompts.rs`](https://github.com/rust-works/omni-dev/blob/main/src/claude/prompts.rs) cover injection with custom guidelines
 and compatibility with downstream Markdown scope lists when the resolved set is empty.
 Clause 3 is enforced by `omni-dev config scopes lint --root src --root editors --root .github`,
 exercised end-to-end by the `binary_config_scopes_lint_*` tests in
-[`tests/integration_test.rs`](../tests/integration_test.rs). Together they make a divergence
+[`tests/integration_test.rs`](https://github.com/rust-works/omni-dev/blob/main/tests/integration_test.rs). Together they make a divergence
 fail the build rather than silently degrading the prompt.
 
 ### Motivation
@@ -1197,12 +1197,12 @@ After creating one or more commits and before pushing or opening a pull request.
 
 After every `git commit`, invoke the `commit-twiddle` skill to validate and fix the
 message against the guidelines in
-[`.omni-dev/commit-guidelines.md`](omni-dev-directory.md#commit-guidelinesmd). The skill
+[`.omni-dev/commit-guidelines.md`](https://github.com/rust-works/omni-dev/blob/main/docs/omni-dev-directory.md#commit-guidelinesmd). The skill
 calls `omni-dev git commit message view` to analyse the commit, then
 `omni-dev git commit message amend` to rewrite the message if needed.
 
 Claude Code also enforces this rule at turn-end through the
-[commit-message Stop hook](../.claude/hooks/check-commit-messages.sh), registered
+[commit-message Stop hook](https://github.com/rust-works/omni-dev/blob/main/.claude/hooks/check-commit-messages.sh), registered
 alongside the snapshot hook in `.claude/settings.json`. It checks every commit
 ahead of the default base with `omni-dev git commit message check --strict --quiet
 -o json` and feeds validation findings back to the model to fix with this skill.
@@ -1393,7 +1393,7 @@ Adding or modifying MCP tools, resources, or supporting types under `src/mcp/`.
    clients can route output appropriately.
 
 6. **Resource URIs.** New URI templates must round-trip through
-   [`ResourceUri::parse`](../src/mcp/resources.rs) with a dedicated unit
+   [`ResourceUri::parse`](https://github.com/rust-works/omni-dev/blob/main/src/mcp/resources.rs) with a dedicated unit
    test per template *and* per malformed-input class (unknown scheme,
    wrong path shape, empty identifier). Keep the catalogue in
    `resource_templates()` and `resource_listing()` in sync — add a
@@ -1441,7 +1441,7 @@ Adding or substantially editing a file in [`docs/plan/`](plan/).
 2. **ADR cross-links.** When one or more ADRs describe the same decisions, add an `**ADRs:**` line immediately after the Status line, listing each ADR as a relative link separated by ` · ` (middle dot, surrounded by spaces). Example:
 
    ```markdown
-   **ADRs:** [ADR-0002](../adrs/adr-0002.md) · [ADR-0014](../adrs/adr-0014.md)
+   **ADRs:** [ADR-0002](https://github.com/rust-works/omni-dev/blob/main/docs/adrs/adr-0002.md) · [ADR-0014](https://github.com/rust-works/omni-dev/blob/main/docs/adrs/adr-0014.md)
    ```
 
 3. **When to retire.** Once a plan's decisions are captured in one or more ADRs, change its status to `Built` (with ADR cross-links) or `Historical` rather than deleting it — preserving the doc keeps prior reasoning discoverable.
@@ -1471,8 +1471,8 @@ environment**. Pick the seam by what is read:
 
 1. **Resolved domain value** — incidental config. Provide a `*_from(value)`
    constructor alongside the env-resolving entry point. (e.g.
-   [`create_client_from`](../src/cli/atlassian/helpers.rs),
-   [`DatadogClient::from_credentials`](../src/datadog/client.rs).)
+   [`create_client_from`](https://github.com/rust-works/omni-dev/blob/main/src/cli/atlassian/helpers.rs),
+   [`DatadogClient::from_credentials`](https://github.com/rust-works/omni-dev/blob/main/src/datadog/client.rs).)
 
    ```rust
    pub fn create_client() -> Result<(Client, String)> {
@@ -1543,9 +1543,9 @@ quality* the agent actually reads.
 ### Guidance
 
 Every tool description and parameter doc comment must satisfy this checklist.
-The reference exemplars are [`LinkCreateParams`](../src/mcp/jira_tools.rs)
+The reference exemplars are [`LinkCreateParams`](https://github.com/rust-works/omni-dev/blob/main/src/mcp/jira_tools.rs)
 (`inward`/`outward` with the concrete `Blocks` example) and the
-[`git_*` tool descriptions](../src/mcp/git_tools.rs).
+[`git_*` tool descriptions](https://github.com/rust-works/omni-dev/blob/main/src/mcp/git_tools.rs).
 
 **Tool-level `description`:**
 
@@ -1555,7 +1555,7 @@ The reference exemplars are [`LinkCreateParams`](../src/mcp/jira_tools.rs)
    equivalent subcommand: ``Mirrors `omni-dev <subcommand>`.`` The clap
    subcommand's doc comment carries the reverse, ending with
    ``(mirrors the `<tool_name>` MCP tool)`` (see
-   [src/cli/atlassian/jira/link.rs](../src/cli/atlassian/jira/link.rs)). The
+   [src/cli/atlassian/jira/link.rs](https://github.com/rust-works/omni-dev/blob/main/src/cli/atlassian/jira/link.rs)). The
    two must stay in lock-step. A tool with no CLI equivalent (e.g.
    `atlassian_convert`'s `system_prompt` override) says so explicitly.
 3. **"When to use vs `<sibling>`"** wherever two tools overlap or could be
@@ -1585,13 +1585,13 @@ The reference exemplars are [`LinkCreateParams`](../src/mcp/jira_tools.rs)
     `Option<T>` (per STYLE-0026) and the doc comment states the default
     behaviour when the field is omitted.
 
-Keep [docs/mcp.md](mcp.md)'s tool catalog in sync when a tool's purpose or CLI
-mapping changes, and run the [`update-snapshots`](../.claude/skills/update-snapshots/SKILL.md)
+Keep the tool catalog (omni-dev's [`docs/mcp.md`](https://github.com/rust-works/omni-dev/blob/main/docs/mcp.md); gwi's lives in the README and the Drive and Gmail docs) in sync when a tool's purpose or CLI
+mapping changes, and run the [`update-snapshots`](https://github.com/rust-works/omni-dev/blob/main/.claude/skills/update-snapshots/SKILL.md)
 skill whenever the reverse-reference edits change CLI `--help` text.
 
 The `present and non-empty` floor of this checklist (items 1 and 6) is enforced
 mechanically by `all_tools_advertise_descriptions_and_param_schemas` in
-[tests/mcp_integration_test.rs](../tests/mcp_integration_test.rs): it fails if
+[tests/mcp_integration_test.rs](https://github.com/rust-works/omni-dev/blob/main/tests/mcp_integration_test.rs): it fails if
 *any* advertised tool or top-level parameter ships without a description, so a
 new tool cannot silently regress the surface. The prose-quality items (2–5,
 7–10) still need review — the test guarantees the strings exist, not that they
@@ -1637,9 +1637,9 @@ let api_key = env.var(DATADOG_API_KEY).ok_or(DatadogError::CredentialsNotFound)?
 The resolver gives every secret a `<NAME>_FILE` companion with one set of rules
 (absolute path, yours and owner-only or root's and read-only to others, one trailing newline
 trimmed, two-set is an error per layer) — see
-[ADR-0089](adrs/adr-0089.md) — and a `<NAME>_COMMAND` companion that runs a
-helper program and reads its output ([ADR-0090](adrs/adr-0090.md),
-[secret-commands.md](secret-commands.md)). Only the resolver, the settings
+[ADR-0089](https://github.com/rust-works/omni-dev/blob/main/docs/adrs/adr-0089.md) — and a `<NAME>_COMMAND` companion that runs a
+helper program and reads its output ([ADR-0090](https://github.com/rust-works/omni-dev/blob/main/docs/adrs/adr-0090.md),
+[secret-commands.md](https://github.com/rust-works/omni-dev/blob/main/docs/secret-commands.md)). Only the resolver, the settings
 writers and the `claude-cli` scrub may spell either companion. Document
 `<NAME>_FILE` and `<NAME>_COMMAND` next to the variable in its operator guide. A secret-shaped name that genuinely must not accept `_FILE`
 goes in `EXEMPT_SECRET_ENV_VARS` with its reason. Test the call site's `_FILE`
