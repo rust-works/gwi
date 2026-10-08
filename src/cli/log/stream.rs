@@ -3,7 +3,11 @@
 //! The backlog is read without buffering the whole file (a `--limit` keeps only
 //! the most recent N matches in a ring buffer); `--follow` then tails newly
 //! appended complete lines. A broken pipe (e.g. piping into `head`) is treated
-//! as a clean exit, not an error.
+//! as a clean exit, not an error, and ends the scan at once. A reader that goes
+//! away while `--follow` is idle is only noticed on the next write.
+//!
+//! `--follow` also notices the log being replaced (`gwi log prune`, rotation):
+//! on unix by the file's device and inode, elsewhere only by its shrinking.
 
 use std::collections::VecDeque;
 use std::fs::File;
@@ -21,6 +25,39 @@ use crate::request_log::LogRecord;
 /// Poll interval while following the log.
 const FOLLOW_POLL: Duration = Duration::from_millis(250);
 
+/// Identity of a file on disk: `(device, inode)` on unix; always `None` elsewhere,
+/// where only shrinkage reveals a replacement.
+type FileId = Option<(u64, u64)>;
+
+#[cfg(unix)]
+fn file_id(meta: &std::fs::Metadata) -> FileId {
+    use std::os::unix::fs::MetadataExt;
+    Some((meta.dev(), meta.ino()))
+}
+
+#[cfg(not(unix))]
+fn file_id(_meta: &std::fs::Metadata) -> FileId {
+    None
+}
+
+/// Where `--follow` has got to in the file it is tailing.
+#[derive(Clone, Copy, Debug)]
+struct Tail {
+    /// Byte offset just past the last complete line read.
+    pos: u64,
+    /// Identity of the file `pos` refers to, when known.
+    id: FileId,
+}
+
+/// How the backlog scan ended.
+#[derive(Debug, PartialEq, Eq)]
+enum Backlog {
+    /// Every line was read; the offset is just past the last newline-terminated one.
+    Complete(u64),
+    /// The output pipe closed (e.g. `| head -1`), so the scan stopped early.
+    ReaderGone,
+}
+
 /// Streams the log file at `path`, applying `filter` and rendering as `format`.
 pub fn run(
     path: &Path,
@@ -32,11 +69,17 @@ pub fn run(
     let stdout = io::stdout();
     let mut out = stdout.lock();
 
-    let mut pos = 0u64;
+    let mut tail = Tail { pos: 0, id: None };
     match File::open(path) {
         Ok(file) => {
+            // Taken from the handle that is scanned, so a replacement after this
+            // point is seen as a change of identity by the follow loop.
+            tail.id = file.metadata().ok().and_then(|m| file_id(&m));
             let mut reader = BufReader::new(file);
-            pos = emit_backlog(&mut reader, filter, format, limit, &mut out)?;
+            match emit_backlog(&mut reader, filter, format, limit, &mut out)? {
+                Backlog::Complete(pos) => tail.pos = pos,
+                Backlog::ReaderGone => return Ok(()),
+            }
         }
         Err(e) if e.kind() == io::ErrorKind::NotFound => {
             if !follow {
@@ -47,7 +90,7 @@ pub fn run(
     }
 
     if follow {
-        if let Err(e) = follow_loop(path, filter, format, pos, &mut out) {
+        if let Err(e) = follow_loop(path, filter, format, tail, &mut out) {
             return swallow_broken_pipe(e);
         }
     }
@@ -75,13 +118,14 @@ fn read_line_lossy<R: BufRead>(
 /// matches stream out as they are read. Returns the byte offset just past the last
 /// newline-terminated line: a trailing partial line (a writer mid-append) is
 /// still tried, but is not counted, so `--follow` re-reads it once complete.
+/// Stops at the first write to a closed pipe, without reading the rest.
 fn emit_backlog<R: BufRead, W: Write>(
     reader: &mut R,
     filter: &Filter,
     format: Format,
     limit: Option<usize>,
     out: &mut W,
-) -> Result<u64> {
+) -> Result<Backlog> {
     let mut pos = 0u64;
     let mut ring: VecDeque<String> = VecDeque::new();
     let mut buf = Vec::new();
@@ -102,52 +146,73 @@ fn emit_backlog<R: BufRead, W: Write>(
                         ring.pop_front();
                     }
                 }
-                None => writeln!(out, "{rendered}").or_else(ignore_broken_pipe)?,
+                None => {
+                    if !write_line(out, &rendered)? {
+                        return Ok(Backlog::ReaderGone);
+                    }
+                }
             }
         }
     }
     for rendered in &ring {
-        writeln!(out, "{rendered}").or_else(ignore_broken_pipe)?;
+        if !write_line(out, rendered)? {
+            return Ok(Backlog::ReaderGone);
+        }
     }
-    Ok(pos)
+    Ok(Backlog::Complete(pos))
+}
+
+/// Writes one rendered record. `Ok(false)` means the reader closed the pipe and the
+/// caller should stop; any other write error propagates.
+fn write_line<W: Write>(out: &mut W, rendered: &str) -> io::Result<bool> {
+    match writeln!(out, "{rendered}") {
+        Ok(()) => Ok(true),
+        Err(e) if e.kind() == io::ErrorKind::BrokenPipe => Ok(false),
+        Err(e) => Err(e),
+    }
 }
 
 /// Tails the file from `pos`, printing newly appended complete lines forever
-/// (until the process is interrupted). Restarts from the top on truncation.
+/// (until the process is interrupted or a write finds the pipe closed). Restarts
+/// from the top when the file is truncated or replaced.
 fn follow_loop<W: Write>(
     path: &Path,
     filter: &Filter,
     format: Format,
-    mut pos: u64,
+    mut tail: Tail,
     out: &mut W,
 ) -> Result<()> {
     loop {
-        pos = drain_appended(path, filter, format, pos, out)?;
+        drain_appended(path, filter, format, &mut tail, out)?;
         std::thread::sleep(FOLLOW_POLL);
     }
 }
 
-/// Reads and emits any complete lines appended past `pos`, returning the new
-/// position. Restarts from the top if the file shrank (truncation/rotation);
-/// a no-op (returns `pos` unchanged) if the file is absent or has not grown.
+/// Reads and emits any complete lines appended past `tail.pos`, advancing the
+/// tail. Restarts from the top if the file was replaced (its identity changed)
+/// or shrank (truncation); a no-op if the file is absent or has not grown.
 /// A trailing partial line (no newline yet) is left for the next call.
 fn drain_appended<W: Write>(
     path: &Path,
     filter: &Filter,
     format: Format,
-    mut pos: u64,
+    tail: &mut Tail,
     out: &mut W,
-) -> Result<u64> {
+) -> Result<()> {
     let Ok(file) = File::open(path) else {
-        return Ok(pos);
+        return Ok(());
     };
-    let len = file.metadata().map_or(pos, |m| m.len());
-    if len < pos {
-        pos = 0; // truncated or rotated — restart
+    // Identity and length come from the handle that is read, not from the path.
+    let meta = file.metadata().ok();
+    let id = meta.as_ref().and_then(file_id);
+    let len = meta.map_or(tail.pos, |m| m.len());
+    if id != tail.id || len < tail.pos {
+        tail.pos = 0; // replaced, truncated or rotated — restart
     }
-    if len > pos {
+    tail.id = id;
+    if len > tail.pos {
         let mut reader = BufReader::new(file);
-        reader.seek(SeekFrom::Start(pos))?;
+        reader.seek(SeekFrom::Start(tail.pos))?;
         let mut buf = Vec::new();
         let mut line = String::new();
         loop {
@@ -155,14 +220,14 @@ fn drain_appended<W: Write>(
             if n == 0 || !line.ends_with('\n') {
                 break; // EOF or partial trailing line — wait for more
             }
-            pos += n as u64;
+            tail.pos += n as u64;
             if let Some(rendered) = render_if_match(&line, filter, format) {
                 writeln!(out, "{rendered}")?;
                 out.flush()?;
             }
         }
     }
-    Ok(pos)
+    Ok(())
 }
 
 /// Parses one raw line, returning its rendering when it matches the filter.
@@ -177,15 +242,6 @@ fn render_if_match(line: &str, filter: &Filter, format: Format) -> Option<String
         Some(format::render(&rec, raw, format))
     } else {
         None
-    }
-}
-
-/// Maps a broken-pipe write error to `Ok(())`; propagates anything else.
-fn ignore_broken_pipe(e: io::Error) -> io::Result<()> {
-    if e.kind() == io::ErrorKind::BrokenPipe {
-        Ok(())
-    } else {
-        Err(e)
     }
 }
 
@@ -379,13 +435,116 @@ mod tests {
     fn broken_pipe_is_swallowed_other_errors_propagate() {
         use std::io::{Error, ErrorKind};
 
-        assert!(ignore_broken_pipe(Error::from(ErrorKind::BrokenPipe)).is_ok());
-        assert!(ignore_broken_pipe(Error::from(ErrorKind::PermissionDenied)).is_err());
+        let mut closed = PipeWriter::failing_with(ErrorKind::BrokenPipe, 0);
+        assert!(!write_line(&mut closed, "x").unwrap());
+        let mut denied = PipeWriter::failing_with(ErrorKind::PermissionDenied, 0);
+        assert!(write_line(&mut denied, "x").is_err());
+        let mut open = Vec::new();
+        assert!(write_line(&mut open, "x").unwrap());
 
         assert!(
             swallow_broken_pipe(anyhow::Error::from(Error::from(ErrorKind::BrokenPipe))).is_ok()
         );
         assert!(swallow_broken_pipe(anyhow::anyhow!("unrelated")).is_err());
+    }
+
+    /// A writer that accepts `ok_writes` writes, then fails every write with `kind`.
+    struct PipeWriter {
+        kind: io::ErrorKind,
+        ok_writes: usize,
+        attempts: usize,
+    }
+
+    impl PipeWriter {
+        fn failing_with(kind: io::ErrorKind, ok_writes: usize) -> Self {
+            Self {
+                kind,
+                ok_writes,
+                attempts: 0,
+            }
+        }
+    }
+
+    impl Write for PipeWriter {
+        fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+            self.attempts += 1;
+            if self.attempts > self.ok_writes {
+                Err(io::Error::from(self.kind))
+            } else {
+                Ok(buf.len())
+            }
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    /// Enough lines that the scan cannot have buffered them all in one read.
+    fn many_lines() -> String {
+        sample_lines().repeat(4000)
+    }
+
+    #[test]
+    fn backlog_stops_at_a_closed_pipe_without_reading_the_rest() {
+        let input = many_lines();
+        let mut reader = BufReader::new(Cursor::new(input.clone()));
+        let mut out = PipeWriter::failing_with(io::ErrorKind::BrokenPipe, 0);
+
+        let result =
+            emit_backlog(&mut reader, &empty_filter(), Format::Json, None, &mut out).unwrap();
+
+        assert_eq!(result, Backlog::ReaderGone);
+        // `writeln!` may split a record into a few writes, but never goes on to later lines.
+        assert!(out.attempts <= 2, "attempts: {}", out.attempts);
+        assert!(
+            (reader.get_ref().position() as usize) < input.len() / 2,
+            "scan read {} of {} bytes",
+            reader.get_ref().position(),
+            input.len()
+        );
+    }
+
+    #[test]
+    fn backlog_with_a_limit_stops_replaying_at_a_closed_pipe() {
+        let mut reader = BufReader::new(Cursor::new(sample_lines()));
+        let mut out = PipeWriter::failing_with(io::ErrorKind::BrokenPipe, 0);
+
+        let result = emit_backlog(
+            &mut reader,
+            &empty_filter(),
+            Format::Json,
+            Some(3),
+            &mut out,
+        )
+        .unwrap();
+
+        assert_eq!(result, Backlog::ReaderGone);
+        assert!(out.attempts <= 2, "attempts: {}", out.attempts);
+    }
+
+    #[test]
+    fn backlog_propagates_other_write_errors() {
+        let mut reader = BufReader::new(Cursor::new(sample_lines()));
+        let mut out = PipeWriter::failing_with(io::ErrorKind::PermissionDenied, 0);
+        assert!(emit_backlog(&mut reader, &empty_filter(), Format::Json, None, &mut out).is_err());
+    }
+
+    #[test]
+    fn follow_loop_exits_when_the_pipe_closes() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("log.jsonl");
+        std::fs::write(&path, sample_lines()).unwrap();
+        let mut out = PipeWriter::failing_with(io::ErrorKind::BrokenPipe, 0);
+        let tail = Tail { pos: 0, id: None };
+
+        let err = follow_loop(&path, &empty_filter(), Format::Json, tail, &mut out).unwrap_err();
+
+        assert!(swallow_broken_pipe(err).is_ok());
+    }
+
+    fn tail_at_start() -> Tail {
+        Tail { pos: 0, id: None }
     }
 
     #[test]
@@ -397,9 +556,11 @@ mod tests {
         std::fs::write(&path, sample_lines()).unwrap();
 
         // First drain reads the whole backlog and advances the position.
+        let mut tail = tail_at_start();
         let mut out = Vec::new();
-        let pos = drain_appended(&path, &empty_filter(), Format::Json, 0, &mut out).unwrap();
+        drain_appended(&path, &empty_filter(), Format::Json, &mut tail, &mut out).unwrap();
         assert_eq!(String::from_utf8(out).unwrap().lines().count(), 5);
+        let pos = tail.pos;
         assert!(pos > 0);
 
         // Appending two lines and draining from `pos` yields only those.
@@ -410,10 +571,11 @@ mod tests {
         writeln!(f, r#"{{"id":"5","kind":"http"}}"#).unwrap();
         writeln!(f, r#"{{"id":"6","kind":"http"}}"#).unwrap();
         let mut out = Vec::new();
-        let pos2 = drain_appended(&path, &empty_filter(), Format::Json, pos, &mut out).unwrap();
+        drain_appended(&path, &empty_filter(), Format::Json, &mut tail, &mut out).unwrap();
         let text = String::from_utf8(out).unwrap();
         assert_eq!(text.lines().count(), 2);
         assert!(text.contains(r#""id":"5""#));
+        let pos2 = tail.pos;
         assert!(pos2 > pos);
 
         // A trailing partial line (no newline) is left for the next call.
@@ -423,23 +585,90 @@ mod tests {
             .unwrap();
         write!(f, r#"{{"id":"7","kind":"http"}}"#).unwrap();
         let mut out = Vec::new();
-        let pos3 = drain_appended(&path, &empty_filter(), Format::Json, pos2, &mut out).unwrap();
+        drain_appended(&path, &empty_filter(), Format::Json, &mut tail, &mut out).unwrap();
         assert!(String::from_utf8(out).unwrap().is_empty());
-        assert_eq!(pos3, pos2, "partial line does not advance the position");
+        assert_eq!(tail.pos, pos2, "partial line does not advance the position");
 
         // Truncation resets to the top and re-reads.
         std::fs::write(&path, "{\"id\":\"x\",\"kind\":\"http\"}\n").unwrap();
         let mut out = Vec::new();
-        drain_appended(&path, &empty_filter(), Format::Json, pos2, &mut out).unwrap();
+        drain_appended(&path, &empty_filter(), Format::Json, &mut tail, &mut out).unwrap();
         assert!(String::from_utf8(out).unwrap().contains(r#""id":"x""#));
 
-        // A missing file is a no-op that preserves the position.
+        // A missing file is a no-op that preserves the tail.
         let missing = dir.path().join("gone.jsonl");
+        let mut kept = Tail {
+            pos: 7,
+            id: tail.id,
+        };
         let mut out = Vec::new();
-        assert_eq!(
-            drain_appended(&missing, &empty_filter(), Format::Json, 7, &mut out).unwrap(),
-            7
-        );
+        drain_appended(&missing, &empty_filter(), Format::Json, &mut kept, &mut out).unwrap();
+        assert_eq!(kept.pos, 7);
         assert!(String::from_utf8(out).unwrap().is_empty());
+    }
+
+    /// Replaces `path` with `content` the way `gwi log prune` does: write a sibling,
+    /// then rename it over the original.
+    #[cfg(unix)]
+    fn replace_by_rename(path: &Path, content: &str) {
+        let sibling = path.with_extension("new");
+        std::fs::write(&sibling, content).unwrap();
+        std::fs::rename(&sibling, path).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn drain_appended_restarts_when_the_log_is_replaced_by_a_larger_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("log.jsonl");
+        std::fs::write(&path, sample_lines()).unwrap();
+        let mut tail = tail_at_start();
+        drain_appended(
+            &path,
+            &empty_filter(),
+            Format::Json,
+            &mut tail,
+            &mut Vec::new(),
+        )
+        .unwrap();
+
+        // The replacement is larger than the saved offset: only the identity gives it away.
+        let replacement = sample_lines().replace("/x/", "/replaced/").repeat(2);
+        assert!(replacement.len() as u64 > tail.pos);
+        replace_by_rename(&path, &replacement);
+
+        let mut out = Vec::new();
+        drain_appended(&path, &empty_filter(), Format::Json, &mut tail, &mut out).unwrap();
+        let text = String::from_utf8(out).unwrap();
+        assert_eq!(text.lines().count(), 10, "text was: {text}");
+        assert!(text.starts_with(r#"{"id":"0""#), "text was: {text}");
+        assert_eq!(tail.pos, replacement.len() as u64);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn drain_appended_restarts_when_the_log_is_replaced_by_a_same_size_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("log.jsonl");
+        std::fs::write(&path, sample_lines()).unwrap();
+        let mut tail = tail_at_start();
+        drain_appended(
+            &path,
+            &empty_filter(),
+            Format::Json,
+            &mut tail,
+            &mut Vec::new(),
+        )
+        .unwrap();
+
+        let replacement = sample_lines().replace("/x/", "/y/");
+        assert_eq!(replacement.len() as u64, tail.pos);
+        replace_by_rename(&path, &replacement);
+
+        let mut out = Vec::new();
+        drain_appended(&path, &empty_filter(), Format::Json, &mut tail, &mut out).unwrap();
+        let text = String::from_utf8(out).unwrap();
+        assert_eq!(text.lines().count(), 5, "text was: {text}");
+        assert!(text.contains(r#""url":"/y/0""#), "text was: {text}");
     }
 }
