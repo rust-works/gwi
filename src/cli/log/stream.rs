@@ -80,6 +80,7 @@ pub fn run(
                 Backlog::Complete(pos) => tail.pos = pos,
                 Backlog::ReaderGone => return Ok(()),
             }
+            warn_unknown_fields(filter);
         }
         Err(e) if e.kind() == io::ErrorKind::NotFound => {
             if !follow {
@@ -95,6 +96,18 @@ pub fn run(
         }
     }
     Ok(())
+}
+
+/// Prints the filter's unknown-field warnings to stderr, once the backlog has
+/// been scanned: a query field that is no built-in name and appears in no
+/// record's `context` would otherwise just match nothing. Stderr only, so the
+/// output stays machine-readable and the exit code is unchanged.
+fn warn_unknown_fields(filter: &Filter) {
+    let mut err = io::stderr().lock();
+    for warning in filter.unknown_field_warnings() {
+        // Best effort: a closed stderr must not fail the search.
+        let _ = writeln!(err, "{warning}");
+    }
 }
 
 /// Reads the next line (through its `\n`, if any) into `line`, returning the byte

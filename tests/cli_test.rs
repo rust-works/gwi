@@ -383,6 +383,45 @@ fn log_query_selects_drive_mutations() {
 }
 
 #[test]
+fn log_query_warns_on_a_field_no_record_has_but_still_exits_zero() {
+    let home = tempfile::tempdir().unwrap();
+    write_logs(home.path());
+
+    let typo = gwi(home.path(), &["log", "--query", "servce:drive"]);
+    assert!(typo.status.success());
+    assert_eq!(typo.stdout, b"");
+    let stderr = String::from_utf8_lossy(&typo.stderr);
+    assert!(stderr.contains("`servce`"), "{stderr}");
+    assert!(stderr.contains("Did you mean `service`?"), "{stderr}");
+
+    // A real context key, a built-in field and a quoted literal stay quiet.
+    for query in ["file_id:f1", "service:drive", "\"12:34:56\""] {
+        let output = gwi(home.path(), &["log", "--query", query]);
+        assert!(output.status.success(), "{query}");
+        assert_eq!(output.stderr, b"", "{query}");
+    }
+}
+
+#[test]
+fn log_query_quoted_not_is_a_literal_and_status_accepts_drive_statuses() {
+    let home = tempfile::tempdir().unwrap();
+    write_logs(home.path());
+
+    // `report.pdf` is in the file name; the quoted `"not"` is not an operator.
+    let output = gwi(home.path(), &["log", "--query", "report \"not\""]);
+    assert!(output.status.success());
+    assert_eq!(output.stdout, b"", "no record contains the word `not`");
+    let output = gwi(home.path(), &["log", "--query", "report NOT gmail"]);
+    assert_eq!(String::from_utf8_lossy(&output.stdout).lines().count(), 1);
+
+    let flag = gwi(home.path(), &["log", "--status", "blocked"]);
+    let query = gwi(home.path(), &["log", "--query", "status:blocked"]);
+    assert!(flag.status.success());
+    assert_eq!(flag.stdout, query.stdout);
+    assert!(String::from_utf8_lossy(&flag.stdout).contains("drive move"));
+}
+
+#[test]
 fn log_prune_trims_the_request_log_but_never_the_audit_log() {
     let home = tempfile::tempdir().unwrap();
     write_logs(home.path());

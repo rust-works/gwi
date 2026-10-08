@@ -51,7 +51,10 @@ pub struct LogCommand {
     /// Match the HTTP method (case-insensitive), e.g. `GET`.
     #[arg(long, value_name = "METHOD")]
     method: Option<String>,
-    /// Match the status: exact (`200`), class (`5xx`), or list (`4xx,5xx`).
+    /// Match the status: exact (`200`), class (`5xx`), list (`4xx,5xx`),
+    /// comparison (`>=400`), or a Drive-mutation status such as `blocked`
+    /// (exact, case-insensitive; a comma list is accepted). Same values as
+    /// `status:` in `--query`.
     #[arg(long, value_name = "STATUS")]
     status: Option<String>,
     /// Match the service tag, e.g. `gmail`, `drive`.
@@ -70,7 +73,9 @@ pub struct LogCommand {
     #[arg(long, value_name = "TOKEN")]
     fuzzy: Vec<String>,
     /// A query expression (AND/OR/NOT, `field:value`, bare tokens); repeatable,
-    /// AND-ed together.
+    /// AND-ed together. A field that is not built in is looked up in the
+    /// record's context, and a warning names it if no record has it. Quote a
+    /// word to search for it as text, e.g. `--query '"not"'`.
     #[arg(long, value_name = "EXPR")]
     query: Vec<String>,
     /// Match this record `id` or `invocation_id` (pulls a run and its requests).
