@@ -384,11 +384,21 @@ fn import_propagates_a_release_made_in_omni_dev_after_the_import() {
         .unwrap()
         .contains("released_at"));
 
-    // omni-dev releases the live lease after the import.
-    let released = std::fs::read_to_string(&source).unwrap().replace(
-        r#""expires_at":"2999-01-01T00:00:00Z""#,
-        r#""expires_at":"2999-01-01T00:00:00Z","released_at":"2026-10-01T00:00:00Z""#,
-    );
+    // omni-dev writes under the live lease, then releases it after the import.
+    let released = std::fs::read_to_string(&source)
+        .unwrap()
+        .lines()
+        .map(|line| {
+            let mut row: serde_json::Value = serde_json::from_str(line).unwrap();
+            if row["token"] == "lease-live" {
+                row["version"] = serde_json::json!("5");
+                row["modified_time"] = serde_json::json!("2026-10-01T00:00:00Z");
+                row["released_at"] = serde_json::json!("2026-10-01T00:00:00Z");
+            }
+            row.to_string()
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
     std::fs::write(&source, &released).unwrap();
 
     let again = gwi(home.path(), &["import"]);
@@ -403,6 +413,12 @@ fn import_propagates_a_release_made_in_omni_dev_after_the_import() {
         .unwrap()
         .contains("2026-10-01T00:00:00Z"));
 
+    let target_rows = std::fs::read_to_string(&target).unwrap();
+    for line in target_rows.lines() {
+        let row: serde_json::Value = serde_json::from_str(line).unwrap();
+        assert_eq!(row["version"], "4");
+        assert!(row.get("modified_time").is_none());
+    }
     let ledger_after_release = std::fs::read(&target).unwrap();
     let third = gwi(home.path(), &["import"]);
     assert!(third.status.success());
