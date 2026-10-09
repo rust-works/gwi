@@ -369,7 +369,6 @@ fn source_str(source: Source) -> &'static str {
     match source {
         Source::Cli => "cli",
         Source::Mcp => "mcp",
-        Source::Daemon => "daemon",
         Source::Unknown => "unknown",
     }
 }
@@ -390,7 +389,6 @@ const BUILTIN_FIELDS: &[&str] = &[
     "inv",
     "mcp_tool",
     "tool",
-    "via_daemon",
     "error",
     "err",
     "exit_code",
@@ -447,7 +445,6 @@ fn builtin_field_matches(rec: &LogRecord, field: &str, value: &str) -> Option<bo
         "id" => rec.id == value || rec.invocation_id == value,
         "invocation_id" | "inv" => rec.invocation_id == value,
         "mcp_tool" | "tool" => opt_eq_ci(rec.mcp_tool.as_deref(), value),
-        "via_daemon" => rec.via_daemon == matches!(value, "1" | "true" | "yes"),
         "error" | "err" => match rec.error.as_deref() {
             Some(e) if value.is_empty() || value == "true" => !e.is_empty() || value == "true",
             Some(e) => e.to_ascii_lowercase().contains(&value.to_ascii_lowercase()),
@@ -1197,7 +1194,6 @@ mod tests {
         let mut rec = rec_http();
         rec.source = Some(Source::Mcp);
         rec.mcp_tool = Some("gmail_search".to_string());
-        rec.via_daemon = true;
         rec.error = Some("boom timeout".to_string());
         rec.command = vec!["gmail".to_string(), "read".to_string()];
         let raw = serde_json::to_string(&rec).unwrap().to_ascii_lowercase();
@@ -1221,8 +1217,6 @@ mod tests {
             ("invocation_id:inv-9", true),
             ("tool:gmail_search", true),
             ("mcp_tool:other", false),
-            ("via_daemon:true", true),
-            ("via_daemon:false", false),
             ("error:timeout", true),
             ("err:absent", false),
             ("error:", true),
@@ -1372,9 +1366,9 @@ mod tests {
 
         for (source, q, want) in [
             (Source::Cli, "source:cli", true),
-            (Source::Daemon, "source:daemon", true),
+            (Source::Unknown, "source:daemon", false),
             (Source::Unknown, "source:unknown", true),
-            (Source::Daemon, "source:cli", false),
+            (Source::Mcp, "source:cli", false),
         ] {
             let rec = LogRecord {
                 source: Some(source),
@@ -1524,9 +1518,27 @@ mod tests {
             assert!(is_builtin_field(name), "{name} is listed but not handled");
             assert!(is_builtin_field(&name.to_ascii_uppercase()), "{name}");
         }
+        assert!(!is_builtin_field("via_daemon"));
         assert!(!is_builtin_field("file_id"));
         assert!(!is_builtin_field("servce"));
         assert!(!is_builtin_field("12"));
+    }
+
+    #[test]
+    fn legacy_daemon_query_uses_context_fallback_and_warns() {
+        let raw = r#"{"kind":"http","source":"daemon","via_daemon":true,
+            "daemon_session_id":"legacy-session"}"#;
+        let mut rec: LogRecord = serde_json::from_str(raw).unwrap();
+        assert!(parse_query("source:unknown").unwrap().eval(&rec, raw));
+        let filter = filter_for(None, &["via_daemon:true"]).unwrap();
+        assert!(!filter.matches(&rec, raw));
+        let warnings = filter.unknown_field_warnings(false);
+        assert_eq!(warnings.len(), 1, "{warnings:?}");
+        assert!(warnings[0].contains("`via_daemon`"));
+        rec.context
+            .insert("via_daemon".to_string(), "true".to_string());
+        assert!(filter.matches(&rec, raw));
+        assert!(filter.unknown_field_warnings(false).is_empty());
     }
 
     #[test]

@@ -21,8 +21,7 @@
 //! - **Forward compatible.** A single [`LogRecord`] is used for both writing
 //!   and reading: every field is `#[serde(default)]`, and every optional field
 //!   is `skip_serializing_if`, so a newer reader never chokes on an older line
-//!   and an older reader never chokes on a newer one — the same forward-rolling
-//!   contract the daemon wire types use.
+//!   and an older reader never chokes on a newer one.
 
 use std::collections::BTreeMap;
 use std::io::Write;
@@ -106,8 +105,6 @@ pub enum Source {
     Cli,
     /// An `gwi-mcp` tool call.
     Mcp,
-    /// Work performed inside the long-lived daemon process.
-    Daemon,
     /// A source written by a newer version that this reader does not know.
     #[serde(other)]
     Unknown,
@@ -163,7 +160,7 @@ pub struct LogRecord {
     /// Whitelisted, non-secret `GWI_*` env snapshot.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub env: BTreeMap<String, String>,
-    /// What drove the run (`cli`/`mcp`/`daemon`).
+    /// What drove the run (`cli`/`mcp`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source: Option<Source>,
     /// When `source = mcp`, the tool name that drove the run.
@@ -171,7 +168,7 @@ pub struct LogRecord {
     pub mcp_tool: Option<String>,
 
     // --- `kind: "http"` fields ---
-    /// Coarse service tag (`jira`/`confluence`/`datadog`/…) for fast filtering.
+    /// Coarse service tag (`gmail`/`drive`) for fast filtering.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub service: Option<String>,
     /// HTTP method.
@@ -186,12 +183,6 @@ pub struct LogRecord {
     /// Elapsed time of the request.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub elapsed_ms: Option<u64>,
-    /// True when the request ran inside the daemon (bridge/Snowflake pool).
-    #[serde(default, skip_serializing_if = "is_false")]
-    pub via_daemon: bool,
-    /// Which pooled daemon session served the request.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub daemon_session_id: Option<String>,
     /// Non-secret identity actually used (token id / OAuth principal) — never
     /// the secret itself.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -216,12 +207,6 @@ pub struct LogRecord {
     /// Top-level error chain (invocation) or per-request error (http).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
-}
-
-/// `skip_serializing_if` predicate for `bool` fields that default to `false`.
-#[allow(clippy::trivially_copy_pass_by_ref)] // serde requires `fn(&T) -> bool`
-fn is_false(b: &bool) -> bool {
-    !*b
 }
 
 impl LogRecord {
@@ -294,8 +279,8 @@ tokio::task_local! {
     pub static CTX: RequestLogContext;
 }
 
-/// Installs the process-global context. The first call wins (the CLI/daemon
-/// shell sets it once, very early); later calls are ignored.
+/// Installs the process-global context. The first call wins (the CLI
+/// sets it once, very early); later calls are ignored.
 pub fn set_global(ctx: RequestLogContext) {
     let _ = GLOBAL.set(ctx);
 }
@@ -310,24 +295,6 @@ pub fn current_context() -> RequestLogContext {
         return ctx.clone();
     }
     RequestLogContext::default()
-}
-
-/// Runs `fut` with the active context's `invocation_id` replaced by
-/// `origin_id`, preserving `source` and `mcp_tool`.
-///
-/// The daemon and the browser bridge scope this around a request they serve on
-/// behalf of a CLI/MCP client, so the HTTP records that request spawns
-/// correlate to the *originating* invocation rather than the server's own
-/// (#1198). `source` is deliberately preserved: a request served inside the
-/// daemon keeps `source = Daemon`, so `via_daemon` detection is unaffected while
-/// `invocation_id` now points at the caller's invocation record.
-pub async fn scope_origin_id<F, T>(origin_id: String, fut: F) -> T
-where
-    F: std::future::Future<Output = T>,
-{
-    let mut ctx = current_context();
-    ctx.invocation_id = origin_id;
-    CTX.scope(ctx, fut).await
 }
 
 /// Whether logging is disabled entirely (`GWI_LOG_DISABLE=1`).
@@ -1056,10 +1023,7 @@ fn rotation_config() -> Option<RotationConfig> {
 /// dropping any beyond `keep_files` (`keep_files == 0` simply discards the
 /// current file). Rotated files inherit the `0600` mode of their source.
 ///
-/// Only renames: a file keeps its `(device, inode)` as it moves up, which is how
-/// the github counters follow their position across a rotation
-/// (omni-dev's `rotated_files`). `pub(crate)` so their tests rotate with this function
-/// instead of a copy of it.
+/// Only renames: a file keeps its `(device, inode)` as it moves up.
 #[cfg(unix)]
 pub(crate) fn rotate(path: &Path, keep_files: u32) -> anyhow::Result<()> {
     if keep_files == 0 {
@@ -1860,10 +1824,6 @@ fn build_audit_record(outcome: AuditOutcome, ctx: RequestLogContext) -> LogRecor
 /// redacted centrally in [`record_http_with`], so callers may pass them freely.
 #[derive(Debug, Clone, Default)]
 pub struct HttpExtra {
-    /// True when served inside the daemon.
-    pub via_daemon: bool,
-    /// Pooled daemon session id that served the request.
-    pub daemon_session_id: Option<String>,
     /// Non-secret identity used (never the secret).
     pub auth_principal: Option<String>,
     /// Raw request headers (redacted + gated before writing).
@@ -1963,8 +1923,6 @@ pub fn record_http_with(
     rec.status_code = status;
     rec.elapsed_ms = Some(started.elapsed().as_millis() as u64);
     rec.error = error.map(str::to_string);
-    rec.via_daemon = extra.via_daemon;
-    rec.daemon_session_id = extra.daemon_session_id;
     rec.auth_principal = extra.auth_principal;
     rec.context = extra.context;
     if headers_enabled() {
@@ -1986,12 +1944,6 @@ const SENSITIVE_HEADERS: &[&str] = &[
     "set-cookie",
     "x-api-key",
     "api-key",
-    "dd-api-key",
-    "dd-application-key",
-    "x-datadog-api-key",
-    "x-datadog-application-key",
-    "x-omni-bridge",
-    "x-omni-bridge-target",
 ];
 
 /// Substrings that mark a header name as secret-bearing (compared lowercased),
@@ -2215,9 +2167,7 @@ fn redact_url(url: &str) -> String {
 
 /// A time-sortable id: 13-digit zero-padded epoch-millis, a dash, then 16 hex.
 ///
-/// Lexical order ≈ chronological order, which is all the reader needs. Mirrors
-/// the uuid-shaped minting in omni-dev's `snowflake::client` without adding a
-/// crate.
+/// Lexical order ≈ chronological order, which is all the reader needs.
 pub fn new_id() -> String {
     let millis = chrono::Utc::now().timestamp_millis().max(0);
     let suffix = rand::random::<u64>();
@@ -2313,6 +2263,20 @@ mod tests {
         let rec: LogRecord = serde_json::from_str(line).unwrap();
         assert_eq!(rec.kind, RecordKind::Http);
         assert_eq!(rec.method.as_deref(), Some("GET"));
+    }
+
+    #[test]
+    fn reader_ignores_legacy_daemon_fields() {
+        let line = r#"{"kind":"http","source":"daemon","method":"GET",
+            "via_daemon":true,"daemon_session_id":"legacy-session"}"#;
+        let rec: LogRecord = serde_json::from_str(line).unwrap();
+        assert_eq!(rec.kind, RecordKind::Http);
+        assert_eq!(rec.source, Some(Source::Unknown));
+        assert_eq!(rec.method.as_deref(), Some("GET"));
+        let written = serde_json::to_value(&rec).unwrap();
+        assert_eq!(written["source"], "unknown");
+        assert!(written.get("via_daemon").is_none());
+        assert!(written.get("daemon_session_id").is_none());
     }
 
     #[test]
@@ -3560,7 +3524,9 @@ mod tests {
             "X-Goog-Api-Key",
             "x-csrf-token",
             "X-Vendor-Token",
-            "X-Omni-Bridge",
+            "X-Vendor-Session",
+            "dd-api-key",
+            "x-datadog-application-key",
         ] {
             headers.insert(name.to_string(), "secret-value".to_string());
         }
@@ -3579,7 +3545,9 @@ mod tests {
         assert_eq!(out["X-Goog-Api-Key"], "REDACTED");
         assert_eq!(out["x-csrf-token"], "REDACTED");
         assert_eq!(out["X-Vendor-Token"], "REDACTED");
-        assert_eq!(out["X-Omni-Bridge"], "REDACTED");
+        assert_eq!(out["X-Vendor-Session"], "REDACTED");
+        assert_eq!(out["dd-api-key"], "REDACTED");
+        assert_eq!(out["x-datadog-application-key"], "REDACTED");
         assert_eq!(out["Content-Type"], "plain-value");
         assert_eq!(out["Accept"], "plain-value");
         assert_eq!(out["User-Agent"], "plain-value");
@@ -4206,29 +4174,5 @@ mod tests {
         );
         assert!(result.is_err(), "a failing rewrite surfaces as an error");
         let _ = std::fs::remove_dir(&tmp);
-    }
-
-    #[tokio::test]
-    async fn scope_origin_id_overwrites_id_but_preserves_source() {
-        // A daemon-side base context: source = Daemon (so `via_daemon` detection
-        // keeps working) with the daemon's own invocation id.
-        let base = RequestLogContext {
-            invocation_id: "daemon-1".to_string(),
-            source: Source::Daemon,
-            mcp_tool: None,
-        };
-        CTX.scope(base, async {
-            scope_origin_id("cli-42".to_string(), async {
-                let ctx = current_context();
-                // Correlation id now points at the originating CLI invocation…
-                assert_eq!(ctx.invocation_id, "cli-42");
-                // …while the source stays Daemon, so `via_daemon` is unaffected.
-                assert_eq!(ctx.source, Source::Daemon);
-            })
-            .await;
-            // The override is scoped: outside it, the base id is restored.
-            assert_eq!(current_context().invocation_id, "daemon-1");
-        })
-        .await;
     }
 }
