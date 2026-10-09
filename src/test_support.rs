@@ -499,3 +499,144 @@ mod settings_path_tests {
         assert!(settings_path().is_none());
     }
 }
+
+/// Textual enforcement for the environment keys shared by Gmail and Drive tests.
+/// Dynamic key expressions and indirect helper calls are outside this heuristic.
+#[cfg(test)]
+mod env_guard_tests {
+    use std::path::{Path, PathBuf};
+
+    fn rust_sources(dir: &Path, out: &mut Vec<PathBuf>) {
+        for entry in std::fs::read_dir(dir).unwrap() {
+            let path = entry.unwrap().path();
+            if path.is_dir() {
+                rust_sources(&path, out);
+            } else if path.extension().is_some_and(|e| e == "rs") {
+                out.push(path);
+            }
+        }
+    }
+
+    fn unguarded_mutations(path: &Path, text: &str) -> Vec<String> {
+        let mutation = regex::Regex::new(
+            r#"(?:set_var|remove_var)\s*\(\s*"?(?:[A-Za-z_][A-Za-z0-9_]*::)*(?:GMAIL_[A-Z_]+|DRIVE_[A-Z_]+|GWI_(?:PROFILE|GMAIL_ACCOUNT|DRIVE_ACCOUNT|DRIVE_LEASE_[A-Z_]+)|LEASE_[A-Z_]+_ENV|HOME|PROFILE_ENV_VAR|SHEETS_API_URL|DOCS_API_URL|SLIDES_API_URL)\b"#,
+        ).unwrap();
+        // Splitting on `fn ` is a heuristic: a nested function can hide a
+        // preceding guard, producing a loud failure rather than a missed race.
+        text.split("fn ")
+            .skip(1)
+            .filter_map(|body| {
+                let name = body.split(['(', '<']).next().unwrap_or_default().trim();
+                let guard_helper = matches!(
+                    path.to_str(),
+                    Some("gmail/test_support.rs" | "drive/test_support.rs")
+                ) && name == "clear_credentials"
+                    || path == Path::new("drive/test_support.rs")
+                        && name == "redirect_api_hosts_to_a_dead_port";
+                let profile_propagation = path == Path::new("cli.rs")
+                    && name == "propagate_profile_flag"
+                    && mutation.find_iter(body).all(|found| {
+                        found.as_str().ends_with("PROFILE_ENV_VAR")
+                            || found.as_str().ends_with("GWI_PROFILE")
+                    });
+                if mutation.is_match(body)
+                    && !body.contains("EnvGuard::take()")
+                    && !guard_helper
+                    && !profile_propagation
+                {
+                    Some(format!("{}: fn {name}", path.display()))
+                } else {
+                    None
+                }
+            })
+            .collect()
+    }
+
+    #[test]
+    fn every_gmail_and_drive_env_mutation_holds_the_env_guard() {
+        let src = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        let mut files = Vec::new();
+        rust_sources(&src, &mut files);
+        let mut offenders = Vec::new();
+        // This file contains source fixtures and the lock-holding chaos helper
+        // which mutates dynamic keys; neither is a domain test to scan.
+        for path in files
+            .into_iter()
+            .filter(|p| *p != src.join("test_support.rs"))
+        {
+            let text = std::fs::read_to_string(&path).unwrap();
+            offenders.extend(unguarded_mutations(path.strip_prefix(&src).unwrap(), &text));
+        }
+        assert!(
+            offenders.is_empty(),
+            "these functions mutate a shared env var without `EnvGuard::take()`:\n{}",
+            offenders.join("\n")
+        );
+    }
+
+    #[test]
+    fn the_scan_rejects_unguarded_mutations_and_accepts_guarded_ones() {
+        for key in [
+            "GMAIL_CLIENT_ID",
+            "GMAIL_CLIENT_SECRET_FILE",
+            "GMAIL_REFRESH_TOKEN_COMMAND",
+            "DRIVE_CLIENT_SECRET_FILE",
+            "GMAIL_ACCOUNT_ENV",
+            "DRIVE_ACCOUNT_ENV",
+            "SHEETS_API_URL",
+            "DOCS_API_URL",
+            "SLIDES_API_URL",
+            "PROFILE_ENV_VAR",
+            "crate::utils::settings::PROFILE_ENV_VAR",
+            "\"HOME\"",
+            "\"GWI_PROFILE\"",
+            "\"GWI_GMAIL_ACCOUNT\"",
+            "\"GWI_DRIVE_ACCOUNT\"",
+            "\"GMAIL_SCOPE\"",
+            "LEASE_EXPIRY_MINUTES_ENV",
+            "crate::drive::lease::settings::LEASE_BACKUP_DIR_ENV",
+            "\"GWI_DRIVE_LEASE_BIOMETRICS_ONLY\"",
+            "\"GWI_DRIVE_LEASE_ALLOW_HEADLESS\"",
+        ] {
+            for call in [
+                format!("std::env::set_var({key}, \"value\");"),
+                format!("std::env::remove_var({key});"),
+            ] {
+                let source = format!("fn example() {{ {call} }}");
+                assert_eq!(
+                    unguarded_mutations(Path::new("gmail/example.rs"), &source),
+                    ["gmail/example.rs: fn example"],
+                    "{call}"
+                );
+                let guarded = format!("fn example() {{ let _guard = EnvGuard::take(); {call} }}");
+                assert!(
+                    unguarded_mutations(Path::new("gmail/example.rs"), &guarded).is_empty(),
+                    "{call}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn exemptions_apply_only_to_the_named_helper_in_its_own_file() {
+        for (path, name, key) in [
+            ("cli.rs", "propagate_profile_flag", "PROFILE_ENV_VAR"),
+            ("gmail/test_support.rs", "clear_credentials", "\"HOME\""),
+            ("drive/test_support.rs", "clear_credentials", "\"HOME\""),
+            (
+                "drive/test_support.rs",
+                "redirect_api_hosts_to_a_dead_port",
+                "DRIVE_API_URL",
+            ),
+        ] {
+            let source = format!("fn {name}() {{ std::env::set_var({key}, \"value\"); }}");
+            assert!(unguarded_mutations(Path::new(path), &source).is_empty());
+            assert_eq!(unguarded_mutations(Path::new("other.rs"), &source).len(), 1);
+            let other_function = source.replace(name, "unguarded_test");
+            assert_eq!(
+                unguarded_mutations(Path::new(path), &other_function).len(),
+                1
+            );
+        }
+    }
+}
