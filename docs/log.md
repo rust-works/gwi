@@ -301,7 +301,8 @@ A missing log file is an empty log: exit 0 with no output. With `--follow`, the 
 waits for the file to appear and reads it from the beginning. Use `GWI_LOG_DISABLE=1` when
 checking this: otherwise the command can create the request log on exit (see above).
 A line that does not parse as a record (including a partly written trailing line) is skipped.
-Piping into something that closes early, such as `| head`, ends the scan cleanly when a write detects the closed pipe.
+Piping into something that closes early, such as `| head`, ends the scan cleanly when a
+write detects the closed pipe.
 
 On Unix, an idle `--follow` also checks for a closed output pipe every 250 ms and exits
 cleanly when the reader has gone. On Windows and other non-Unix platforms, closure is
@@ -335,7 +336,7 @@ field and alias list is:
 |---|---|---|
 | `kind`, `source`, `service`, `method` | — | Exact, case-insensitive. |
 | `status` | — | Kind-aware HTTP code or Drive-mutation status (below). |
-| `command` | `cmd` | Whole-segment path prefix, case-insensitive. |
+| `command` | `cmd` | Whole-segment path prefix, case-sensitive. |
 | `url` | — | Case-insensitive substring. |
 | `id` | — | Exact, case-sensitive match of either `id` or `invocation_id`. |
 | `invocation_id` | `inv` | Exact, case-sensitive match of `invocation_id` only. |
