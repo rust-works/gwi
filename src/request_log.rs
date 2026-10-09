@@ -370,7 +370,7 @@ pub(crate) fn gwi_state_subpath(component: &str) -> Option<PathBuf> {
 /// `state_dir` (falling back to `data_dir`) joined with `gwi/log.jsonl`.
 ///
 /// In a test build the fallback is a scratch file instead (see
-/// [`default_log_file_path`]).
+/// `default_log_file_path`).
 pub fn log_file_path() -> Option<PathBuf> {
     log_file_path_with(&SystemEnv)
 }
