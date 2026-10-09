@@ -278,3 +278,61 @@ fn follow_status_warning_waits_for_mutations_after_http_backlog() {
     );
     assert!(warning.contains("`blokced`"), "{warning}");
 }
+
+#[test]
+fn log_follow_batches_corrupt_appends_and_waits_for_partial_lines() {
+    let home = tempfile::tempdir().unwrap();
+    let path = home.path().join("log.jsonl");
+    let first = record("startup");
+    std::fs::write(&path, format!("{first}\n")).unwrap();
+    let mut follow = Follow::start(home.path());
+    follow.expect_line(&first);
+    let mut file = std::fs::OpenOptions::new()
+        .append(true)
+        .open(&path)
+        .unwrap();
+
+    // One write makes the burst available together for the next drain.
+    let marker = record("after-corruption");
+    file.write_all(format!("broken\ninvalid\n\n \t\n{marker}\n").as_bytes())
+        .unwrap();
+    follow.expect_line(&marker);
+    assert_eq!(
+        follow
+            .warnings
+            .recv_timeout(Duration::from_secs(20))
+            .unwrap(),
+        format!("warning: skipped 2 unparseable lines in {}", path.display())
+    );
+    assert_eq!(
+        follow.warnings.recv_timeout(Duration::from_secs(1)),
+        Err(RecvTimeoutError::Timeout)
+    );
+    follow.expect_quiet();
+
+    // A valid record completed later is emitted exactly once, with no warning.
+    let later = record("completed-later");
+    let split = later.len() / 2;
+    file.write_all(&later.as_bytes()[..split]).unwrap();
+    follow.expect_quiet();
+    assert_eq!(follow.warnings.try_recv(), Err(mpsc::TryRecvError::Empty));
+    file.write_all(format!("{}\n", &later[split..]).as_bytes())
+        .unwrap();
+    follow.expect_line(&later);
+    follow.expect_quiet();
+    assert_eq!(follow.warnings.try_recv(), Err(mpsc::TryRecvError::Empty));
+
+    file.write_all(b"unfinished").unwrap();
+    follow.expect_quiet();
+    assert_eq!(follow.warnings.try_recv(), Err(mpsc::TryRecvError::Empty));
+    file.write_all(b"\n").unwrap();
+    assert_eq!(
+        follow
+            .warnings
+            .recv_timeout(Duration::from_secs(20))
+            .unwrap(),
+        format!("warning: skipped 1 unparseable line in {}", path.display())
+    );
+    follow.expect_quiet();
+    assert_eq!(follow.warnings.try_recv(), Err(mpsc::TryRecvError::Empty));
+}

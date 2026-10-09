@@ -304,6 +304,12 @@ A line that does not parse as a record (including a partly written trailing line
 Piping into something that closes early, such as `| head`, ends the scan cleanly when a
 write detects the closed pipe.
 
+Unparseable records produce a best-effort stderr warning naming the count and log path;
+stdout and the exit behavior are unchanged. The backlog scan reports once per file.
+While following, newly appended corrupt complete lines are counted together and reported
+once per drain pass (the log is polled every 250 ms). Blank lines and incomplete trailing
+lines are excluded from follow warnings; a partial line is checked once its newline arrives.
+
 On Unix, an idle `--follow` also checks for a closed output pipe every 250 ms and exits
 cleanly when the reader has gone. On Windows and other non-Unix platforms, closure is
 noticed only on the next write of a matching record. If no new matching record arrives,

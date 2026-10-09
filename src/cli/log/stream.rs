@@ -306,8 +306,8 @@ fn skipped_warning(path: &Path, skipped: usize) -> Option<String> {
 /// Prints the skipped-lines warning to stderr, once the backlog has been scanned:
 /// a corrupt record is dropped from every search, so a short or empty result
 /// would otherwise read as "nothing happened". Stderr only, so stdout and the
-/// exit code are unchanged. The follow loop reports each newly consumed malformed
-/// line immediately using the same warning.
+/// exit code are unchanged. The follow loop reports the count of newly consumed malformed
+/// lines once per drain pass using the same warning.
 fn warn_skipped(path: &Path, skipped: usize) {
     if let Some(warning) = skipped_warning(path, skipped) {
         // Best effort: a closed stderr must not fail the search.
@@ -460,7 +460,8 @@ fn follow_loop<W: Write>(
         if reader_gone() {
             return Ok(());
         }
-        drain_appended(path, filter, format, &mut tail, out)?;
+        let skipped = drain_appended(path, filter, format, &mut tail, out)?;
+        warn_skipped(path, skipped);
         std::thread::sleep(FOLLOW_POLL);
     }
 }
@@ -469,6 +470,7 @@ fn follow_loop<W: Write>(
 /// tail. Skips to the observed end if the file was replaced (its identity changed)
 /// or shrank (truncation); a no-op if the file is absent or has not grown.
 /// This also applies to replacement during the initial backlog scan.
+/// Returns the number of unparseable complete lines consumed in this pass.
 /// A trailing partial line (no newline yet) is left for the next call.
 fn drain_appended<W: Write>(
     path: &Path,
@@ -476,9 +478,9 @@ fn drain_appended<W: Write>(
     format: Format,
     tail: &mut Tail,
     out: &mut W,
-) -> Result<()> {
+) -> Result<usize> {
     let Ok(file) = File::open(path) else {
-        return Ok(());
+        return Ok(0);
     };
     // Identity and length come from the handle that is read, not from the path.
     let len = file.metadata().map_or(tail.pos, |m| m.len());
@@ -493,6 +495,7 @@ fn drain_appended<W: Write>(
         tail.pos = len;
     }
     tail.id = id.or(tail.id);
+    let mut skipped = 0;
     if len > tail.pos {
         let mut reader = BufReader::new(&file);
         reader.seek(SeekFrom::Start(tail.pos))?;
@@ -509,7 +512,7 @@ fn drain_appended<W: Write>(
                 warn_unmatched_terms(filter, true);
             }
             match parsed {
-                Line::Malformed => warn_skipped(path, 1),
+                Line::Malformed => skipped += 1,
                 Line::Match(rendered) => {
                     writeln!(out, "{rendered}")?;
                     out.flush()?;
@@ -524,7 +527,7 @@ fn drain_appended<W: Write>(
     {
         tail.file = Some(file);
     }
-    Ok(())
+    Ok(skipped)
 }
 
 /// What one raw log line turned out to be.
@@ -1272,14 +1275,55 @@ mod tests {
     }
 
     #[test]
-    fn drain_appended_ignores_corrupt_lines() {
+    fn drain_appended_counts_corrupt_lines_once() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("log.jsonl");
-        std::fs::write(&path, format!("junk\n{GOOD}\n")).unwrap();
+        std::fs::write(&path, format!("junk\n\n \t\r\n{GOOD}\n\x00\n")).unwrap();
         let mut tail = tail_at_start();
         let mut out = Vec::new();
-        drain_appended(&path, &empty_filter(), Format::Json, &mut tail, &mut out).unwrap();
+        assert_eq!(
+            drain_appended(&path, &empty_filter(), Format::Json, &mut tail, &mut out).unwrap(),
+            2
+        );
+        assert_eq!(String::from_utf8(out.clone()).unwrap(), format!("{GOOD}\n"));
+        assert_eq!(
+            drain_appended(&path, &empty_filter(), Format::Json, &mut tail, &mut out).unwrap(),
+            0
+        );
         assert_eq!(String::from_utf8(out).unwrap(), format!("{GOOD}\n"));
+    }
+
+    #[test]
+    fn drain_appended_counts_only_complete_corruption_even_with_a_filter() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("log.jsonl");
+        std::fs::write(&path, format!("{GOOD}\npartial")).unwrap();
+        let filter = Filter::build(FilterInput {
+            service: Some("drive"),
+            ..filter_input()
+        })
+        .unwrap();
+        let mut tail = tail_at_start();
+        let mut out = Vec::new();
+        assert_eq!(
+            drain_appended(&path, &filter, Format::Json, &mut tail, &mut out).unwrap(),
+            0
+        );
+        assert_eq!(tail.pos, (GOOD.len() + 1) as u64);
+        let mut file = std::fs::OpenOptions::new()
+            .append(true)
+            .open(&path)
+            .unwrap();
+        file.write_all(b"\n\xff\n").unwrap();
+        assert_eq!(
+            drain_appended(&path, &filter, Format::Json, &mut tail, &mut out).unwrap(),
+            2
+        );
+        assert_eq!(
+            drain_appended(&path, &filter, Format::Json, &mut tail, &mut out).unwrap(),
+            0
+        );
+        assert!(out.is_empty());
     }
 
     /// A `drivemutation` line from `log.jsonl`.
