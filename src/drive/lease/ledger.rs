@@ -159,8 +159,10 @@ pub(crate) struct LeaseRecord {
     /// omni-dev — or by a later gwi, read by an older one after a downgrade —
     /// would be silently dropped the next time the row was saved. Only
     /// top-level row fields are kept: a field inside `backup` is still
-    /// dropped. Keys come back sorted, not in their original order, and a
-    /// number outside the `i64`/`u64` range comes back as an `f64`.
+    /// dropped. serde_json's `preserve_order` and `arbitrary_precision`
+    /// features retain the relative order of unknown keys (including nested
+    /// objects) and number precision. Known fields are written in declaration
+    /// order before unknown fields; whitespace is not preserved.
     #[serde(flatten)]
     pub(crate) extra: serde_json::Map<String, serde_json::Value>,
 }
@@ -1123,6 +1125,56 @@ mod tests {
         let saved: serde_json::Value =
             serde_json::from_str(std::fs::read_to_string(&path).unwrap().trim()).unwrap();
         assert_eq!(saved, row);
+    }
+
+    #[test]
+    fn unknown_field_order_and_number_precision_survive_rewrites() {
+        // Literal JSON prevents the fixture itself from rounding numbers or
+        // sorting keys before it ever reaches the ledger's flattened map.
+        let extra = r#""z_future":184467440737095516161234567890,"a_future":{"z":-92233720368547758091234567890,"a":[0.12345678901234567890123456789,null,false]}"#;
+        for backup in [
+            LeaseBackup::Bytes {
+                path: PathBuf::from("backup.bin"),
+                sha256: "abc".into(),
+                size: u64::MAX,
+            },
+            LeaseBackup::DriveCopy {
+                file_id: "backup-copy".into(),
+            },
+        ] {
+            let dir = tempfile::tempdir().unwrap();
+            let path = dir.path().join("lease-ledger.jsonl");
+            let mut record = sample_record("t1");
+            record.backup = backup;
+            record.restored_sheet_id = Some(i64::MAX);
+            let known = serde_json::to_string(&record).unwrap();
+            let row = format!("{},{extra}}}\n", known.strip_suffix('}').unwrap());
+            std::fs::write(&path, row).unwrap();
+
+            let ledger = LeaseLedger::load(&path).unwrap();
+            // Known fields must still parse with arbitrary precision enabled.
+            let loaded = ledger.get("t1").unwrap();
+            assert_eq!(loaded.backup, record.backup);
+            assert_eq!(loaded.restored_sheet_id, Some(i64::MAX));
+            ledger.save(&path).unwrap();
+            let saved = std::fs::read_to_string(&path).unwrap();
+            assert!(saved.contains(extra), "{saved}");
+
+            let lock = LedgerLock::acquire(&path).unwrap();
+            LeaseLedger::mutate(&lock, &path, |ledger| {
+                ledger.record_write("t1", "9".into(), None);
+                ledger.mark_restored("t1", Utc::now(), Some(7));
+                ledger.release("t1", Utc::now(), Some("t2"));
+            })
+            .unwrap();
+            let saved = std::fs::read_to_string(&path).unwrap();
+            assert!(saved.contains(extra), "{saved}");
+            let reloaded = LeaseLedger::load(&path).unwrap();
+            let loaded = reloaded.get("t1").unwrap();
+            assert_eq!(loaded.version, "9");
+            assert_eq!(loaded.restored_sheet_id, Some(7));
+            assert!(loaded.released_at.is_some());
+        }
     }
 
     #[test]
