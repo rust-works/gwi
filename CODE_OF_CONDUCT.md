@@ -148,7 +148,9 @@ Community leaders will follow these Community Impact Guidelines in determining t
 
 ### Learning Resources
 * [Contributing Guidelines](CONTRIBUTING.md)
-* [Nushell Community](https://nushell.sh/community/)
+* [Project Overview](README.md)
+* [Drive Guide](docs/drive.md)
+* [Gmail Guide](docs/gmail.md)
 
 ### Mental Health and Well-being
 We recognize that contributing to open source can be stressful. If you're experiencing difficulties:
@@ -170,8 +172,8 @@ For answers to common questions about this code of conduct, see the FAQ at [http
 For questions about this Code of Conduct or to report violations:
 
 * **Primary Contact**: Project Maintainers
-* **Repository**: [https://github.com/nushell-works/nu_plugin_nw_ulid](https://github.com/nushell-works/nu_plugin_nw_ulid)
-* **Community Discussions**: [https://github.com/nushell-works/nu_plugin_nw_ulid/discussions](https://github.com/nushell-works/nu_plugin_nw_ulid/discussions)
+* **Repository**: [https://github.com/rust-works/gwi](https://github.com/rust-works/gwi)
+* **Community Issues**: [https://github.com/rust-works/gwi/issues](https://github.com/rust-works/gwi/issues)
 
 ---
 
