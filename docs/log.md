@@ -304,7 +304,9 @@ backlog output, not the lifetime of `--follow`.
 
 `--follow` keeps working across a `gwi log prune` or a rotation: it notices the log being
 replaced by its device and inode on Unix or its volume serial number and file index on
-Windows. On replacement or detected truncation, it resumes at the observed end,
+Windows. On Unix it holds the previous file open between polls, preventing its inode
+from being reused even if the log is replaced multiple times before the next poll.
+On replacement or detected truncation, it resumes at the observed end,
 without printing any contents already present. This prevents `prune` from replaying
 retained records. The same rule applies to rotation and replacement during the initial
 backlog scan: even entirely new records already in the replacement at the next poll
