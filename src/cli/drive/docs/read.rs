@@ -22,6 +22,7 @@ use crate::drive::files_api::FilesApi;
 #[derive(Parser)]
 pub struct ReadCommand {
     /// Document id (the `/d/<ID>/` segment of a Docs URL).
+    #[arg(help = "Document id (the /d/<ID>/ segment of a Docs URL).")]
     pub document_id: String,
 
     /// Restrict output to one tab id (see `drive docs info`).

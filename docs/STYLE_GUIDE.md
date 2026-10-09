@@ -450,6 +450,14 @@ pub struct DriveFile {
 }
 ```
 
+**Generated user text** — clap and schemars also use doc comments for argument help
+and schema descriptions. When a field's rustdoc needs Markdown that should not appear
+literally in that text (for example, the URL hint `/d/<ID>/`), keep the formatted doc
+comment and supply plain text with `#[arg(help = "...")]` or
+`#[schemars(description = "...")]`. Keep the two versions synchronized, including
+examples and defaults. Check both short and long CLI help, the help snapshot, and the
+advertised MCP schema descriptions when changing them.
+
 **Summary line style** — write in **third-person singular present indicative** per
 [RFC 505](https://rust-lang.github.io/rfcs/0505-api-comment-conventions.html). Use full
 sentences ending with a period:

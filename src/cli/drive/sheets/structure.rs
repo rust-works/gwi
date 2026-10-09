@@ -40,6 +40,7 @@ use crate::drive::sheets::structure::{
 #[derive(Parser)]
 pub struct SpreadsheetIdArg {
     /// Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL).
+    #[arg(help = "Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).")]
     pub spreadsheet_id: String,
 }
 

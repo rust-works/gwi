@@ -123,6 +123,41 @@ async fn list_tools_advertises_exactly_the_gmail_and_drive_tools() -> Result<()>
     Ok(())
 }
 
+/// Rustdoc code delimiters must not leak into URL identifier schema hints.
+#[tokio::test]
+async fn identifier_schema_hints_have_no_markdown() -> Result<()> {
+    let (client, server_handle) = spawn_server().await;
+    let tools = client.list_tools(Option::default()).await?;
+    let mut hints = 0;
+    for tool in &tools.tools {
+        let Some(properties) = tool
+            .input_schema
+            .get("properties")
+            .and_then(|v| v.as_object())
+        else {
+            continue;
+        };
+        for (field, schema) in properties {
+            let description = schema["description"].as_str().unwrap();
+            if description.contains("/d/<ID>/") {
+                assert!(
+                    !description.contains('`'),
+                    "markdown in {} parameter {field}: {description}",
+                    tool.name
+                );
+                hints += 1;
+            }
+        }
+    }
+    assert_eq!(
+        hints, 9,
+        "Docs/Sheets read and write identifier descriptions"
+    );
+    client.cancel().await?;
+    let _ = server_handle.await;
+    Ok(())
+}
+
 #[tokio::test]
 async fn every_tool_takes_an_optional_account() -> Result<()> {
     let (client, server_handle) = spawn_server().await;

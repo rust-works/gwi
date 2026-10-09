@@ -27,6 +27,7 @@ use crate::drive::sheets::delete_duplicates::{
 #[derive(Parser)]
 pub struct DeleteDuplicatesCommand {
     /// Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL).
+    #[arg(help = "Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).")]
     pub spreadsheet_id: String,
 
     /// Sheet (tab) title. Supplies the prefix for a bare `--range`.

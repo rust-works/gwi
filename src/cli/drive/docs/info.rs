@@ -19,6 +19,7 @@ use crate::drive::files_api::FilesApi;
 #[derive(Parser)]
 pub struct InfoCommand {
     /// Document id (the `/d/<ID>/` segment of a Docs URL).
+    #[arg(help = "Document id (the /d/<ID>/ segment of a Docs URL).")]
     pub document_id: String,
 
     /// Output format.

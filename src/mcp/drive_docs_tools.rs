@@ -47,6 +47,9 @@ use super::truncate::build_truncated_result;
 pub struct DriveDocsInfoParams {
     /// Document id (the `/d/<ID>/` segment of a Docs URL, e.g.
     /// `1a2B3c4D5e6F7g8H9iJ0kLmNoPqRsTuVwXyZ`). Required.
+    #[schemars(
+        description = "Document id (the /d/<ID>/ segment of a Docs URL, e.g. 1a2B3c4D5e6F7g8H9iJ0kLmNoPqRsTuVwXyZ). Required."
+    )]
     pub document_id: String,
     #[doc = account_param_doc!()]
     #[serde(default)]
@@ -58,6 +61,9 @@ pub struct DriveDocsInfoParams {
 pub struct DriveDocsReadParams {
     /// Document id (the `/d/<ID>/` segment of a Docs URL, e.g.
     /// `1a2B3c4D5e6F7g8H9iJ0kLmNoPqRsTuVwXyZ`). Required.
+    #[schemars(
+        description = "Document id (the /d/<ID>/ segment of a Docs URL, e.g. 1a2B3c4D5e6F7g8H9iJ0kLmNoPqRsTuVwXyZ). Required."
+    )]
     pub document_id: String,
     /// Restrict output to one tab id (see `drive_docs_info`'s `tabs[].tab_id`).
     /// Omit to read every tab.

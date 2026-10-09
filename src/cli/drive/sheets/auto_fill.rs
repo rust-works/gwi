@@ -37,6 +37,7 @@ use crate::drive::sheets::client::SheetsClient;
     .required(true)))]
 pub struct AutoFillCommand {
     /// Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL).
+    #[arg(help = "Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).")]
     pub spreadsheet_id: String,
 
     /// Sheet (tab) title. Supplies the prefix for a bare

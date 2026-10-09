@@ -15,6 +15,7 @@ use clap::Parser;
 #[derive(Parser)]
 pub struct ReadCommand {
     /// Presentation id (the `/d/<ID>/` segment of a Slides URL).
+    #[arg(help = "Presentation id (the /d/<ID>/ segment of a Slides URL).")]
     pub presentation_id: String,
     /// Restrict to an ordinary slide object ID. Repeat for multiple slides.
     #[arg(long = "slide", value_name = "OBJECT_ID")]

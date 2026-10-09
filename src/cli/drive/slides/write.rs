@@ -16,6 +16,7 @@ use clap::Parser;
 #[derive(Parser)]
 pub struct ReplaceCommand {
     /// Presentation id (the `/d/<ID>/` segment of a Slides URL).
+    #[arg(help = "Presentation id (the /d/<ID>/ segment of a Slides URL).")]
     pub presentation_id: String,
     /// Literal text to find (not a regex).
     #[arg(long)]

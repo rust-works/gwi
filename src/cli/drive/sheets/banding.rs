@@ -51,6 +51,7 @@ impl From<BandingAxisArg> for BandingAxis {
 #[derive(Parser)]
 pub struct AddBandingCommand {
     /// Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL).
+    #[arg(help = "Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).")]
     pub spreadsheet_id: String,
 
     /// Sheet (tab) title. Supplies the prefix for a bare `--range`.
@@ -119,6 +120,7 @@ impl AddBandingCommand {
     .required(true)))]
 pub struct UpdateBandingCommand {
     /// Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL).
+    #[arg(help = "Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).")]
     pub spreadsheet_id: String,
 
     /// Which banded range to change.
@@ -188,6 +190,7 @@ impl UpdateBandingCommand {
 #[derive(Parser)]
 pub struct DeleteBandingCommand {
     /// Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL).
+    #[arg(help = "Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).")]
     pub spreadsheet_id: String,
 
     /// Which banded range to remove.
@@ -222,6 +225,7 @@ impl DeleteBandingCommand {
 #[derive(Parser)]
 pub struct ListBandingsCommand {
     /// Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL).
+    #[arg(help = "Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).")]
     pub spreadsheet_id: String,
 
     /// Output format.

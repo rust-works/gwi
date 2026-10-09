@@ -23,6 +23,7 @@ use crate::drive::sheets::filter::{describe_lines, filter, FilterOptions, Filter
 #[derive(Parser)]
 pub struct SetBasicFilterCommand {
     /// Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL).
+    #[arg(help = "Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).")]
     pub spreadsheet_id: String,
 
     /// Sheet (tab) title. Supplies the prefix for a bare `--range`.
@@ -71,6 +72,7 @@ impl SetBasicFilterCommand {
 #[derive(Parser)]
 pub struct ClearBasicFilterCommand {
     /// Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL).
+    #[arg(help = "Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).")]
     pub spreadsheet_id: String,
 
     /// Sheet (tab) title.
@@ -99,6 +101,7 @@ impl ClearBasicFilterCommand {
 #[derive(Parser)]
 pub struct AddFilterViewCommand {
     /// Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL).
+    #[arg(help = "Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).")]
     pub spreadsheet_id: String,
 
     /// Sheet (tab) title. Supplies the prefix for a bare `--range`.
@@ -156,6 +159,7 @@ impl AddFilterViewCommand {
     .required(true)))]
 pub struct UpdateFilterViewCommand {
     /// Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL).
+    #[arg(help = "Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).")]
     pub spreadsheet_id: String,
 
     /// Which filter view to change.
@@ -226,6 +230,7 @@ impl UpdateFilterViewCommand {
 #[derive(Parser)]
 pub struct DeleteFilterViewCommand {
     /// Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL).
+    #[arg(help = "Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).")]
     pub spreadsheet_id: String,
 
     /// Which filter view to remove.
@@ -260,6 +265,7 @@ impl DeleteFilterViewCommand {
 #[derive(Parser)]
 pub struct ListFilterViewsCommand {
     /// Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL).
+    #[arg(help = "Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).")]
     pub spreadsheet_id: String,
 
     /// Output format.

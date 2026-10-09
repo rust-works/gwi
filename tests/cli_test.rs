@@ -56,6 +56,40 @@ fn help_has_no_markdown_links() {
     assert!(links.is_empty(), "markdown links in help: {links:#?}");
 }
 
+/// URL identifier hints are plain text in both terminal help formats.
+#[test]
+fn identifier_hints_have_no_markdown() {
+    fn check(cmd: &mut clap::Command) -> usize {
+        let mut hints = 0;
+        for help in [cmd.render_help(), cmd.render_long_help()] {
+            for line in help
+                .to_string()
+                .lines()
+                .filter(|line| line.contains("/d/<ID>/"))
+            {
+                assert!(
+                    !line.contains('`'),
+                    "markdown in {} help: {line}",
+                    cmd.get_name()
+                );
+                hints += 1;
+            }
+        }
+        for sub in cmd.get_subcommands_mut() {
+            hints += check(sub);
+        }
+        hints
+    }
+
+    let mut root = Cli::command();
+    root.build();
+    assert_eq!(
+        check(&mut root),
+        182,
+        "91 identifier hints in both help formats"
+    );
+}
+
 /// Imported issue references must name their repository in terminal help.
 #[test]
 fn help_has_no_bare_four_digit_issue_references() {

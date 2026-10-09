@@ -45,6 +45,7 @@ impl From<RenderArg> for ValueRenderOption {
 #[derive(Parser)]
 pub struct ReadCommand {
     /// Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL).
+    #[arg(help = "Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).")]
     pub spreadsheet_id: String,
 
     /// A1 range to read, optionally carrying its own `Sheet!` prefix (e.g.

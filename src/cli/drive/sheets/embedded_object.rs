@@ -37,6 +37,7 @@ use crate::drive::sheets::embedded_object::{
 #[derive(Parser)]
 pub struct AddChartCommand {
     /// Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL).
+    #[arg(help = "Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).")]
     pub spreadsheet_id: String,
 
     /// `column`, `bar`, `line`, `area`, `scatter`, or `pie`.
@@ -168,6 +169,7 @@ impl AddChartCommand {
 #[derive(Parser)]
 pub struct UpdateChartCommand {
     /// Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL).
+    #[arg(help = "Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).")]
     pub spreadsheet_id: String,
 
     /// Which chart to update, discovered via `list-charts`.
@@ -261,6 +263,7 @@ impl UpdateChartCommand {
 #[derive(Parser)]
 pub struct DeleteChartCommand {
     /// Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL).
+    #[arg(help = "Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).")]
     pub spreadsheet_id: String,
 
     /// Which chart to remove, discovered via `list-charts`.
@@ -304,6 +307,7 @@ impl DeleteChartCommand {
 #[derive(Parser)]
 pub struct ListChartsCommand {
     /// Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL).
+    #[arg(help = "Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).")]
     pub spreadsheet_id: String,
 
     /// Output format.
@@ -335,6 +339,7 @@ impl ListChartsCommand {
 #[derive(Parser)]
 pub struct AddSlicerCommand {
     /// Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL).
+    #[arg(help = "Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).")]
     pub spreadsheet_id: String,
 
     /// Sheet title, supplying the prefix for `--range`/`--anchor` when they
@@ -421,6 +426,7 @@ impl AddSlicerCommand {
 #[derive(Parser)]
 pub struct UpdateSlicerCommand {
     /// Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL).
+    #[arg(help = "Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).")]
     pub spreadsheet_id: String,
 
     /// Which slicer to change, discovered via `list-slicers`.
@@ -496,6 +502,7 @@ impl UpdateSlicerCommand {
 #[derive(Parser)]
 pub struct DeleteSlicerCommand {
     /// Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL).
+    #[arg(help = "Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).")]
     pub spreadsheet_id: String,
 
     /// Which slicer to remove, discovered via `list-slicers`.
@@ -536,6 +543,7 @@ impl DeleteSlicerCommand {
 #[derive(Parser)]
 pub struct ListSlicersCommand {
     /// Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL).
+    #[arg(help = "Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).")]
     pub spreadsheet_id: String,
 
     /// Output format.
@@ -570,6 +578,7 @@ impl ListSlicersCommand {
 #[derive(Parser)]
 pub struct MoveChartCommand {
     /// Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL).
+    #[arg(help = "Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).")]
     pub spreadsheet_id: String,
 
     /// Which chart to move, discovered via `list-charts`.
@@ -641,6 +650,7 @@ impl MoveChartCommand {
 #[derive(Parser)]
 pub struct MoveSlicerCommand {
     /// Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL).
+    #[arg(help = "Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).")]
     pub spreadsheet_id: String,
 
     /// Which slicer to move, discovered via `list-slicers`.
@@ -704,6 +714,7 @@ impl MoveSlicerCommand {
 #[derive(Parser)]
 pub struct UpdateChartBorderCommand {
     /// Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL).
+    #[arg(help = "Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).")]
     pub spreadsheet_id: String,
 
     /// Which chart to update, discovered via `list-charts`.

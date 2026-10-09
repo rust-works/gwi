@@ -212,6 +212,7 @@ impl DimensionArg {
 #[derive(Parser)]
 pub struct FormatCellsCommand {
     /// Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL).
+    #[arg(help = "Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).")]
     pub spreadsheet_id: String,
 
     /// A1 range to format, optionally carrying its own `Sheet!` prefix.
@@ -361,6 +362,7 @@ impl FormatCellsCommand {
 #[derive(Parser)]
 pub struct UpdateBordersCommand {
     /// Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL).
+    #[arg(help = "Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).")]
     pub spreadsheet_id: String,
 
     /// A1 range to border, optionally carrying its own `Sheet!` prefix.
@@ -447,6 +449,7 @@ impl UpdateBordersCommand {
 #[derive(Parser)]
 pub struct MergeCellsCommand {
     /// Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL).
+    #[arg(help = "Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).")]
     pub spreadsheet_id: String,
 
     /// A1 range to merge, optionally carrying its own `Sheet!` prefix. Must
@@ -499,6 +502,7 @@ impl MergeCellsCommand {
 #[derive(Parser)]
 pub struct UnmergeCellsCommand {
     /// Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL).
+    #[arg(help = "Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).")]
     pub spreadsheet_id: String,
 
     /// A1 range to unmerge, optionally carrying its own `Sheet!` prefix.
@@ -534,6 +538,7 @@ impl UnmergeCellsCommand {
 #[derive(Parser)]
 pub struct AutoResizeDimensionCommand {
     /// Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL).
+    #[arg(help = "Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).")]
     pub spreadsheet_id: String,
 
     /// Title of the sheet to modify.
@@ -579,6 +584,7 @@ impl AutoResizeDimensionCommand {
 #[derive(Parser)]
 pub struct UpdateDimensionPropertiesCommand {
     /// Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL).
+    #[arg(help = "Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).")]
     pub spreadsheet_id: String,
 
     /// Title of the sheet to modify.

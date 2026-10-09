@@ -23,6 +23,7 @@ use crate::drive::sheets::render_grid_range;
 #[derive(Parser)]
 pub struct ProtectRangeCommand {
     /// Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL).
+    #[arg(help = "Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).")]
     pub spreadsheet_id: String,
 
     /// A1 range to protect, optionally carrying its own `Sheet!` prefix.
@@ -83,6 +84,7 @@ impl ProtectRangeCommand {
 #[derive(Parser)]
 pub struct UpdateProtectionCommand {
     /// Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL).
+    #[arg(help = "Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).")]
     pub spreadsheet_id: String,
 
     /// A1 range identifying the existing protection, optionally carrying
@@ -151,6 +153,7 @@ impl UpdateProtectionCommand {
 #[derive(Parser)]
 pub struct UnprotectRangeCommand {
     /// Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL).
+    #[arg(help = "Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).")]
     pub spreadsheet_id: String,
 
     /// A1 range identifying the protection to remove, optionally carrying
@@ -201,6 +204,7 @@ impl UnprotectRangeCommand {
 #[derive(Parser)]
 pub struct ListProtectionsCommand {
     /// Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL).
+    #[arg(help = "Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).")]
     pub spreadsheet_id: String,
 
     /// Output format.

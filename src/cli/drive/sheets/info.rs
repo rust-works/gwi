@@ -13,6 +13,7 @@ use crate::drive::sheets::types::Spreadsheet;
 #[derive(Parser)]
 pub struct InfoCommand {
     /// Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL).
+    #[arg(help = "Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).")]
     pub spreadsheet_id: String,
 
     /// Output format.
