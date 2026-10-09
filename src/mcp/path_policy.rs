@@ -6,7 +6,7 @@
 //! prompt-injected, so left unchecked they are a read-a-file-and-upload channel
 //! (`text_path: "~/.ssh/id_rsa"`) and an arbitrary-file write.
 //!
-//! [`PathPolicy`] closes both. A path is resolved first (symlinks followed, `..`
+//! `PathPolicy` closes both. A path is resolved first (symlinks followed, `..`
 //! collapsed) and the *resolved* path is tested, so a link or a traversal cannot leave
 //! the allowed set. The test is component-wise [`Path::starts_with`], never a string
 //! prefix. Two lists are consulted, in this order:
