@@ -1,0 +1,16 @@
+[
+  {
+    "kind": "bytes",
+    "path": "/backups/file.bin",
+    "sha256": "abc123",
+    "size": 42,
+    "compression": "gzip",
+    "metadata": {"levels": [184467440737095516161234567890, 0.12345678901234567890123456789, null], "enabled": false}
+  },
+  {
+    "kind": "drive_copy",
+    "file_id": "backup-copy",
+    "future_format": 2,
+    "metadata": {"labels": ["archive", -92233720368547758091234567890, null], "enabled": true}
+  }
+]

@@ -137,7 +137,7 @@ pub(super) async fn clear_backup(files_api: &FilesApi<'_>, backup: &LeaseBackup)
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
             Err(e) => Err(e.into()),
         },
-        LeaseBackup::DriveCopy { file_id } => match files_api.trash(file_id).await {
+        LeaseBackup::DriveCopy { file_id, .. } => match files_api.trash(file_id).await {
             Ok(_) => Ok(()),
             Err(e) if is_drive_not_found(&e) => Ok(()),
             Err(e) => Err(e),
@@ -496,6 +496,7 @@ mod tests {
                 path,
                 sha256: "deadbeef".to_string(),
                 size,
+                extra: serde_json::Map::new(),
             },
             acquired_at: expires_at - ChronoDuration::minutes(30),
             expires_at,
@@ -515,6 +516,7 @@ mod tests {
             modified_time: None,
             backup: LeaseBackup::DriveCopy {
                 file_id: file_id.to_string(),
+                extra: serde_json::Map::new(),
             },
             acquired_at: expires_at - ChronoDuration::minutes(30),
             expires_at,
@@ -536,6 +538,7 @@ mod tests {
         assert_eq!(
             backup_size(&LeaseBackup::DriveCopy {
                 file_id: "drive-copy-1".to_string(),
+                extra: serde_json::Map::new(),
             }),
             0
         );

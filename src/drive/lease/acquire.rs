@@ -998,6 +998,7 @@ async fn byte_backup(
         path,
         sha256,
         size: bytes.len() as u64,
+        extra: serde_json::Map::new(),
     })
 }
 
@@ -1014,7 +1015,10 @@ async fn native_backup(
     let copy = files_api
         .copy(file_id, backup_folder_id, &copy_name)
         .await?;
-    Ok(LeaseBackup::DriveCopy { file_id: copy.id })
+    Ok(LeaseBackup::DriveCopy {
+        file_id: copy.id,
+        extra: serde_json::Map::new(),
+    })
 }
 
 /// `<dir>` joined with [`backup_name`]'s result.
@@ -1754,6 +1758,7 @@ mod tests {
                 path: PathBuf::from("/tmp/backup"),
                 sha256: "deadbeef".to_string(),
                 size: 0,
+                extra: serde_json::Map::new(),
             },
             headless_waiver: false,
             superseded_lease_id: None,
@@ -2482,6 +2487,7 @@ mod tests {
             path: PathBuf::from("/x"),
             sha256: HELLO_SHA256.to_string(),
             size: 5,
+            extra: serde_json::Map::new(),
         };
         let err = backup_is_pinned(&backup, None, "7", None).unwrap_err();
         assert!(matches!(err, PinFailure::NoProof { .. }), "{err:?}");
@@ -2543,6 +2549,7 @@ mod tests {
             path: PathBuf::from("/x"),
             sha256: HELLO_SHA256.to_string(),
             size: 5,
+            extra: serde_json::Map::new(),
         };
         let upper = HELLO_SHA256.to_ascii_uppercase();
         assert!(backup_is_pinned(&backup, Some(&upper), "1", None).is_ok());
@@ -2581,7 +2588,8 @@ mod tests {
         assert_eq!(
             backup,
             LeaseBackup::DriveCopy {
-                file_id: "copy-1".to_string()
+                file_id: "copy-1".to_string(),
+                extra: serde_json::Map::new(),
             }
         );
     }
@@ -2997,6 +3005,7 @@ mod tests {
                     modified_time: None,
                     backup: LeaseBackup::DriveCopy {
                         file_id: "racer-backup".to_string(),
+                        extra: serde_json::Map::new(),
                     },
                     acquired_at: Utc::now(),
                     expires_at: Utc::now() + ChronoDuration::minutes(30),
@@ -3277,6 +3286,7 @@ mod tests {
             modified_time: None,
             backup: LeaseBackup::DriveCopy {
                 file_id: format!("{token}-backup"),
+                extra: serde_json::Map::new(),
             },
             acquired_at: Utc::now(),
             expires_at: Utc::now() + ChronoDuration::minutes(30),
@@ -3442,6 +3452,7 @@ mod tests {
                 expires_at: Utc::now(),
                 backup: LeaseBackup::DriveCopy {
                     file_id: "new-backup".to_string(),
+                    extra: serde_json::Map::new(),
                 },
                 headless_waiver: false,
                 superseded_lease_id: superseded.map(str::to_string),
@@ -3486,6 +3497,7 @@ mod tests {
                         path: PathBuf::from("/tmp/backup"),
                         sha256: "deadbeef".to_string(),
                         size: 0,
+                        extra: serde_json::Map::new(),
                     },
                     headless_waiver: false,
                     superseded_lease_id: None,

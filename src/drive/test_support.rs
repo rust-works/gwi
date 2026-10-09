@@ -144,6 +144,7 @@ fn dummy_lease_backup() -> LeaseBackup {
         path: std::path::PathBuf::from("/tmp/test-backup"),
         sha256: "deadbeef".to_string(),
         size: 0,
+        extra: serde_json::Map::new(),
     }
 }
 

@@ -6755,6 +6755,7 @@ mod tests {
             "1",
             LeaseBackup::DriveCopy {
                 file_id: "backup-copy-1".to_string(),
+                extra: serde_json::Map::new(),
             },
         );
         let mut o = opts(delete_sheet(), false);
@@ -6767,7 +6768,7 @@ mod tests {
             StructureResult::Changed {
                 backup: Some(backup),
                 ..
-            } if **backup == LeaseBackup::DriveCopy { file_id: "backup-copy-1".to_string() }
+            } if **backup == LeaseBackup::DriveCopy { file_id: "backup-copy-1".to_string(), extra: serde_json::Map::new(), }
         ));
         let text = describe(&outcome);
         assert!(text.contains("Deleted sheet 'Q2'"), "{text}");
@@ -6824,6 +6825,7 @@ mod tests {
             "1",
             LeaseBackup::DriveCopy {
                 file_id: "backup-copy-1".to_string(),
+                extra: serde_json::Map::new(),
             },
         );
         let mut o = opts(delete_sheet(), false);
@@ -6840,7 +6842,7 @@ mod tests {
             StructureResult::Changed {
                 backup: Some(backup),
                 ..
-            } if **backup == LeaseBackup::DriveCopy { file_id: "backup-copy-1".to_string() }
+            } if **backup == LeaseBackup::DriveCopy { file_id: "backup-copy-1".to_string(), extra: serde_json::Map::new(), }
         ));
         let text = describe(&outcome);
         assert!(
@@ -6993,6 +6995,7 @@ mod tests {
             "1",
             LeaseBackup::DriveCopy {
                 file_id: "backup-copy-1".to_string(),
+                extra: serde_json::Map::new(),
             },
         );
         let mut o = opts(delete_sheet(), false);
@@ -7006,7 +7009,7 @@ mod tests {
                 StructureResult::AppliedReplyUnreadable {
                     backup: Some(backup),
                     ..
-                } if **backup == LeaseBackup::DriveCopy { file_id: "backup-copy-1".to_string() }
+                } if **backup == LeaseBackup::DriveCopy { file_id: "backup-copy-1".to_string(), extra: serde_json::Map::new(), }
             ),
             "{:?}",
             outcome.result
@@ -7022,6 +7025,7 @@ mod tests {
                 recovery_note(
                     Some(&LeaseBackup::DriveCopy {
                         file_id: "backup-copy-1".to_string(),
+                        extra: serde_json::Map::new(),
                     }),
                     true,
                 )
@@ -8378,6 +8382,7 @@ mod tests {
                 sheet_id: Some(7),
                 backup: Some(Box::new(LeaseBackup::DriveCopy {
                     file_id: "backup-copy-1".to_string(),
+                    extra: serde_json::Map::new(),
                 })),
             },
             StructureResult::AppliedReplyUnreadable {
@@ -8393,6 +8398,7 @@ mod tests {
                 sheet_id: Some(7),
                 backup: Some(Box::new(LeaseBackup::DriveCopy {
                     file_id: "backup-copy-1".to_string(),
+                    extra: serde_json::Map::new(),
                 })),
             },
             StructureResult::Failed {
