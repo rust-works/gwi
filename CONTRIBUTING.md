@@ -64,6 +64,21 @@ external connect is refused and loopback works.
 CI runs the same script in the `Sandboxed Test` job. A test that cannot run under the
 sandbox must be fixed, or gated with a comment saying why.
 
+## Permission-denial tests
+
+Put `skip_as_root!()` first in any test that relies on file-permission denial, with a
+comment explaining the failure path root would bypass. The required `Doc links` CI job
+runs `python3 scripts/check_permission_tests.py`: it scans Rust files under `src/` and
+`tests/` for literal three-digit octal `from_mode` calls without owner write permission
+(owner digit 0, 1, 4 or 5), and requires the macro in the same function. Whitespace and
+digit separators are supported; comments and strings do not count as guards. Construct
+restrictive permissions in the guarded test and pass them into helpers instead of
+creating restrictive modes inside helpers.
+
+This is a textual check for rustfmt-shaped functions, not a Rust parser. Computed modes
+and whether the guard executes before the permission change still need review. Run
+`python3 scripts/test_check_permission_tests.py -v` to verify the scanner itself.
+
 ## Tests on Windows
 
 The `Windows Build` job builds the release binary and compiles the lib, bin and integration

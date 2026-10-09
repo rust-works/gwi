@@ -117,6 +117,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v7
+    # Keep the root-skip guard in this required context (#113).
+    - run: python3 scripts/test_check_permission_tests.py -v
+    - run: python3 scripts/check_permission_tests.py
     - run: python3 scripts/test_check_doc_links.py -v
     - run: python3 scripts/check_doc_links.py
 
