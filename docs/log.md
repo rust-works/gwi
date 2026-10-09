@@ -334,6 +334,10 @@ polls cannot be detected by size alone.
   the nearest status it has seen (`blokced` → `blocked`). A valid status that happens to be
   absent draws the warning without a suggestion, and a log with no `drivemutation` record
   draws none. The exit code and stdout are unchanged.
+  With `--follow`, field and status warnings are each emitted once, after the backlog
+  if there is relevant evidence, or when the first relevant record is appended. A missing
+  or empty log stays quiet until then; status warnings wait for a `drivemutation` record.
+  Warnings say “so far” and are not revised when a field or status appears later.
 - **Numeric fields** (`exit_code`, `duration_ms`, `elapsed_ms` and `status`) take a leading
   comparator: `>`, `>=`, `<`, `<=`, or a bare `=` or number for equality. A record without
   the field never matches.

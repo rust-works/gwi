@@ -123,6 +123,25 @@ impl Filter {
         self.status_watch.borrow().warnings(following)
     }
 
+    /// Takes each watch's follow warnings once it has relevant evidence. An
+    /// empty backlog leaves delivery pending; later appends can supply evidence.
+    pub fn pending_follow_warnings(&self) -> Vec<String> {
+        let mut fields = self.watch.borrow_mut();
+        let mut statuses = self.status_watch.borrow_mut();
+        let mut warnings = Vec::new();
+        if !fields.follow_warned {
+            let pending = fields.warnings(true);
+            fields.follow_warned = !pending.is_empty();
+            warnings.extend(pending);
+        }
+        if !statuses.follow_warned {
+            let pending = statuses.warnings(true);
+            statuses.follow_warned = !pending.is_empty();
+            warnings.extend(pending);
+        }
+        warnings
+    }
+
     /// Whether `rec` (whose verbatim JSON line is `raw`) passes every clause.
     pub fn matches(&self, rec: &LogRecord, raw: &str) -> bool {
         self.watch.borrow_mut().observe(rec);
@@ -582,6 +601,8 @@ struct FieldWatch {
     keys: BTreeSet<String>,
     /// Records scanned (parsed lines presented to the filter).
     scanned: u64,
+    /// Whether this watch has already delivered its follow warnings.
+    follow_warned: bool,
 }
 
 impl FieldWatch {
@@ -600,6 +621,7 @@ impl FieldWatch {
             unseen,
             keys: BTreeSet::new(),
             scanned: 0,
+            follow_warned: false,
         }
     }
 
@@ -655,6 +677,8 @@ struct StatusWatch {
     seen: BTreeSet<String>,
     /// `drivemutation` records scanned.
     mutations: u64,
+    /// Whether this watch has already delivered its follow warnings.
+    follow_warned: bool,
 }
 
 impl StatusWatch {
@@ -677,6 +701,7 @@ impl StatusWatch {
             unseen,
             seen: BTreeSet::new(),
             mutations: 0,
+            follow_warned: false,
         }
     }
 
@@ -1548,6 +1573,28 @@ mod tests {
         assert_eq!(edit_distance("sevrice", "service"), 2);
         assert_eq!(edit_distance("", "abc"), 3);
         assert_eq!(edit_distance("abc", ""), 3);
+    }
+
+    #[test]
+    fn follow_warnings_wait_for_each_watch_and_are_delivered_once() {
+        let f = filter_for(Some("blokced"), &["servce:drive"]).unwrap();
+        assert!(f.pending_follow_warnings().is_empty());
+        let mut rec = drive_rec("blocked");
+        rec.kind = RecordKind::Http;
+        f.matches(&rec, "{}");
+        let warnings = f.pending_follow_warnings();
+        assert_eq!(warnings.len(), 1);
+        assert!(warnings[0].contains("`servce`"));
+        assert!(warnings[0].contains("so far"));
+        assert!(f.pending_follow_warnings().is_empty());
+        rec.kind = RecordKind::DriveMutation;
+        f.matches(&rec, "{}");
+        let warnings = f.pending_follow_warnings();
+        assert_eq!(warnings.len(), 1);
+        assert!(warnings[0].contains("`blokced`"));
+        assert!(warnings[0].contains("so far"));
+        f.matches(&rec, "{}");
+        assert!(f.pending_follow_warnings().is_empty());
     }
 
     #[test]

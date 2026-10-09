@@ -320,13 +320,18 @@ fn warn_skipped(path: &Path, skipped: usize) {
 /// record's `context`, or a status word that no `drivemutation` record has,
 /// would otherwise just match nothing. Stderr only, so the output stays
 /// machine-readable and the exit code is unchanged. While following, a warning
-/// is not revised if the field or status turns up later, so it says "so far".
+/// waits for relevant evidence, then is delivered once and says "so far".
 fn warn_unmatched_terms(filter: &Filter, following: bool) {
     let mut err = io::stderr().lock();
-    let warnings = filter
-        .unknown_field_warnings(following)
-        .into_iter()
-        .chain(filter.unseen_status_warnings(following));
+    let warnings = if following {
+        filter.pending_follow_warnings()
+    } else {
+        filter
+            .unknown_field_warnings(false)
+            .into_iter()
+            .chain(filter.unseen_status_warnings(false))
+            .collect()
+    };
     for warning in warnings {
         // Best effort: a closed stderr must not fail the search.
         let _ = writeln!(err, "{warning}");
@@ -499,7 +504,11 @@ fn drain_appended<W: Write>(
                 break; // EOF or partial trailing line — wait for more
             }
             tail.pos += n as u64;
-            match parse_line(&line, filter, format) {
+            let parsed = parse_line(&line, filter, format);
+            if matches!(parsed, Line::Match(_) | Line::Filtered) {
+                warn_unmatched_terms(filter, true);
+            }
+            match parsed {
                 Line::Malformed => warn_skipped(path, 1),
                 Line::Match(rendered) => {
                     writeln!(out, "{rendered}")?;
@@ -615,6 +624,37 @@ mod tests {
             s.push('\n');
         }
         s
+    }
+
+    #[test]
+    fn follow_truncation_does_not_reobserve_retained_records() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("log.jsonl");
+        let raw = r#"{"id":"one","kind":"drivemutation","timestamp":"2020-01-01T00:00:00Z","context":{"status":"blocked"}}"#;
+        let f = Filter::build(FilterInput {
+            status: Some("blokced"),
+            query: &["servce:drive".to_string()],
+            ..filter_input()
+        })
+        .unwrap();
+        std::fs::write(&path, format!("{raw}\n{raw}\n")).unwrap();
+        let mut tail = Tail::default();
+        let mut out = Vec::new();
+        drain_appended(&path, &f, Format::Json, &mut tail, &mut out).unwrap();
+        std::fs::write(&path, format!("{raw}\n")).unwrap();
+        drain_appended(&path, &f, Format::Json, &mut tail, &mut out).unwrap();
+        assert!(f.unknown_field_warnings(true)[0].contains("2 records scanned"));
+        assert!(f.unseen_status_warnings(true)[0].contains("2 drivemutation records scanned"));
+        let mut file = std::fs::OpenOptions::new()
+            .append(true)
+            .open(&path)
+            .unwrap();
+        writeln!(file, "{raw}").unwrap();
+        drain_appended(&path, &f, Format::Json, &mut tail, &mut out).unwrap();
+        assert!(f.unknown_field_warnings(true)[0].contains("3 records scanned"));
+        assert!(f.unseen_status_warnings(true)[0].contains("3 drivemutation records scanned"));
+        assert!(f.pending_follow_warnings().is_empty());
+        assert!(out.is_empty());
     }
 
     #[test]

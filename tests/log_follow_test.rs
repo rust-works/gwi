@@ -39,13 +39,21 @@ struct Follow {
     child: Child,
     lines: Receiver<String>,
     reader: Option<JoinHandle<()>>,
+    warnings: Receiver<String>,
+    error_reader: Option<JoinHandle<()>>,
 }
 
 impl Follow {
     fn start(home: &Path) -> Self {
+        Self::start_with_args(home, &[])
+    }
+
+    fn start_with_args(home: &Path, args: &[&str]) -> Self {
         let mut child = command(home)
             .args(["log", "--follow", "-o", "json"])
+            .args(args)
             .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
             .spawn()
             .unwrap();
         let stdout = child.stdout.take().unwrap();
@@ -57,10 +65,21 @@ impl Follow {
                 }
             }
         });
+        let stderr = child.stderr.take().unwrap();
+        let (sender, warnings) = mpsc::channel();
+        let error_reader = thread::spawn(move || {
+            for line in BufReader::new(stderr).lines() {
+                if sender.send(line.unwrap()).is_err() {
+                    break;
+                }
+            }
+        });
         Self {
             child,
             lines,
             reader: Some(reader),
+            warnings,
+            error_reader: Some(error_reader),
         }
     }
 
@@ -89,6 +108,9 @@ impl Drop for Follow {
         let _ = self.child.kill();
         let _ = self.child.wait();
         if let Some(reader) = self.reader.take() {
+            let _ = reader.join();
+        }
+        if let Some(reader) = self.error_reader.take() {
             let _ = reader.join();
         }
     }
@@ -164,4 +186,98 @@ fn log_prune_under_live_follow_with_a_larger_replacement() {
 #[test]
 fn log_prune_under_live_follow_with_a_smaller_replacement() {
     prune_under_follow(false);
+}
+
+fn append(path: &Path, raw: &str) {
+    let mut file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+        .unwrap();
+    writeln!(file, "{raw}").unwrap();
+}
+
+#[test]
+fn follow_warns_once_after_missing_or_empty_backlog() {
+    for missing in [true, false] {
+        for args in [
+            vec!["--query", "servce:drive"],
+            vec!["--status", "blokced"],
+            vec!["--query", "status:blokced"],
+        ] {
+            let home = tempfile::tempdir().unwrap();
+            let path = home.path().join("log.jsonl");
+            if !missing {
+                std::fs::write(&path, "").unwrap();
+            }
+            let mut follow = Follow::start_with_args(home.path(), &args);
+            assert_eq!(
+                follow.warnings.recv_timeout(Duration::from_secs(1)),
+                Err(RecvTimeoutError::Timeout)
+            );
+            let mutation = serde_json::json!({
+                "id": "first", "kind": "drivemutation",
+                "timestamp": "2020-01-01T00:00:00Z",
+                "context": {"status": "blocked"}
+            })
+            .to_string();
+            append(&path, &mutation);
+            let warning = follow
+                .warnings
+                .recv_timeout(Duration::from_secs(20))
+                .unwrap();
+            assert!(
+                warning.contains(if args[1] == "servce:drive" {
+                    "`servce`"
+                } else {
+                    "`blokced`"
+                }),
+                "{warning}"
+            );
+            assert!(warning.contains("so far"), "{warning}");
+            assert!(warning.contains("Did you mean"), "{warning}");
+            append(&path, &mutation);
+            assert_eq!(
+                follow.warnings.recv_timeout(Duration::from_secs(1)),
+                Err(RecvTimeoutError::Timeout)
+            );
+            assert!(follow.child.try_wait().unwrap().is_none());
+            assert_eq!(follow.lines.try_recv(), Err(mpsc::TryRecvError::Empty));
+        }
+    }
+}
+
+#[test]
+fn follow_status_warning_waits_for_mutations_after_http_backlog() {
+    let home = tempfile::tempdir().unwrap();
+    let path = home.path().join("log.jsonl");
+    append(&path, &record("http-backlog"));
+    let follow = Follow::start_with_args(home.path(), &["--status", "blokced"]);
+    assert_eq!(
+        follow.warnings.recv_timeout(Duration::from_secs(1)),
+        Err(RecvTimeoutError::Timeout)
+    );
+    append(&path, &record("http-appended"));
+    assert_eq!(
+        follow.warnings.recv_timeout(Duration::from_secs(1)),
+        Err(RecvTimeoutError::Timeout)
+    );
+    append(
+        &path,
+        &serde_json::json!({
+            "id": "mutation", "kind": "drivemutation",
+            "timestamp": "2020-01-01T00:00:00Z",
+            "context": {"status": "blocked"}
+        })
+        .to_string(),
+    );
+    let warning = follow
+        .warnings
+        .recv_timeout(Duration::from_secs(20))
+        .unwrap();
+    assert!(
+        warning.contains("the 1 drivemutation record scanned"),
+        "{warning}"
+    );
+    assert!(warning.contains("`blokced`"), "{warning}");
 }
