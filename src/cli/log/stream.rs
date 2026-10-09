@@ -118,7 +118,7 @@ struct Tail {
 #[derive(Debug, PartialEq, Eq)]
 enum Backlog {
     /// Every line was read: the offset is just past the last newline-terminated
-    /// one, and `skipped` counts the newline-terminated lines that did not parse.
+    /// one, and `skipped` counts all scanned lines that could not be recovered.
     Complete { pos: u64, skipped: usize },
     /// The output pipe closed (e.g. `| head -1`), so the scan stopped early.
     ReaderGone,
@@ -297,7 +297,8 @@ fn skipped_warning(path: &Path, skipped: usize) -> Option<String> {
 /// Prints the skipped-lines warning to stderr, once the backlog has been scanned:
 /// a corrupt record is dropped from every search, so a short or empty result
 /// would otherwise read as "nothing happened". Stderr only, so stdout and the
-/// exit code are unchanged. Under `--follow` only the backlog is counted.
+/// exit code are unchanged. The follow loop reports each newly consumed malformed
+/// line immediately using the same warning.
 fn warn_skipped(path: &Path, skipped: usize) {
     if let Some(warning) = skipped_warning(path, skipped) {
         // Best effort: a closed stderr must not fail the search.
@@ -342,11 +343,10 @@ fn read_line_lossy<R: BufRead>(
 /// Reads every existing line, passing matches to the shared sink. With a limit,
 /// the sink retains only the most recent N matches across scans; without it,
 /// matches stream out as they are read. Returns the byte offset just past the last
-/// newline-terminated line, and how many of those lines did not parse. A trailing
-/// partial line (a writer mid-append) is neither counted as read nor as malformed,
-/// so when `follow` is set it is also not printed: `--follow` reads it from that
-/// offset and prints it once, when it is complete. A one-shot scan has nothing to
-/// complete it, so it still prints the line if it parses.
+/// newline-terminated line, and how many scanned lines could not be recovered.
+/// With `follow`, a trailing partial line is left pending without a warning:
+/// `--follow` reads it from that offset once it is complete. A one-shot scan has
+/// nothing to complete it, so it renders or counts that line immediately.
 /// Stops at the first write to a closed pipe or when `reader_gone` reports hangup,
 /// checked before reading and every [`BACKLOG_PROBE_LINES`] lines thereafter.
 /// The cadence counts every line, regardless of parsing or filtering.
@@ -382,7 +382,7 @@ fn scan_backlog<R: BufRead, W: Write>(
         }
         match parse_line(&line, filter, sink.format) {
             Line::Blank | Line::Filtered => {}
-            Line::Malformed => skipped += usize::from(complete),
+            Line::Malformed => skipped += 1,
             Line::Match(rendered) => {
                 if !sink.emit(rendered)? {
                     return Ok(Backlog::ReaderGone);
@@ -490,11 +490,13 @@ fn drain_appended<W: Write>(
                 break; // EOF or partial trailing line — wait for more
             }
             tail.pos += n as u64;
-            // A corrupt line appended while following is not reported: only the
-            // backlog is counted.
-            if let Line::Match(rendered) = parse_line(&line, filter, format) {
-                writeln!(out, "{rendered}")?;
-                out.flush()?;
+            match parse_line(&line, filter, format) {
+                Line::Malformed => warn_skipped(path, 1),
+                Line::Match(rendered) => {
+                    writeln!(out, "{rendered}")?;
+                    out.flush()?;
+                }
+                Line::Blank | Line::Filtered => {}
             }
         }
     }
@@ -514,13 +516,15 @@ enum Line {
     Match(String),
 }
 
-/// Parses one raw line and renders it when it matches the filter.
+/// Parses one raw line and renders it when it matches the filter. If a dead
+/// writer left a partial prefix, recover the last complete log-record suffix.
+/// Filters and JSON output see only that suffix, never the damaged prefix.
 fn parse_line(line: &str, filter: &Filter, format: Format) -> Line {
     let raw = line.trim_end_matches(['\n', '\r']);
     if raw.trim().is_empty() {
         return Line::Blank;
     }
-    let Ok(rec) = serde_json::from_str::<LogRecord>(raw) else {
+    let Some((rec, raw)) = parse_record(raw) else {
         return Line::Malformed;
     };
     if filter.matches(&rec, raw) {
@@ -528,6 +532,26 @@ fn parse_line(line: &str, filter: &Filter, format: Format) -> Line {
     } else {
         Line::Filtered
     }
+}
+
+/// Tries the intact line first, then object-start suffixes from right to left.
+/// Full deserialization avoids mistaking nested objects or string braces for a
+/// record boundary: a candidate must contain one complete log record and no
+/// trailing JSON. Return the original suffix so JSON output preserves its bytes.
+fn parse_record(raw: &str) -> Option<(LogRecord, &str)> {
+    if let Ok(rec) = serde_json::from_str(raw) {
+        return Some((rec, raw));
+    }
+    for (start, _) in raw.rmatch_indices('{') {
+        if start == 0 {
+            continue; // already tried the whole line
+        }
+        let suffix = &raw[start..];
+        if let Ok(rec) = serde_json::from_str(suffix) {
+            return Some((rec, suffix));
+        }
+    }
+    None
 }
 
 /// Maps a broken-pipe error (downcast from `anyhow`) to a clean exit.
@@ -1028,7 +1052,7 @@ mod tests {
     }
 
     #[test]
-    fn backlog_does_not_count_clean_blank_or_partial_lines() {
+    fn backlog_counts_only_unrecoverable_lines_including_an_unterminated_tail() {
         let clean = format!("{GOOD}\n{GOOD}\n");
         let (_, result) = scan(clean.as_bytes(), &empty_filter(), None);
         assert_eq!(
@@ -1049,7 +1073,7 @@ mod tests {
             }
         );
 
-        // A writer mid-append: neither read nor malformed yet.
+        // One-shot scans report an incomplete final record too.
         let partial = format!("{GOOD}\n{{\"id\":\"2\",\"ki");
         let (text, result) = scan(partial.as_bytes(), &empty_filter(), None);
         assert_eq!(text, format!("{GOOD}\n"));
@@ -1057,7 +1081,7 @@ mod tests {
             result,
             Backlog::Complete {
                 pos: GOOD.len() as u64 + 1,
-                skipped: 0
+                skipped: 1
             }
         );
     }
@@ -1081,6 +1105,96 @@ mod tests {
         let (text, result) = scan(input.as_bytes(), &filter, None);
         assert!(text.is_empty());
         assert_eq!(skipped(result), 3);
+    }
+
+    #[test]
+    fn recovery_preserves_nested_records_and_filters_only_the_suffix() {
+        let good = r#"{ "id":"résumé", "kind":"http", "context":{"note":"literal { brace"} }"#;
+        let fused = format!("{{partial{good}\r\n");
+        assert_eq!(
+            parse_line(&fused, &empty_filter(), Format::Json),
+            Line::Match(good.to_string())
+        );
+        let filter = Filter::build(FilterInput {
+            grep: Some("partial"),
+            ..filter_input()
+        })
+        .unwrap();
+        assert_eq!(parse_line(&fused, &filter, Format::Json), Line::Filtered);
+        let filter = Filter::build(FilterInput {
+            id: Some("résumé"),
+            ..filter_input()
+        })
+        .unwrap();
+        assert_eq!(
+            parse_line(&fused, &filter, Format::Json),
+            Line::Match(good.to_string())
+        );
+        for raw in [
+            "{partial",
+            "{partial{\"kind\":3}",
+            "{partial{\"id\":\"x\"} trailing",
+        ] {
+            assert_eq!(
+                parse_line(raw, &empty_filter(), Format::Json),
+                Line::Malformed
+            );
+        }
+    }
+
+    #[test]
+    fn backlog_recovers_fused_records_with_and_without_a_limit() {
+        let input = format!("{{partial{GOOD}\n{{broken{UNTERMINATED}\n");
+        for (limit, expected) in [
+            (None, format!("{GOOD}\n{UNTERMINATED}\n")),
+            (Some(1), format!("{UNTERMINATED}\n")),
+        ] {
+            let (text, result) = scan(input.as_bytes(), &empty_filter(), limit);
+            assert_eq!(text, expected);
+            assert_eq!(
+                result,
+                Backlog::Complete {
+                    pos: input.len() as u64,
+                    skipped: 0
+                }
+            );
+        }
+        let (text, result) = scan(format!("{{partial{GOOD}").as_bytes(), &empty_filter(), None);
+        assert_eq!(text, format!("{GOOD}\n"));
+        assert_eq!(result, Backlog::Complete { pos: 0, skipped: 0 });
+    }
+
+    #[test]
+    fn follow_recovers_after_a_partial_append_and_emits_once() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("log.jsonl");
+        std::fs::write(&path, "{partial").unwrap();
+        let mut reader = BufReader::new(File::open(&path).unwrap());
+        let mut out = Vec::new();
+        let result = emit_backlog(
+            &mut reader,
+            &empty_filter(),
+            Format::Json,
+            None,
+            true,
+            &mut out,
+            || false,
+        )
+        .unwrap();
+        assert_eq!(result, Backlog::Complete { pos: 0, skipped: 0 });
+        let mut tail = tail_at_start();
+        drain_appended(&path, &empty_filter(), Format::Json, &mut tail, &mut out).unwrap();
+        assert!(out.is_empty());
+        assert_eq!(tail.pos, 0);
+        let mut file = std::fs::OpenOptions::new()
+            .append(true)
+            .open(&path)
+            .unwrap();
+        writeln!(file, "{GOOD}").unwrap();
+        drain_appended(&path, &empty_filter(), Format::Json, &mut tail, &mut out).unwrap();
+        drain_appended(&path, &empty_filter(), Format::Json, &mut tail, &mut out).unwrap();
+        assert_eq!(String::from_utf8(out).unwrap(), format!("{GOOD}\n"));
+        assert_eq!(tail.pos, file.metadata().unwrap().len());
     }
 
     #[test]

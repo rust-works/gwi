@@ -716,6 +716,82 @@ fn log_query_warns_on_a_field_no_record_has_but_still_exits_zero() {
 }
 
 #[test]
+fn log_recovers_a_record_after_a_partial_prefix() {
+    let home = tempfile::tempdir().unwrap();
+    std::fs::write(
+        home.path().join("log.jsonl"),
+        format!("{{partial{DRIVE_MUTATION_LINE}\n"),
+    )
+    .unwrap();
+    let output = gwi(home.path(), &["log", "-o", "json"]);
+    assert!(output.status.success());
+    assert_eq!(output.stdout, format!("{DRIVE_MUTATION_LINE}\n").as_bytes());
+    assert!(output.stderr.is_empty());
+}
+
+#[test]
+fn log_follow_recovers_appended_records_and_warns_on_stderr() {
+    use std::io::{BufRead, BufReader, Write};
+    use std::process::Stdio;
+    use std::sync::mpsc;
+    use std::time::Duration;
+
+    let home = tempfile::tempdir().unwrap();
+    let path = home.path().join("log.jsonl");
+    std::fs::write(&path, format!("{HTTP_LINE}\n{{partial")).unwrap();
+    let mut command = Command::new(env!("CARGO_BIN_EXE_gwi"));
+    let mut child = common::scrub_ambient_env(&mut command)
+        .args(["log", "--follow", "-o", "json"])
+        .env("HOME", home.path())
+        .env("GWI_LOG_FILE", &path)
+        .env("GWI_LOG_DISABLE", "1")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let stdout = child.stdout.take().unwrap();
+    let stderr = child.stderr.take().unwrap();
+    let (out_tx, out_rx) = mpsc::channel();
+    let out_reader = std::thread::spawn(move || {
+        for line in BufReader::new(stdout).lines() {
+            if out_tx.send(line.unwrap()).is_err() {
+                break;
+            }
+        }
+    });
+    let (err_tx, err_rx) = mpsc::channel();
+    let err_reader = std::thread::spawn(move || {
+        for line in BufReader::new(stderr).lines() {
+            if err_tx.send(line.unwrap()).is_err() {
+                break;
+            }
+        }
+    });
+    let timeout = Duration::from_secs(10);
+    let initial = out_rx.recv_timeout(timeout);
+    let mut file = std::fs::OpenOptions::new()
+        .append(true)
+        .open(&path)
+        .unwrap();
+    writeln!(file, "{DRIVE_MUTATION_LINE}\njunk").unwrap();
+    let recovered = out_rx.recv_timeout(timeout);
+    let warning = err_rx.recv_timeout(timeout);
+    // Reap before assertions so even a failed timeout cannot leave a follower running.
+    child.kill().unwrap();
+    child.wait().unwrap();
+    out_reader.join().unwrap();
+    err_reader.join().unwrap();
+    assert_eq!(initial.unwrap(), HTTP_LINE);
+    assert_eq!(recovered.unwrap(), DRIVE_MUTATION_LINE);
+    assert_eq!(
+        warning.unwrap(),
+        format!("warning: skipped 1 unparseable line in {}", path.display())
+    );
+    assert!(out_rx.try_recv().is_err());
+    assert!(err_rx.try_recv().is_err());
+}
+
+#[test]
 fn log_warns_about_unparseable_lines_but_leaves_stdout_and_exit_code_alone() {
     let home = tempfile::tempdir().unwrap();
     let path = home.path().join("log.jsonl");
@@ -736,13 +812,13 @@ fn log_warns_about_unparseable_lines_but_leaves_stdout_and_exit_code_alone() {
     assert_eq!(
         String::from_utf8_lossy(&output.stderr),
         format!(
-            "warning: skipped 2 unparseable lines in {}\n",
+            "warning: skipped 3 unparseable lines in {}\n",
             path.display()
         )
     );
 
-    // A clean log, blank lines and a trailing partial line stay quiet.
-    std::fs::write(&path, format!("{HTTP_LINE}\n\n{{\"id\":\"3\",\"ki")).unwrap();
+    // A clean log, blank lines and a complete unterminated record stay quiet.
+    std::fs::write(&path, format!("{HTTP_LINE}\n\n{DRIVE_MUTATION_LINE}")).unwrap();
     let output = gwi(home.path(), &["log", "-o", "json"]);
     assert!(output.status.success());
     assert_eq!(output.stderr, b"");
