@@ -1082,6 +1082,7 @@ mod tests {
     const COMMAND_VAR: &str = "GMAIL_REFRESH_TOKEN_COMMAND";
 
     /// Zero disables the cache, so a test never sees another's result.
+    #[cfg(unix)]
     fn command_env(command: &str) -> MapEnv {
         MapEnv::new()
             .with(COMMAND_VAR, command)

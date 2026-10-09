@@ -265,6 +265,12 @@ pub fn try_lock_file_exclusive(path: &Path) -> std::result::Result<FileLock, Fil
     )))
 }
 
+/// Acquires an advisory exclusive lock by atomically creating a marker at `path`.
+///
+/// Returns [`FileLockError::Busy`] if the marker already exists. The marker is
+/// removed on drop; a crashed process can leave a stale marker behind.
+/// Does not create `path`'s parent directory — callers can use
+/// [`ensure_parent_dir_0700`] first.
 #[cfg(not(unix))]
 pub fn try_lock_file_exclusive(path: &Path) -> std::result::Result<FileLock, FileLockError> {
     match create_new_file_0600(path) {
