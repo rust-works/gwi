@@ -58,367 +58,360 @@ pub enum SheetsSubcommands {
     Info(info::InfoCommand),
     /// Reads cell values from one range, or from every sheet.
     Read(read::ReadCommand),
-    /// Reads a range's cell-level formatting back — background, text
-    /// format, number format, horizontal alignment, notes and data
-    /// validation. Read-only and ungated, like `sheets read` (issue #1878):
-    /// it discloses no more than opening the file in the UI does. The tool
-    /// ADR-0083 §5 relies on to answer whether a verb moves formatting.
+    /// Reads a range's cell-level formatting back — background, text format, number
+    /// format, horizontal alignment, notes and data validation. Read-only and ungated,
+    /// like `sheets read` (issue rust-works/omni-dev#1878): it discloses no more than
+    /// opening the file in the UI does. The tool ADR-0083 §5 relies on to answer
+    /// whether a verb moves formatting.
     ReadCellFormat(cell_format::ReadCellFormatCommand),
-    /// Overwrites the cells of a range, gated by the
-    /// write-permission rules (issues #1589, #1612). Requires the `drive.file` or
-    /// `drive` scope (`drive auth login --write-file`/`--write-full`). Drops a
-    /// cell's rich-text runs even when the value is unchanged; see
-    /// `docs/drive.md`.
+    /// Overwrites the cells of a range, gated by the write-permission rules (issues
+    /// rust-works/omni-dev#1589, rust-works/omni-dev#1612). Requires the `drive.file`
+    /// or `drive` scope (`drive auth login --write-file`/`--write-full`). Drops a
+    /// cell's rich-text runs even when the value is unchanged; see `docs/drive.md`.
     /// (mirrors the `drive_sheets_write` MCP tool).
     Write(write::WriteCommand),
     /// Appends rows after the last row of a range's table, gated by the
-    /// write-permission rules (issues #1589, #1612). Presumably drops
-    /// rich-text runs on an existing cell like `sheets write` does, though
-    /// this hasn't been measured; see `docs/drive.md`.
+    /// write-permission rules (issues rust-works/omni-dev#1589,
+    /// rust-works/omni-dev#1612). Presumably drops rich-text runs on an existing cell
+    /// like `sheets write` does, though this hasn't been measured; see `docs/drive.md`.
     /// (mirrors the `drive_sheets_append` MCP tool).
     Append(write::AppendCommand),
     /// Clears a range's values, leaving formatting intact. Gated by the
-    /// write-permission rules (issues #1589, #1612).
-    /// (mirrors the `drive_sheets_clear` MCP tool).
+    /// write-permission rules (issues rust-works/omni-dev#1589,
+    /// rust-works/omni-dev#1612). (mirrors the `drive_sheets_clear` MCP tool).
     Clear(write::ClearCommand),
-    /// Finds text and replaces it across a range, one sheet, or the workbook.
-    /// Gated by `sheets-write` (issue #1841, ADR-0083 §1).
+    /// Finds text and replaces it across a range, one sheet, or the workbook. Gated by
+    /// `sheets-write` (issue rust-works/omni-dev#1841, ADR-0083 §1).
     FindReplace(find_replace::FindReplaceCommand),
-    /// Creates a new Google Sheet, optionally seeded with values. Gated by
-    /// the folder write-permission rules' `create` operation (issue #1589).
+    /// Creates a new Google Sheet, optionally seeded with values. Gated by the folder
+    /// write-permission rules' `create` operation (issue rust-works/omni-dev#1589).
     Create(create::CreateCommand),
-    /// Adds a new sheet (tab) to a spreadsheet. Gated by the folder
-    /// write-permission rules' `sheets-structure` operation (issue #1613).
+    /// Adds a new sheet (tab) to a spreadsheet. Gated by the folder write-permission
+    /// rules' `sheets-structure` operation (issue rust-works/omni-dev#1613).
     AddSheet(structure::AddSheetCommand),
-    /// Renames an existing sheet. Gated by the folder write-permission
-    /// rules' `sheets-structure` operation (issue #1613).
+    /// Renames an existing sheet. Gated by the folder write-permission rules'
+    /// `sheets-structure` operation (issue rust-works/omni-dev#1613).
     RenameSheet(structure::RenameSheetCommand),
     /// Inserts empty rows, shifting existing rows down. Gated by the folder
-    /// write-permission rules' `sheets-structure` operation (issue #1613).
+    /// write-permission rules' `sheets-structure` operation (issue
+    /// rust-works/omni-dev#1613).
     InsertRows(structure::InsertRowsCommand),
-    /// Inserts empty columns, shifting existing columns right. Gated by the
-    /// folder write-permission rules' `sheets-structure` operation
-    /// (issue #1613).
+    /// Inserts empty columns, shifting existing columns right. Gated by the folder
+    /// write-permission rules' `sheets-structure` operation (issue
+    /// rust-works/omni-dev#1613).
     InsertColumns(structure::InsertColumnsCommand),
-    /// Inserts empty cells into a rectangular range, shifting existing cells
-    /// down or right. Gated by the folder write-permission rules'
-    /// `sheets-structure` operation (issue #1838).
+    /// Inserts empty cells into a rectangular range, shifting existing cells down or
+    /// right. Gated by the folder write-permission rules' `sheets-structure` operation
+    /// (issue rust-works/omni-dev#1838).
     InsertRange(structure::InsertRangeCommand),
-    /// Moves a contiguous block of rows to a new position within a sheet,
-    /// shifting the rows in between. Gated by the folder write-permission
-    /// rules' `sheets-structure` operation (issue #1834).
+    /// Moves a contiguous block of rows to a new position within a sheet, shifting the
+    /// rows in between. Gated by the folder write-permission rules' `sheets-structure`
+    /// operation (issue rust-works/omni-dev#1834).
     MoveRows(structure::MoveRowsCommand),
-    /// Moves a contiguous block of columns to a new position within a
-    /// sheet, shifting the columns in between. Gated by the folder
-    /// write-permission rules' `sheets-structure` operation (issue #1834).
+    /// Moves a contiguous block of columns to a new position within a sheet, shifting
+    /// the columns in between. Gated by the folder write-permission rules'
+    /// `sheets-structure` operation (issue rust-works/omni-dev#1834).
     MoveColumns(structure::MoveColumnsCommand),
     /// Deletes an entire sheet (tab) from a spreadsheet. Gated by the folder
-    /// write-permission rules' `sheets-delete` operation (issue #1623).
-    /// Cannot be undone through gwi.
+    /// write-permission rules' `sheets-delete` operation (issue
+    /// rust-works/omni-dev#1623). Cannot be undone through gwi.
     DeleteSheet(structure::DeleteSheetCommand),
     /// Deletes whole rows, shifting existing rows up. Gated by the folder
-    /// write-permission rules' `sheets-delete` operation (issue #1623).
-    /// Cannot be undone through gwi.
+    /// write-permission rules' `sheets-delete` operation (issue
+    /// rust-works/omni-dev#1623). Cannot be undone through gwi.
     DeleteRows(structure::DeleteRowsCommand),
-    /// Deletes whole columns, shifting existing columns left. Gated by the
-    /// folder write-permission rules' `sheets-delete` operation (issue
-    /// #1623). Cannot be undone through gwi.
+    /// Deletes whole columns, shifting existing columns left. Gated by the folder
+    /// write-permission rules' `sheets-delete` operation (issue
+    /// rust-works/omni-dev#1623). Cannot be undone through gwi.
     DeleteColumns(structure::DeleteColumnsCommand),
-    /// Deletes a rectangular cell range, shifting the remainder along one
-    /// axis. Gated by the folder write-permission rules' `sheets-delete`
-    /// operation (issue #1623). Cannot be undone through gwi.
+    /// Deletes a rectangular cell range, shifting the remainder along one axis. Gated
+    /// by the folder write-permission rules' `sheets-delete` operation (issue
+    /// rust-works/omni-dev#1623). Cannot be undone through gwi.
     DeleteRange(structure::DeleteRangeCommand),
-    /// Copies an existing sheet within the same workbook. Gated by the
-    /// folder write-permission rules' `sheets-structure` operation
-    /// (issue #1643).
+    /// Copies an existing sheet within the same workbook. Gated by the folder
+    /// write-permission rules' `sheets-structure` operation (issue
+    /// rust-works/omni-dev#1643).
     DuplicateSheet(structure::DuplicateSheetCommand),
-    /// Moves an existing sheet to a new position among its siblings. Gated
-    /// by the folder write-permission rules' `sheets-structure` operation
-    /// (issue #1643).
+    /// Moves an existing sheet to a new position among its siblings. Gated by the
+    /// folder write-permission rules' `sheets-structure` operation (issue
+    /// rust-works/omni-dev#1643).
     ReorderSheet(structure::ReorderSheetCommand),
     /// Hides an existing sheet. Gated by the folder write-permission rules'
-    /// `sheets-structure` operation (issue #1643).
+    /// `sheets-structure` operation (issue rust-works/omni-dev#1643).
     HideSheet(structure::HideSheetCommand),
-    /// Shows an existing hidden sheet. Gated by the folder write-permission
-    /// rules' `sheets-structure` operation (issue #1643).
+    /// Shows an existing hidden sheet. Gated by the folder write-permission rules'
+    /// `sheets-structure` operation (issue rust-works/omni-dev#1643).
     ShowSheet(structure::ShowSheetCommand),
     /// Changes a sheet's view properties — frozen rows/columns, tab color,
-    /// right-to-left, hidden gridlines. Gated by the folder
-    /// write-permission rules' `sheets-structure` operation (issue #1835).
+    /// right-to-left, hidden gridlines. Gated by the folder write-permission rules'
+    /// `sheets-structure` operation (issue rust-works/omni-dev#1835).
     UpdateSheetProperties(structure::UpdateSheetPropertiesCommand),
-    /// Changes workbook-level properties: locale, time zone, automatic
-    /// recalculation, and iterative calculation. Gated by the folder
-    /// write-permission rules' `sheets-structure` operation (issue #1836).
+    /// Changes workbook-level properties: locale, time zone, automatic recalculation,
+    /// and iterative calculation. Gated by the folder write-permission rules'
+    /// `sheets-structure` operation (issue rust-works/omni-dev#1836).
     UpdateWorkbookProperties(structure::UpdateWorkbookPropertiesCommand),
-    /// Applies a cell format across a range. Gated by the folder
-    /// write-permission rules' `sheets-structure` operation (issue #1643).
+    /// Applies a cell format across a range. Gated by the folder write-permission
+    /// rules' `sheets-structure` operation (issue rust-works/omni-dev#1643).
     FormatCells(format::FormatCellsCommand),
-    /// Sets border lines on a range's edges. Gated by the folder
-    /// write-permission rules' `sheets-structure` operation (issue #1643).
+    /// Sets border lines on a range's edges. Gated by the folder write-permission
+    /// rules' `sheets-structure` operation (issue rust-works/omni-dev#1643).
     UpdateBorders(format::UpdateBordersCommand),
-    /// Merges a range into one cell, discarding every value but the
-    /// top-left's. Gated by the folder write-permission rules'
-    /// `sheets-structure` operation (issue #1643).
+    /// Merges a range into one cell, discarding every value but the top-left's. Gated
+    /// by the folder write-permission rules' `sheets-structure` operation (issue
+    /// rust-works/omni-dev#1643).
     MergeCells(format::MergeCellsCommand),
     /// Splits a previously merged range back apart. Gated by the folder
-    /// write-permission rules' `sheets-structure` operation (issue #1643).
+    /// write-permission rules' `sheets-structure` operation (issue
+    /// rust-works/omni-dev#1643).
     UnmergeCells(format::UnmergeCellsCommand),
     /// Resizes rows or columns to fit their content. Gated by the folder
-    /// write-permission rules' `sheets-structure` operation (issue #1643).
+    /// write-permission rules' `sheets-structure` operation (issue
+    /// rust-works/omni-dev#1643).
     AutoResizeDimension(format::AutoResizeDimensionCommand),
-    /// Sets an explicit pixel width (columns) or height (rows). Gated by
-    /// the folder write-permission rules' `sheets-structure` operation
-    /// (issue #1643).
+    /// Sets an explicit pixel width (columns) or height (rows). Gated by the folder
+    /// write-permission rules' `sheets-structure` operation (issue
+    /// rust-works/omni-dev#1643).
     UpdateDimensionProperties(format::UpdateDimensionPropertiesCommand),
-    /// Sets a data validation rule on a range. Gated by the folder
-    /// write-permission rules' `sheets-structure` operation (issue #1643).
+    /// Sets a data validation rule on a range. Gated by the folder write-permission
+    /// rules' `sheets-structure` operation (issue rust-works/omni-dev#1643).
     ///
-    /// Boxed (#1792): tranche 2's ~19 extra condition flags pushed this
-    /// variant far past every sibling's size, which `clippy::large_enum_variant`
+    /// Boxed (rust-works/omni-dev#1792): tranche 2's ~19 extra condition flags pushed
+    /// this variant far past every sibling's size, which `clippy::large_enum_variant`
     /// flags transitively up through `SheetsSubcommands`/`DriveSubcommands`/
     /// `Commands`.
     SetDataValidation(Box<validation::SetDataValidationCommand>),
-    /// Removes a range's data validation rule. Gated by the folder
-    /// write-permission rules' `sheets-structure` operation (issue #1643).
+    /// Removes a range's data validation rule. Gated by the folder write-permission
+    /// rules' `sheets-structure` operation (issue rust-works/omni-dev#1643).
     ClearDataValidation(validation::ClearDataValidationCommand),
-    /// Creates or updates a developer-metadata key/value pair on a
-    /// spreadsheet, sheet, row or column. Restricted to `DOCUMENT`
-    /// visibility. Gated by the folder write-permission rules'
-    /// `sheets-structure` operation (issue #1795).
+    /// Creates or updates a developer-metadata key/value pair on a spreadsheet, sheet,
+    /// row or column. Restricted to `DOCUMENT` visibility. Gated by the folder
+    /// write-permission rules' `sheets-structure` operation (issue
+    /// rust-works/omni-dev#1795).
     SetDeveloperMetadata(developer_metadata::SetDeveloperMetadataCommand),
-    /// Removes developer metadata matching a key and location, after
-    /// reporting what would be removed. Restricted to `DOCUMENT`
-    /// visibility. Gated by the folder write-permission rules'
-    /// `sheets-structure` operation (issue #1795).
+    /// Removes developer metadata matching a key and location, after reporting what
+    /// would be removed. Restricted to `DOCUMENT` visibility. Gated by the folder
+    /// write-permission rules' `sheets-structure` operation (issue
+    /// rust-works/omni-dev#1795).
     DeleteDeveloperMetadata(developer_metadata::DeleteDeveloperMetadataCommand),
-    /// Searches for developer metadata by key and/or location, restricted
-    /// to `DOCUMENT` visibility. Read-only and ungated, like `sheets info`
-    /// (issue #1795).
+    /// Searches for developer metadata by key and/or location, restricted to `DOCUMENT`
+    /// visibility. Read-only and ungated, like `sheets info` (issue
+    /// rust-works/omni-dev#1795).
     SearchDeveloperMetadata(developer_metadata::SearchDeveloperMetadataCommand),
-    /// Protects a range or an entire sheet. Gated by the folder
-    /// write-permission rules' `sheets-protection` operation — distinct
-    /// from `sheets-structure` (issue #1643).
+    /// Protects a range or an entire sheet. Gated by the folder write-permission rules'
+    /// `sheets-protection` operation — distinct from `sheets-structure` (issue
+    /// rust-works/omni-dev#1643).
     ProtectRange(protection::ProtectRangeCommand),
-    /// Changes an existing protected range's description, warning-only
-    /// flag, or editor list. Gated by the folder write-permission rules'
-    /// `sheets-protection` operation (issue #1643).
+    /// Changes an existing protected range's description, warning-only flag, or editor
+    /// list. Gated by the folder write-permission rules' `sheets-protection` operation
+    /// (issue rust-works/omni-dev#1643).
     UpdateProtection(protection::UpdateProtectionCommand),
-    /// Removes a protected range. Gated by the folder write-permission
-    /// rules' `sheets-protection` operation (issue #1643).
+    /// Removes a protected range. Gated by the folder write-permission rules'
+    /// `sheets-protection` operation (issue rust-works/omni-dev#1643).
     UnprotectRange(protection::UnprotectRangeCommand),
-    /// Lists the protected ranges in a spreadsheet. Read-only and ungated,
-    /// like `sheets info` (issue #1643).
+    /// Lists the protected ranges in a spreadsheet. Read-only and ungated, like `sheets
+    /// info` (issue rust-works/omni-dev#1643).
     ListProtections(protection::ListProtectionsCommand),
-    /// Sets (upserting any existing one) the basic filter on a sheet. Gated
-    /// by the folder write-permission rules' `sheets-structure` operation
-    /// (issue #1794).
+    /// Sets (upserting any existing one) the basic filter on a sheet. Gated by the
+    /// folder write-permission rules' `sheets-structure` operation (issue
+    /// rust-works/omni-dev#1794).
     SetBasicFilter(filter::SetBasicFilterCommand),
-    /// Removes a sheet's basic filter. Gated by the folder write-permission
-    /// rules' `sheets-structure` operation (issue #1794).
+    /// Removes a sheet's basic filter. Gated by the folder write-permission rules'
+    /// `sheets-structure` operation (issue rust-works/omni-dev#1794).
     ClearBasicFilter(filter::ClearBasicFilterCommand),
-    /// Adds a named filter view. Gated by the folder write-permission
-    /// rules' `sheets-structure` operation (issue #1794).
+    /// Adds a named filter view. Gated by the folder write-permission rules'
+    /// `sheets-structure` operation (issue rust-works/omni-dev#1794).
     AddFilterView(filter::AddFilterViewCommand),
-    /// Changes an existing filter view's title, range, sort order, or
-    /// hidden values. Gated by the folder write-permission rules'
-    /// `sheets-structure` operation (issue #1794).
+    /// Changes an existing filter view's title, range, sort order, or hidden values.
+    /// Gated by the folder write-permission rules' `sheets-structure` operation (issue
+    /// rust-works/omni-dev#1794).
     UpdateFilterView(filter::UpdateFilterViewCommand),
     /// Removes a filter view. Gated by the folder write-permission rules'
-    /// `sheets-structure` operation (issue #1794).
+    /// `sheets-structure` operation (issue rust-works/omni-dev#1794).
     DeleteFilterView(filter::DeleteFilterViewCommand),
     /// Lists the filter views in a spreadsheet. Read-only and ungated, like
-    /// `list-protections` (issue #1794).
+    /// `list-protections` (issue rust-works/omni-dev#1794).
     ListFilterViews(filter::ListFilterViewsCommand),
-    /// Adds a conditional format rule to one or more ranges. Gated by the
-    /// folder write-permission rules' `sheets-structure` operation
-    /// (issue #1793, ADR-0081 §1).
+    /// Adds a conditional format rule to one or more ranges. Gated by the folder
+    /// write-permission rules' `sheets-structure` operation (issue
+    /// rust-works/omni-dev#1793, ADR-0081 §1).
     ///
-    /// Boxed for the same `clippy::large_enum_variant` reason as
-    /// `SetDataValidation` (#1792): the condition/gradient flag set is wide.
+    /// Boxed for the same `clippy::large_enum_variant` reason as `SetDataValidation`
+    /// (rust-works/omni-dev#1792): the condition/gradient flag set is wide.
     AddConditionalFormat(Box<conditional_format::AddConditionalFormatCommand>),
-    /// Replaces the conditional format rule at an index. Gated by the
-    /// folder write-permission rules' `sheets-structure` operation
-    /// (issue #1793, ADR-0081 §1).
+    /// Replaces the conditional format rule at an index. Gated by the folder
+    /// write-permission rules' `sheets-structure` operation (issue
+    /// rust-works/omni-dev#1793, ADR-0081 §1).
     UpdateConditionalFormat(Box<conditional_format::UpdateConditionalFormatCommand>),
-    /// Removes the conditional format rule at an index. Gated by the
-    /// folder write-permission rules' `sheets-structure` operation
-    /// (issue #1793, ADR-0081 §1).
+    /// Removes the conditional format rule at an index. Gated by the folder
+    /// write-permission rules' `sheets-structure` operation (issue
+    /// rust-works/omni-dev#1793, ADR-0081 §1).
     DeleteConditionalFormat(conditional_format::DeleteConditionalFormatCommand),
-    /// Lists the conditional format rules in a spreadsheet. Read-only and
-    /// ungated, like `list-protections` (issue #1793).
+    /// Lists the conditional format rules in a spreadsheet. Read-only and ungated, like
+    /// `list-protections` (issue rust-works/omni-dev#1793).
     ListConditionalFormats(conditional_format::ListConditionalFormatsCommand),
     /// Adds a named range. Gated by the folder write-permission rules'
-    /// `sheets-structure` operation (issue #1796).
+    /// `sheets-structure` operation (issue rust-works/omni-dev#1796).
     AddNamedRange(named_range::AddNamedRangeCommand),
-    /// Changes an existing named range's name and/or the range it covers.
-    /// Gated by the folder write-permission rules' `sheets-structure`
-    /// operation (issue #1796).
+    /// Changes an existing named range's name and/or the range it covers. Gated by the
+    /// folder write-permission rules' `sheets-structure` operation (issue
+    /// rust-works/omni-dev#1796).
     UpdateNamedRange(named_range::UpdateNamedRangeCommand),
     /// Removes a named range. Gated by the folder write-permission rules'
-    /// `sheets-structure` operation — not `sheets-delete`, since a named
-    /// range is a label, not grid data (issue #1796, ADR-0081 §2). Reports
+    /// `sheets-structure` operation — not `sheets-delete`, since a named range is a
+    /// label, not grid data (issue rust-works/omni-dev#1796, ADR-0081 §2). Reports
     /// every cell formula that referenced the name before removing it.
     DeleteNamedRange(named_range::DeleteNamedRangeCommand),
-    /// Lists the named ranges in a spreadsheet. Read-only and ungated, like
-    /// `sheets list-protections` (issue #1796).
+    /// Lists the named ranges in a spreadsheet. Read-only and ungated, like `sheets
+    /// list-protections` (issue rust-works/omni-dev#1796).
     ListNamedRanges(named_range::ListNamedRangesCommand),
-    /// Adds a chart. Gated by the folder write-permission rules'
-    /// `sheets-structure` operation (issue #1797, ADR-0081 §3).
+    /// Adds a chart. Gated by the folder write-permission rules' `sheets-structure`
+    /// operation (issue rust-works/omni-dev#1797, ADR-0081 §3).
     ///
-    /// Boxed for the same `clippy::large_enum_variant` reason as
-    /// `SetDataValidation` (#1792): the chart-spec flag set is wide.
+    /// Boxed for the same `clippy::large_enum_variant` reason as `SetDataValidation`
+    /// (rust-works/omni-dev#1792): the chart-spec flag set is wide.
     AddChart(Box<embedded_object::AddChartCommand>),
-    /// Replaces an existing chart's spec wholesale — `updateChartSpec`
-    /// carries no field mask. Gated by the folder write-permission rules'
-    /// `sheets-structure` operation (issue #1797, ADR-0081 §3).
+    /// Replaces an existing chart's spec wholesale — `updateChartSpec` carries no field
+    /// mask. Gated by the folder write-permission rules' `sheets-structure` operation
+    /// (issue rust-works/omni-dev#1797, ADR-0081 §3).
     UpdateChart(Box<embedded_object::UpdateChartCommand>),
-    /// Removes a chart, after reporting its spec (type, title, anchor).
-    /// Gated by the folder write-permission rules' `sheets-structure`
-    /// operation (issue #1797, ADR-0081 §3) — not `sheets-delete`; see that
-    /// ADR section for why an unrecoverable embedded-object removal still
-    /// sits here. Cannot be undone through gwi.
+    /// Removes a chart, after reporting its spec (type, title, anchor). Gated by the
+    /// folder write-permission rules' `sheets-structure` operation (issue
+    /// rust-works/omni-dev#1797, ADR-0081 §3) — not `sheets-delete`; see that ADR
+    /// section for why an unrecoverable embedded-object removal still sits here. Cannot
+    /// be undone through gwi.
     DeleteChart(embedded_object::DeleteChartCommand),
     /// Lists the charts in a spreadsheet. Read-only and ungated, like
-    /// `list-protections` (issue #1797).
+    /// `list-protections` (issue rust-works/omni-dev#1797).
     ListCharts(embedded_object::ListChartsCommand),
-    /// Adds a slicer. Gated by the folder write-permission rules'
-    /// `sheets-structure` operation (issue #1797, ADR-0081 §3).
+    /// Adds a slicer. Gated by the folder write-permission rules' `sheets-structure`
+    /// operation (issue rust-works/omni-dev#1797, ADR-0081 §3).
     AddSlicer(embedded_object::AddSlicerCommand),
-    /// Changes an existing slicer's range, filter column/criteria, title,
-    /// or pivot-table linkage. Gated by the folder write-permission rules'
-    /// `sheets-structure` operation (issue #1797, ADR-0081 §3).
+    /// Changes an existing slicer's range, filter column/criteria, title, or
+    /// pivot-table linkage. Gated by the folder write-permission rules'
+    /// `sheets-structure` operation (issue rust-works/omni-dev#1797, ADR-0081 §3).
     UpdateSlicer(embedded_object::UpdateSlicerCommand),
-    /// Removes a slicer, after reporting its spec. Gated by the folder
-    /// write-permission rules' `sheets-structure` operation (issue #1797,
-    /// ADR-0081 §3) — not `sheets-delete`. Cannot be undone through
-    /// gwi.
+    /// Removes a slicer, after reporting its spec. Gated by the folder write-permission
+    /// rules' `sheets-structure` operation (issue rust-works/omni-dev#1797, ADR-0081
+    /// §3) — not `sheets-delete`. Cannot be undone through gwi.
     DeleteSlicer(embedded_object::DeleteSlicerCommand),
     /// Lists the slicers in a spreadsheet. Read-only and ungated, like
-    /// `list-protections` (issue #1797).
+    /// `list-protections` (issue rust-works/omni-dev#1797).
     ListSlicers(embedded_object::ListSlicersCommand),
-    /// Moves and/or resizes an existing chart (`updateEmbeddedObjectPosition`).
-    /// Gated by the folder write-permission rules' `sheets-structure`
-    /// operation (issue #1837, ADR-0081 §3) — the same operation as
-    /// `add-chart`'s own placement, since a move discards no data.
+    /// Moves and/or resizes an existing chart (`updateEmbeddedObjectPosition`). Gated
+    /// by the folder write-permission rules' `sheets-structure` operation (issue
+    /// rust-works/omni-dev#1837, ADR-0081 §3) — the same operation as `add-chart`'s own
+    /// placement, since a move discards no data.
     MoveChart(embedded_object::MoveChartCommand),
-    /// Moves and/or resizes an existing slicer. Same gate as `move-chart`
-    /// (issue #1837, ADR-0081 §3).
+    /// Moves and/or resizes an existing slicer. Same gate as `move-chart` (issue
+    /// rust-works/omni-dev#1837, ADR-0081 §3).
     MoveSlicer(embedded_object::MoveSlicerCommand),
-    /// Sets or clears an existing chart's border colour
-    /// (`updateEmbeddedObjectBorder`). Same gate as `move-chart`
-    /// (issue #1837, ADR-0081 §3). Charts only — a slicer has no border.
+    /// Sets or clears an existing chart's border colour (`updateEmbeddedObjectBorder`).
+    /// Same gate as `move-chart` (issue rust-works/omni-dev#1837, ADR-0081 §3). Charts
+    /// only — a slicer has no border.
     UpdateChartBorder(embedded_object::UpdateChartBorderCommand),
-    /// Writes a new pivot table at an anchor cell. Gated by **both** the
-    /// folder write-permission rules' `sheets-write` and
-    /// `sheets-structure` operations (issue #1798, ADR-0081 §5).
+    /// Writes a new pivot table at an anchor cell. Gated by **both** the folder
+    /// write-permission rules' `sheets-write` and `sheets-structure` operations (issue
+    /// rust-works/omni-dev#1798, ADR-0081 §5).
     AddPivotTable(pivot::AddPivotTableCommand),
-    /// Clears the pivot table at an anchor cell. Gated by the folder
-    /// write-permission rules' `sheets-write` operation alone (issue
-    /// #1798, ADR-0081 §5).
+    /// Clears the pivot table at an anchor cell. Gated by the folder write-permission
+    /// rules' `sheets-write` operation alone (issue rust-works/omni-dev#1798, ADR-0081
+    /// §5).
     DeletePivotTable(pivot::DeletePivotTableCommand),
-    /// Lists the pivot tables in a spreadsheet, by anchor cell. Read-only
-    /// and ungated, like `list-conditional-formats` (issue #1798).
+    /// Lists the pivot tables in a spreadsheet, by anchor cell. Read-only and ungated,
+    /// like `list-conditional-formats` (issue rust-works/omni-dev#1798).
     ListPivotTables(pivot::ListPivotTablesCommand),
-    /// Adds a banded range — alternating row or column colors. Gated by
-    /// the folder write-permission rules' `sheets-structure` operation
-    /// (issue #1832, ADR-0082): presentation applied to a range, same
+    /// Adds a banded range — alternating row or column colors. Gated by the folder
+    /// write-permission rules' `sheets-structure` operation (issue
+    /// rust-works/omni-dev#1832, ADR-0082): presentation applied to a range, same
     /// reasoning as `unmerge-cells`/`clear-data-validation`.
     AddBanding(banding::AddBandingCommand),
-    /// Changes an existing banded range's range and/or colors. Gated by
-    /// the folder write-permission rules' `sheets-structure` operation
-    /// (issue #1832, ADR-0082).
+    /// Changes an existing banded range's range and/or colors. Gated by the folder
+    /// write-permission rules' `sheets-structure` operation (issue
+    /// rust-works/omni-dev#1832, ADR-0082).
     UpdateBanding(banding::UpdateBandingCommand),
     /// Removes a banded range. Gated by the folder write-permission rules'
-    /// `sheets-structure` operation (issue #1832, ADR-0082) — it removes
-    /// presentation, not grid data.
+    /// `sheets-structure` operation (issue rust-works/omni-dev#1832, ADR-0082) — it
+    /// removes presentation, not grid data.
     DeleteBanding(banding::DeleteBandingCommand),
-    /// Lists the banded ranges in a spreadsheet. Read-only and ungated,
-    /// like `list-protections` (issue #1832).
+    /// Lists the banded ranges in a spreadsheet. Read-only and ungated, like
+    /// `list-protections` (issue rust-works/omni-dev#1832).
     ListBandings(banding::ListBandingsCommand),
-    /// Adds a new outline group — the collapsible +/- grouping bar — over
-    /// a span of rows or columns. Gated by the folder write-permission
-    /// rules' `sheets-structure` operation (issue #1833, ADR-0084): the
-    /// same reasoning as `add-banding`.
+    /// Adds a new outline group — the collapsible +/- grouping bar — over a span of
+    /// rows or columns. Gated by the folder write-permission rules' `sheets-structure`
+    /// operation (issue rust-works/omni-dev#1833, ADR-0084): the same reasoning as
+    /// `add-banding`.
     AddDimensionGroup(dimension_group::AddDimensionGroupCommand),
     /// Changes an existing group's `collapsed` state. Gated by the folder
-    /// write-permission rules' `sheets-structure` operation (issue #1833,
-    /// ADR-0084).
+    /// write-permission rules' `sheets-structure` operation (issue
+    /// rust-works/omni-dev#1833, ADR-0084).
     UpdateDimensionGroup(dimension_group::UpdateDimensionGroupCommand),
-    /// Removes an outline group. Gated by the folder write-permission
-    /// rules' `sheets-structure` operation (issue #1833, ADR-0084) — it
+    /// Removes an outline group. Gated by the folder write-permission rules'
+    /// `sheets-structure` operation (issue rust-works/omni-dev#1833, ADR-0084) — it
     /// removes presentation, not grid data.
     DeleteDimensionGroup(dimension_group::DeleteDimensionGroupCommand),
-    /// Lists the row and column outline groups in a spreadsheet. Read-only
-    /// and ungated, like `list-bandings` (issue #1833).
+    /// Lists the row and column outline groups in a spreadsheet. Read-only and ungated,
+    /// like `list-bandings` (issue rust-works/omni-dev#1833).
     ListDimensionGroups(dimension_group::ListDimensionGroupsCommand),
-    /// Moves a range to a destination cell, clearing the source. Gated by
-    /// **both** the folder write-permission rules' `sheets-write` and
-    /// `sheets-structure` operations, whatever `--paste-type` names (issue
-    /// #1839, ADR-0083 §4): the source is cleared in full regardless of
-    /// what is pasted.
+    /// Moves a range to a destination cell, clearing the source. Gated by **both** the
+    /// folder write-permission rules' `sheets-write` and `sheets-structure` operations,
+    /// whatever `--paste-type` names (issue rust-works/omni-dev#1839, ADR-0083 §4): the
+    /// source is cleared in full regardless of what is pasted.
     CutPaste(paste::CutPasteCommand),
-    /// Copies a range to a destination, spilling a larger source past the
-    /// destination's end or repeating a smaller one to fill it. Gated by
-    /// `--paste-type` (issue #1839, ADR-0083 §4): a value-only type needs
-    /// `sheets-write` alone, a presentation-only type `sheets-structure`
-    /// alone, and `normal` (the default) needs both.
+    /// Copies a range to a destination, spilling a larger source past the destination's
+    /// end or repeating a smaller one to fill it. Gated by `--paste-type` (issue
+    /// rust-works/omni-dev#1839, ADR-0083 §4): a value-only type needs `sheets-write`
+    /// alone, a presentation-only type `sheets-structure` alone, and `normal` (the
+    /// default) needs both.
     CopyPaste(paste::CopyPasteCommand),
-    /// Pastes delimited text into a range anchored at a destination cell,
-    /// as if pasted from the clipboard (issue #1839, ADR-0083 §4).
-    /// `delimiter`-form only. Same `--paste-type` gate mapping as
-    /// `copy-paste`.
+    /// Pastes delimited text into a range anchored at a destination cell, as if pasted
+    /// from the clipboard (issue rust-works/omni-dev#1839, ADR-0083 §4).
+    /// `delimiter`-form only. Same `--paste-type` gate mapping as `copy-paste`.
     PasteData(paste::PasteDataCommand),
-    /// Extends a series from source cells into an adjacent destination,
-    /// using Sheets' own pattern-detection heuristics. Gated by the folder
-    /// write-permission rules' `sheets-write` operation (issue #1840,
-    /// ADR-0083 §1) — it writes ordinary cell content, doing nothing a
-    /// `sheets clear` followed by a `sheets write` could not already do
-    /// under the same grant. The filled values can never be previewed;
-    /// see `auto-fill --help`.
+    /// Extends a series from source cells into an adjacent destination, using Sheets'
+    /// own pattern-detection heuristics. Gated by the folder write-permission rules'
+    /// `sheets-write` operation (issue rust-works/omni-dev#1840, ADR-0083 §1) — it
+    /// writes ordinary cell content, doing nothing a `sheets clear` followed by a
+    /// `sheets write` could not already do under the same grant. The filled values can
+    /// never be previewed; see `auto-fill --help`.
     AutoFill(auto_fill::AutoFillCommand),
-    /// Reorders rows in a range by one or more column keys. Gated by the
-    /// folder `sheets-write` **and** `sheets-structure` operations (issue
-    /// #1842, #1870, ADR-0083 §§3, 5) — a sorted row was measured carrying
-    /// its formatting, notes and data-validation rules with it.
+    /// Reorders rows in a range by one or more column keys. Gated by the folder
+    /// `sheets-write` **and** `sheets-structure` operations (issue
+    /// rust-works/omni-dev#1842, rust-works/omni-dev#1870, ADR-0083 §§3, 5) — a sorted
+    /// row was measured carrying its formatting, notes and data-validation rules with
+    /// it.
     SortRange(sort_range::SortRangeCommand),
-    /// Shuffles the row order within a range into an order chosen by the
-    /// server. Gated by the folder `sheets-write` **and** `sheets-structure`
-    /// operations (issue #1845, ADR-0083 §§3, 5, 6) — a reordered row was
-    /// measured carrying its formatting, notes and data-validation rules
-    /// with it. The resulting order can never be previewed; see
-    /// `randomize-range --help`.
+    /// Shuffles the row order within a range into an order chosen by the server. Gated
+    /// by the folder `sheets-write` **and** `sheets-structure` operations (issue
+    /// rust-works/omni-dev#1845, ADR-0083 §§3, 5, 6) — a reordered row was measured
+    /// carrying its formatting, notes and data-validation rules with it. The resulting
+    /// order can never be previewed; see `randomize-range --help`.
     RandomizeRange(randomize_range::RandomizeRangeCommand),
-    /// Splits a single column's delimited text across the adjacent
-    /// columns to its right. Gated by the folder `sheets-write` **and**
-    /// `sheets-structure` operations (issue #1843, ADR-0083 §§1, 5) — it
-    /// writes ordinary cell content, and carries the source cell's
-    /// formatting into the columns it spills into. How many columns the
-    /// split needs, and the values it writes, can never be previewed;
-    /// see `text-to-columns --help`.
+    /// Splits a single column's delimited text across the adjacent columns to its
+    /// right. Gated by the folder `sheets-write` **and** `sheets-structure` operations
+    /// (issue rust-works/omni-dev#1843, ADR-0083 §§1, 5) — it writes ordinary cell
+    /// content, and carries the source cell's formatting into the columns it spills
+    /// into. How many columns the split needs, and the values it writes, can never be
+    /// previewed; see `text-to-columns --help`.
     TextToColumns(text_to_columns::TextToColumnsCommand),
-    /// Trims whitespace in every cell of a range, or of a whole sheet.
-    /// Trimming strips leading and trailing whitespace **and collapses
-    /// each internal run to a single space** (measured live: `a   b`
-    /// becomes `a b`); text that trims to something starting `=` or `+`
-    /// stays a string and is not reinterpreted as a formula.
-    /// Gated by the folder `sheets-write` operation (issue #1844,
-    /// ADR-0083 §1) — it rewrites ordinary cell content in place, doing
-    /// nothing a `sheets clear` followed by a `sheets write` of the same
-    /// range could not already do under the same grant. Sheets owns the
-    /// trim rule, so `--dry-run` reports the non-blank cells that may
-    /// change, never the ones that will.
+    /// Trims whitespace in every cell of a range, or of a whole sheet. Trimming strips
+    /// leading and trailing whitespace **and collapses each internal run to a single
+    /// space** (measured live: `a   b` becomes `a b`); text that trims to something
+    /// starting `=` or `+` stays a string and is not reinterpreted as a formula. Gated
+    /// by the folder `sheets-write` operation (issue rust-works/omni-dev#1844, ADR-0083
+    /// §1) — it rewrites ordinary cell content in place, doing nothing a `sheets clear`
+    /// followed by a `sheets write` of the same range could not already do under the
+    /// same grant. Sheets owns the trim rule, so `--dry-run` reports the non-blank
+    /// cells that may change, never the ones that will.
     TrimWhitespace(trim_whitespace::TrimWhitespaceCommand),
-    /// Removes duplicate row cells within a bounded range.
-    /// Gated by the folder `sheets-delete` operation rather than
-    /// `sheets-write` (issue #1844, ADR-0083 §2): cells inside the
-    /// selected range are removed and its survivors shift up.
-    /// The API selects the rows — keeping the first instance of each
-    /// duplicate, counting rows that differ only in case, formatting or
-    /// formulas, and removing filter-hidden rows — so `--dry-run` states
-    /// that rule instead of listing rows it cannot vouch for. Blank rows
-    /// duplicate one another, so a range extending past the data can
-    /// remove every blank row but the first. Columns outside the range stay
-    /// in place, so a narrow range can misalign records.
+    /// Removes duplicate row cells within a bounded range. Gated by the folder
+    /// `sheets-delete` operation rather than `sheets-write` (issue
+    /// rust-works/omni-dev#1844, ADR-0083 §2): cells inside the selected range are
+    /// removed and its survivors shift up. The API selects the rows — keeping the first
+    /// instance of each duplicate, counting rows that differ only in case, formatting
+    /// or formulas, and removing filter-hidden rows — so `--dry-run` states that rule
+    /// instead of listing rows it cannot vouch for. Blank rows duplicate one another,
+    /// so a range extending past the data can remove every blank row but the first.
+    /// Columns outside the range stay in place, so a narrow range can misalign records.
     DeleteDuplicates(delete_duplicates::DeleteDuplicatesCommand),
 }
 

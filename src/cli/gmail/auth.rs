@@ -274,9 +274,9 @@ fn run_logout() -> Result<()> {
 /// Shows the current authentication status.
 #[derive(Parser)]
 pub struct StatusCommand {
-    /// Reports status for every configured Gmail account instead of just
-    /// the resolved one. Degenerates to today's single-account output when
-    /// no named accounts are configured (issue #1500).
+    /// Reports status for every configured Gmail account instead of just the resolved
+    /// one. Degenerates to today's single-account output when no named accounts are
+    /// configured (issue rust-works/omni-dev#1500).
     #[arg(long)]
     pub all: bool,
 }

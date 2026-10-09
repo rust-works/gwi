@@ -62,19 +62,18 @@ pub enum DriveSubcommands {
     Dedupe(dedupe::DedupeCommand),
     /// Mirrors a Drive folder recursively to local disk (one-way, read-only scope).
     Sync(sync::SyncCommand),
-    /// Creates a new file or folder, gated by the folder write-permission
-    /// rules (issue #1574). Requires the `drive.file` or `drive` scope
-    /// (`drive auth login --write-file`/`--write-full`).
+    /// Creates a new file or folder, gated by the folder write-permission rules (issue
+    /// rust-works/omni-dev#1574). Requires the `drive.file` or `drive` scope (`drive
+    /// auth login --write-file`/`--write-full`).
     Create(create::CreateCommand),
-    /// Uploads local content as a new file, gated by the folder
-    /// write-permission rules (issue #1574). Requires the `drive.file` or
-    /// `drive` scope (`drive auth login --write-file`/`--write-full`).
+    /// Uploads local content as a new file, gated by the folder write-permission rules
+    /// (issue rust-works/omni-dev#1574). Requires the `drive.file` or `drive` scope
+    /// (`drive auth login --write-file`/`--write-full`).
     Upload(upload::UploadCommand),
-    /// Replaces an existing file's content, gated by the
-    /// write-permission rules (issues #1574, #1612). Requires the `drive.file`
-    /// scope if `gwi` created the file, or the unrestricted `drive`
-    /// scope for any pre-existing file (`drive auth login --write-file`
-    /// or `--write-full`).
+    /// Replaces an existing file's content, gated by the write-permission rules (issues
+    /// rust-works/omni-dev#1574, rust-works/omni-dev#1612). Requires the `drive.file`
+    /// scope if `gwi` created the file, or the unrestricted `drive` scope for any
+    /// pre-existing file (`drive auth login --write-file` or `--write-full`).
     Edit(edit::EditCommand),
     /// Moves an individual file to Drive Trash, gated by `trash` permission.
     /// Refuses folders; lease-exempt. Requires `drive auth login --write`.
@@ -92,18 +91,18 @@ pub enum DriveSubcommands {
     /// Moves one or more Drive files into a destination folder. Requires
     /// the `drive.metadata` scope (`drive auth login --write`).
     Move(move_file::MoveCommand),
-    /// Inspects the write-permission rules gating `drive
-    /// create`/`upload`/`edit`, `drive sheets
-    /// write`/`append`/`clear`/`create` and `drive docs
-    /// replace`/`append`/`create` (issues #1574, #1589, #1612, #1615).
+    /// Inspects the write-permission rules gating `drive create`/`upload`/`edit`,
+    /// `drive sheets write`/`append`/`clear`/`create` and `drive docs
+    /// replace`/`append`/`create` (issues rust-works/omni-dev#1574,
+    /// rust-works/omni-dev#1589, rust-works/omni-dev#1612, rust-works/omni-dev#1615).
     Permissions(permissions::PermissionsCommand),
-    /// Reads the structure and text of a Google Doc via the Docs v1 API
-    /// (issue #1615).
+    /// Reads the structure and text of a Google Doc via the Docs v1 API (issue
+    /// rust-works/omni-dev#1615).
     Docs(docs::DocsCommand),
     /// Reads Slides objects and replaces text on ordinary slides.
     Slides(slides::SlidesCommand),
-    /// Reads and writes the cells of a Google Sheet via the Sheets v4 API
-    /// (issue #1589).
+    /// Reads and writes the cells of a Google Sheet via the Sheets v4 API (issue
+    /// rust-works/omni-dev#1589).
     Sheets(sheets::SheetsCommand),
 }
 

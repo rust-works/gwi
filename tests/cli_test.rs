@@ -56,6 +56,33 @@ fn help_has_no_markdown_links() {
     assert!(links.is_empty(), "markdown links in help: {links:#?}");
 }
 
+/// Imported issue references must name their repository in terminal help.
+#[test]
+fn help_has_no_bare_four_digit_issue_references() {
+    fn check(cmd: &mut clap::Command, bare_issue: &regex::Regex) {
+        for help in [cmd.render_help(), cmd.render_long_help()] {
+            let help = help.to_string();
+            let lines: Vec<&str> = help
+                .lines()
+                .filter(|line| bare_issue.is_match(line))
+                .collect();
+            assert!(
+                lines.is_empty(),
+                "bare issue references in {} help: {lines:#?}",
+                cmd.get_name()
+            );
+        }
+        for sub in cmd.get_subcommands_mut() {
+            check(sub, bare_issue);
+        }
+    }
+
+    let bare_issue = regex::Regex::new(r"(?:^|[^\w/-])#[0-9]{4}\b").unwrap();
+    let mut root = Cli::command();
+    root.build();
+    check(&mut root, &bare_issue);
+}
+
 /// Runs the real `gwi` binary hermetically in `home`.
 fn gwi(home: &Path, args: &[&str]) -> Output {
     let mut command = Command::new(env!("CARGO_BIN_EXE_gwi"));
