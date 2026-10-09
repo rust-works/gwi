@@ -1,5 +1,6 @@
 //! Helpers shared by the integration tests that spawn the `gwi` binary.
 
+use std::path::Path;
 use std::process::Command;
 
 /// The credential, account, profile and endpoint variables the binary reads
@@ -45,4 +46,15 @@ pub fn scrub_ambient_env(command: &mut Command) -> &mut Command {
         command.env_remove(name);
     }
     command
+}
+
+/// Pins both log sinks to `home` and disables request logging.
+///
+/// Audit logging remains enabled, so its path must be isolated too. Call this
+/// before any test-specific log overrides.
+pub fn pin_log_env<'a>(command: &'a mut Command, home: &Path) -> &'a mut Command {
+    command
+        .env("GWI_LOG_FILE", home.join("log.jsonl"))
+        .env("GWI_AUDIT_LOG_FILE", home.join("audit.jsonl"))
+        .env("GWI_LOG_DISABLE", "1")
 }
