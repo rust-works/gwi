@@ -495,6 +495,49 @@ fn write_logs(home: &Path) {
 }
 
 #[test]
+fn log_warns_once_when_request_log_resolves_to_audit_log() {
+    let home = tempfile::tempdir().unwrap();
+    let audit = home.path().join("audit.jsonl");
+    let contents = format!("{AUDIT_LINE}\n");
+    std::fs::write(&audit, &contents).unwrap();
+
+    // Each child resolves the path for the command and again for its invocation record.
+    // A fresh process must emit its own warning rather than suppressing it globally.
+    for _ in 0..2 {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_gwi"));
+        let output = common::scrub_ambient_env(&mut command)
+            .arg("log")
+            .env("HOME", home.path())
+            .env("GWI_LOG_FILE", &audit)
+            .env("GWI_AUDIT_LOG_FILE", &audit)
+            .env("GWI_LOG_DISABLE", "0")
+            .env("RUST_LOG", "warn")
+            .output()
+            .unwrap();
+
+        assert_eq!(output.status.code(), Some(1));
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert_eq!(
+            stderr
+                .matches("GWI_LOG_FILE resolves to the audit log")
+                .count(),
+            1,
+            "{stderr}"
+        );
+        assert!(
+            stderr.contains("refusing to use it as the request log path"),
+            "{stderr}"
+        );
+        assert!(
+            stderr.contains("could not resolve the log file path"),
+            "{stderr}"
+        );
+        assert!(output.stdout.is_empty());
+        assert_eq!(std::fs::read_to_string(&audit).unwrap(), contents);
+    }
+}
+
+#[test]
 fn log_reads_the_request_log_and_audit_reads_the_audit_log() {
     let home = tempfile::tempdir().unwrap();
     write_logs(home.path());

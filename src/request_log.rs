@@ -27,7 +27,7 @@
 use std::collections::BTreeMap;
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::sync::OnceLock;
+use std::sync::{Once, OnceLock};
 use std::time::{Duration, Instant};
 
 use chrono::{DateTime, SecondsFormat, Utc};
@@ -395,12 +395,17 @@ pub(crate) fn log_file_path_with(env: &impl EnvSource) -> Option<PathBuf> {
         .map(PathBuf::from)
         .or_else(default_log_file_path)?;
     if resolves_to_audit_file_with(&path, env) {
-        tracing::warn!(
-            "request_log: GWI_LOG_FILE resolves to the audit log ({}); refusing to use it \
-             as the request log path — set GWI_LOG_FILE and/or GWI_AUDIT_LOG_FILE to \
-             distinct paths",
-            path.display()
-        );
+        // Command dispatch and invocation recording can both resolve this path.
+        // Warn once per process, but refuse the collision on every resolution.
+        static WARNED: Once = Once::new();
+        WARNED.call_once(|| {
+            tracing::warn!(
+                "request_log: GWI_LOG_FILE resolves to the audit log ({}); refusing to use it \
+                 as the request log path — set GWI_LOG_FILE and/or GWI_AUDIT_LOG_FILE to \
+                 distinct paths",
+                path.display()
+            );
+        });
         return None;
     }
     Some(path)
