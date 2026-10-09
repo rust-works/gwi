@@ -18,6 +18,7 @@
 //! index on Windows), and on any other platform only by its shrinking.
 
 use std::collections::VecDeque;
+use std::ffi::OsStr;
 use std::fs::File;
 use std::io::{self, BufRead, BufReader, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
@@ -145,22 +146,10 @@ fn backlog_paths(path: &Path, rotated: bool) -> Result<Vec<PathBuf>> {
             for entry in entries {
                 let entry = entry?;
                 let filename = entry.file_name();
-                let Some(suffix) = filename
-                    .as_encoded_bytes()
-                    .strip_prefix(prefix.as_encoded_bytes())
-                else {
+                let Some(generation) = backup_generation(&filename, &prefix) else {
                     continue;
                 };
-                let Ok(suffix) = std::str::from_utf8(suffix) else {
-                    continue;
-                };
-                let Ok(generation) = suffix.parse::<u32>() else {
-                    continue;
-                };
-                if generation > 0
-                    && suffix == generation.to_string()
-                    && entry.file_type()?.is_file()
-                {
+                if entry.file_type()?.is_file() {
                     backups.push((generation, entry.path()));
                 }
             }
@@ -170,6 +159,16 @@ fn backlog_paths(path: &Path, rotated: bool) -> Result<Vec<PathBuf>> {
     let mut paths: Vec<_> = backups.into_iter().map(|(_, path)| path).collect();
     paths.push(path.to_path_buf());
     Ok(paths)
+}
+
+/// Returns the canonical positive generation suffix after the exact log-name prefix.
+fn backup_generation(filename: &OsStr, prefix: &OsStr) -> Option<u32> {
+    let suffix = filename
+        .as_encoded_bytes()
+        .strip_prefix(prefix.as_encoded_bytes())?;
+    let suffix = std::str::from_utf8(suffix).ok()?;
+    let generation = suffix.parse::<u32>().ok()?;
+    (generation > 0 && suffix == generation.to_string()).then_some(generation)
 }
 
 /// Streams the selected backlog, then optionally follows only the live file.
@@ -587,6 +586,139 @@ mod tests {
         assert_eq!(backlog_paths(&live, false).unwrap(), vec![live]);
         let missing = dir.path().join("absent/log.jsonl");
         assert_eq!(backlog_paths(&missing, true).unwrap(), vec![missing]);
+    }
+
+    #[test]
+    fn rotated_discovery_reports_an_invalid_log_directory() {
+        let dir = tempfile::tempdir().unwrap();
+        let parent = dir.path().join("not-a-directory");
+        std::fs::write(&parent, "").unwrap();
+        let err = backlog_paths(&parent.join("log.jsonl"), true).unwrap_err();
+        assert_eq!(
+            err.to_string(),
+            format!("Failed to read log directory {}", parent.display())
+        );
+        assert!(err.downcast_ref::<io::Error>().is_some());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn backup_generation_accepts_non_utf8_prefixes_but_rejects_non_utf8_suffixes() {
+        use std::os::unix::ffi::OsStrExt;
+
+        let prefix = OsStr::from_bytes(b"requests-\xff.jsonl.");
+        assert_eq!(
+            backup_generation(OsStr::from_bytes(b"requests-\xff.jsonl.7"), prefix),
+            Some(7)
+        );
+        assert_eq!(
+            backup_generation(OsStr::from_bytes(b"requests-\xff.jsonl.\xff"), prefix),
+            None
+        );
+    }
+
+    #[test]
+    fn backup_generation_accepts_only_canonical_positive_numbers_with_the_exact_prefix() {
+        let prefix = OsStr::new("log.jsonl.");
+        assert_eq!(
+            backup_generation(OsStr::new("log.jsonl.10"), prefix),
+            Some(10)
+        );
+        for filename in [
+            "other.jsonl.1",
+            "log.jsonl.0",
+            "log.jsonl.01",
+            "log.jsonl.+1",
+            "log.jsonl.-1",
+            "log.jsonl.tmp",
+            "log.jsonl.4294967296",
+        ] {
+            assert_eq!(
+                backup_generation(OsStr::new(filename), prefix),
+                None,
+                "{filename}"
+            );
+        }
+    }
+
+    // Linux permits these filenames; macOS filesystems reject them with EILSEQ.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn rotated_discovery_ignores_non_utf8_suffixes_and_preserves_non_utf8_log_names() {
+        use std::ffi::OsString;
+        use std::os::unix::ffi::OsStringExt;
+
+        let dir = tempfile::tempdir().unwrap();
+        let live = dir
+            .path()
+            .join(OsString::from_vec(b"requests-\xff.jsonl".to_vec()));
+        let backup = dir
+            .path()
+            .join(OsString::from_vec(b"requests-\xff.jsonl.1".to_vec()));
+        let unrelated = dir
+            .path()
+            .join(OsString::from_vec(b"requests-\xff.jsonl.\xff".to_vec()));
+        std::fs::write(&backup, "").unwrap();
+        std::fs::write(unrelated, "").unwrap();
+        assert_eq!(backlog_paths(&live, true).unwrap(), vec![backup, live]);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn rotated_scan_reports_an_unreadable_backup_instead_of_silently_skipping_it() {
+        use std::os::unix::fs::PermissionsExt;
+
+        // Root bypasses the permissions used to force this open failure.
+        crate::test_support::skip_as_root!();
+        let dir = tempfile::tempdir().unwrap();
+        let live = dir.path().join("log.jsonl");
+        let backup = dir.path().join("log.jsonl.1");
+        std::fs::write(&backup, sample_lines()).unwrap();
+        std::fs::write(&live, sample_lines()).unwrap();
+        std::fs::set_permissions(&backup, std::fs::Permissions::from_mode(0o000)).unwrap();
+        let mut out = Vec::new();
+        let mut sink = BacklogSink {
+            format: Format::Json,
+            limit: None,
+            ring: VecDeque::new(),
+            out: &mut out,
+        };
+        let err = scan_files(&live, &empty_filter(), false, true, &mut sink, || false).unwrap_err();
+        assert_eq!(
+            err.to_string(),
+            format!("Failed to open log file {}", backup.display())
+        );
+        assert_eq!(
+            err.downcast_ref::<io::Error>().unwrap().kind(),
+            io::ErrorKind::PermissionDenied
+        );
+        assert!(out.is_empty());
+    }
+
+    #[test]
+    fn rotated_scan_exits_cleanly_when_the_pipe_closes_during_limit_replay() {
+        let dir = tempfile::tempdir().unwrap();
+        let live = dir.path().join("log.jsonl");
+        std::fs::write(dir.path().join("log.jsonl.1"), sample_lines()).unwrap();
+        std::fs::write(&live, sample_lines()).unwrap();
+        let mut out = PipeWriter::failing_with(io::ErrorKind::BrokenPipe, 0);
+        let mut sink = BacklogSink {
+            format: Format::Json,
+            limit: Some(3),
+            ring: VecDeque::new(),
+            out: &mut out,
+        };
+        let mut probes = 0;
+        let result = scan_files(&live, &empty_filter(), false, true, &mut sink, || {
+            probes += 1;
+            false
+        })
+        .unwrap();
+        assert!(result.is_none());
+        // Both files were scanned before the first buffered write found the closed pipe.
+        assert_eq!(probes, 2);
+        assert_eq!(sink.ring.len(), 3);
+        assert_eq!(out.attempts, 1);
     }
 
     #[test]
