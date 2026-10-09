@@ -527,10 +527,9 @@ mod env_guard_tests {
             .skip(1)
             .filter_map(|body| {
                 let name = body.split(['(', '<']).next().unwrap_or_default().trim();
-                let guard_helper = matches!(
-                    path.to_str(),
-                    Some("gmail/test_support.rs" | "drive/test_support.rs")
-                ) && name == "clear_credentials"
+                let guard_helper = (path == Path::new("gmail/test_support.rs")
+                    || path == Path::new("drive/test_support.rs"))
+                    && name == "clear_credentials"
                     || path == Path::new("drive/test_support.rs")
                         && name == "redirect_api_hosts_to_a_dead_port";
                 let profile_propagation = path == Path::new("cli.rs")
@@ -570,7 +569,7 @@ mod env_guard_tests {
         assert!(
             offenders.is_empty(),
             "these functions mutate a shared env var without `EnvGuard::take()`:\n{}",
-            offenders.join("\n")
+            offenders.join("\n") // patchcov: coverage ignore-line reason="assert! message args only evaluate when an unguarded mutation is found"
         );
     }
 
@@ -619,6 +618,18 @@ mod env_guard_tests {
 
     #[test]
     fn exemptions_apply_only_to_the_named_helper_in_its_own_file() {
+        let extra_mutation =
+            "fn propagate_profile_flag() { std::env::set_var(GMAIL_SCOPE, \"value\"); }";
+        assert_eq!(
+            unguarded_mutations(Path::new("cli.rs"), extra_mutation).len(),
+            1
+        );
+        // Repository paths use native separators, including backslashes on Windows.
+        for domain in ["gmail", "drive"] {
+            let native_path = Path::new(domain).join("test_support.rs");
+            let helper = "fn clear_credentials() { std::env::set_var(\"HOME\", \"value\"); }";
+            assert!(unguarded_mutations(&native_path, helper).is_empty());
+        }
         for (path, name, key) in [
             ("cli.rs", "propagate_profile_flag", "PROFILE_ENV_VAR"),
             ("gmail/test_support.rs", "clear_credentials", "\"HOME\""),
