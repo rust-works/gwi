@@ -147,7 +147,7 @@ fn resolve_requested_scopes(write: bool, write_file: bool, write_full: bool) -> 
 fn prompt_client_id() -> Result<String> {
     print!(
         "DRIVE_CLIENT_ID is not set. Create an OAuth2 client id in Google Cloud Console (see \
-         docs/adrs/adr-0069.md) and set DRIVE_CLIENT_ID, or paste it here.\nClient id: "
+         ADR-0069) and set DRIVE_CLIENT_ID, or paste it here.\nClient id: "
     );
     io::stdout().flush().context("Failed to flush stdout")?;
 

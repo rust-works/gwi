@@ -50,7 +50,7 @@ Options:
       --account <NAME>
           Selects a named Gmail account configured in `~/.gwi/settings.json` (AWS-CLI style, mirrors the top-level `--profile`) for this invocation.
           
-          Orthogonal to `--profile`: switching the Gmail account never changes which profile is active, and vice versa (see docs/adrs/adr-0066.md). Overrides `GWI_GMAIL_ACCOUNT`. Scoped to the `gmail` subtree — unlike `--profile` it is not usable before the `gmail` subcommand name, only after it (`gmail --account NAME <cmd>` or `gmail <cmd> --account NAME`), so it can't collide with another product's own `--account` flag (Drive has the same one) as more command trees are added.
+          Orthogonal to `--profile`: switching the Gmail account never changes which profile is active, and vice versa (see ADR-0066). Overrides `GWI_GMAIL_ACCOUNT`. Scoped to the `gmail` subtree — unlike `--profile` it is not usable before the `gmail` subcommand name, only after it (`gmail --account NAME <cmd>` or `gmail <cmd> --account NAME`), so it can't collide with another product's own `--account` flag (Drive has the same one) as more command trees are added.
 
       --profile <NAME>
           Selects a named credential/config profile from `~/.gwi/settings.json` (AWS-CLI style).
@@ -76,7 +76,7 @@ Options:
       --account <NAME>
           Selects a named Gmail account configured in `~/.gwi/settings.json` (AWS-CLI style, mirrors the top-level `--profile`) for this invocation.
           
-          Orthogonal to `--profile`: switching the Gmail account never changes which profile is active, and vice versa (see docs/adrs/adr-0066.md). Overrides `GWI_GMAIL_ACCOUNT`. Scoped to the `gmail` subtree — unlike `--profile` it is not usable before the `gmail` subcommand name, only after it (`gmail --account NAME <cmd>` or `gmail <cmd> --account NAME`), so it can't collide with another product's own `--account` flag (Drive has the same one) as more command trees are added.
+          Orthogonal to `--profile`: switching the Gmail account never changes which profile is active, and vice versa (see ADR-0066). Overrides `GWI_GMAIL_ACCOUNT`. Scoped to the `gmail` subtree — unlike `--profile` it is not usable before the `gmail` subcommand name, only after it (`gmail --account NAME <cmd>` or `gmail <cmd> --account NAME`), so it can't collide with another product's own `--account` flag (Drive has the same one) as more command trees are added.
 
       --profile <NAME>
           Selects a named credential/config profile from `~/.gwi/settings.json` (AWS-CLI style).
@@ -99,7 +99,7 @@ Options:
       --account <NAME>
           Selects a named Gmail account configured in `~/.gwi/settings.json` (AWS-CLI style, mirrors the top-level `--profile`) for this invocation.
           
-          Orthogonal to `--profile`: switching the Gmail account never changes which profile is active, and vice versa (see docs/adrs/adr-0066.md). Overrides `GWI_GMAIL_ACCOUNT`. Scoped to the `gmail` subtree — unlike `--profile` it is not usable before the `gmail` subcommand name, only after it (`gmail --account NAME <cmd>` or `gmail <cmd> --account NAME`), so it can't collide with another product's own `--account` flag (Drive has the same one) as more command trees are added.
+          Orthogonal to `--profile`: switching the Gmail account never changes which profile is active, and vice versa (see ADR-0066). Overrides `GWI_GMAIL_ACCOUNT`. Scoped to the `gmail` subtree — unlike `--profile` it is not usable before the `gmail` subcommand name, only after it (`gmail --account NAME <cmd>` or `gmail <cmd> --account NAME`), so it can't collide with another product's own `--account` flag (Drive has the same one) as more command trees are added.
 
       --profile <NAME>
           Selects a named credential/config profile from `~/.gwi/settings.json` (AWS-CLI style).
@@ -118,7 +118,7 @@ Options:
       --account <NAME>
           Selects a named Gmail account configured in `~/.gwi/settings.json` (AWS-CLI style, mirrors the top-level `--profile`) for this invocation.
           
-          Orthogonal to `--profile`: switching the Gmail account never changes which profile is active, and vice versa (see docs/adrs/adr-0066.md). Overrides `GWI_GMAIL_ACCOUNT`. Scoped to the `gmail` subtree — unlike `--profile` it is not usable before the `gmail` subcommand name, only after it (`gmail --account NAME <cmd>` or `gmail <cmd> --account NAME`), so it can't collide with another product's own `--account` flag (Drive has the same one) as more command trees are added.
+          Orthogonal to `--profile`: switching the Gmail account never changes which profile is active, and vice versa (see ADR-0066). Overrides `GWI_GMAIL_ACCOUNT`. Scoped to the `gmail` subtree — unlike `--profile` it is not usable before the `gmail` subcommand name, only after it (`gmail --account NAME <cmd>` or `gmail <cmd> --account NAME`), so it can't collide with another product's own `--account` flag (Drive has the same one) as more command trees are added.
 
       --modify
           Request the `gmail.modify` scope in addition to `gmail.readonly`. It is needed by every command that changes the mailbox: `label add`/`remove`, `draft create`/`update` and `insert`. Without this flag, only read access is granted
@@ -140,7 +140,7 @@ Options:
       --account <NAME>
           Selects a named Gmail account configured in `~/.gwi/settings.json` (AWS-CLI style, mirrors the top-level `--profile`) for this invocation.
           
-          Orthogonal to `--profile`: switching the Gmail account never changes which profile is active, and vice versa (see docs/adrs/adr-0066.md). Overrides `GWI_GMAIL_ACCOUNT`. Scoped to the `gmail` subtree — unlike `--profile` it is not usable before the `gmail` subcommand name, only after it (`gmail --account NAME <cmd>` or `gmail <cmd> --account NAME`), so it can't collide with another product's own `--account` flag (Drive has the same one) as more command trees are added.
+          Orthogonal to `--profile`: switching the Gmail account never changes which profile is active, and vice versa (see ADR-0066). Overrides `GWI_GMAIL_ACCOUNT`. Scoped to the `gmail` subtree — unlike `--profile` it is not usable before the `gmail` subcommand name, only after it (`gmail --account NAME <cmd>` or `gmail <cmd> --account NAME`), so it can't collide with another product's own `--account` flag (Drive has the same one) as more command trees are added.
 
       --profile <NAME>
           Selects a named credential/config profile from `~/.gwi/settings.json` (AWS-CLI style).
@@ -159,7 +159,7 @@ Options:
       --account <NAME>
           Selects a named Gmail account configured in `~/.gwi/settings.json` (AWS-CLI style, mirrors the top-level `--profile`) for this invocation.
           
-          Orthogonal to `--profile`: switching the Gmail account never changes which profile is active, and vice versa (see docs/adrs/adr-0066.md). Overrides `GWI_GMAIL_ACCOUNT`. Scoped to the `gmail` subtree — unlike `--profile` it is not usable before the `gmail` subcommand name, only after it (`gmail --account NAME <cmd>` or `gmail <cmd> --account NAME`), so it can't collide with another product's own `--account` flag (Drive has the same one) as more command trees are added.
+          Orthogonal to `--profile`: switching the Gmail account never changes which profile is active, and vice versa (see ADR-0066). Overrides `GWI_GMAIL_ACCOUNT`. Scoped to the `gmail` subtree — unlike `--profile` it is not usable before the `gmail` subcommand name, only after it (`gmail --account NAME <cmd>` or `gmail <cmd> --account NAME`), so it can't collide with another product's own `--account` flag (Drive has the same one) as more command trees are added.
 
       --all
           Reports status for every configured Gmail account instead of just the resolved one. Degenerates to today's single-account output when no named accounts are configured (issue #1500)
@@ -187,7 +187,7 @@ Options:
       --account <NAME>
           Selects a named Gmail account configured in `~/.gwi/settings.json` (AWS-CLI style, mirrors the top-level `--profile`) for this invocation.
           
-          Orthogonal to `--profile`: switching the Gmail account never changes which profile is active, and vice versa (see docs/adrs/adr-0066.md). Overrides `GWI_GMAIL_ACCOUNT`. Scoped to the `gmail` subtree — unlike `--profile` it is not usable before the `gmail` subcommand name, only after it (`gmail --account NAME <cmd>` or `gmail <cmd> --account NAME`), so it can't collide with another product's own `--account` flag (Drive has the same one) as more command trees are added.
+          Orthogonal to `--profile`: switching the Gmail account never changes which profile is active, and vice versa (see ADR-0066). Overrides `GWI_GMAIL_ACCOUNT`. Scoped to the `gmail` subtree — unlike `--profile` it is not usable before the `gmail` subcommand name, only after it (`gmail --account NAME <cmd>` or `gmail <cmd> --account NAME`), so it can't collide with another product's own `--account` flag (Drive has the same one) as more command trees are added.
 
       --profile <NAME>
           Selects a named credential/config profile from `~/.gwi/settings.json` (AWS-CLI style).
@@ -206,7 +206,7 @@ Options:
       --account <NAME>
           Selects a named Gmail account configured in `~/.gwi/settings.json` (AWS-CLI style, mirrors the top-level `--profile`) for this invocation.
           
-          Orthogonal to `--profile`: switching the Gmail account never changes which profile is active, and vice versa (see docs/adrs/adr-0066.md). Overrides `GWI_GMAIL_ACCOUNT`. Scoped to the `gmail` subtree — unlike `--profile` it is not usable before the `gmail` subcommand name, only after it (`gmail --account NAME <cmd>` or `gmail <cmd> --account NAME`), so it can't collide with another product's own `--account` flag (Drive has the same one) as more command trees are added.
+          Orthogonal to `--profile`: switching the Gmail account never changes which profile is active, and vice versa (see ADR-0066). Overrides `GWI_GMAIL_ACCOUNT`. Scoped to the `gmail` subtree — unlike `--profile` it is not usable before the `gmail` subcommand name, only after it (`gmail --account NAME <cmd>` or `gmail <cmd> --account NAME`), so it can't collide with another product's own `--account` flag (Drive has the same one) as more command trees are added.
 
   -o, --output <OUTPUT>
           Output format
@@ -241,7 +241,7 @@ Options:
       --account <NAME>
           Selects a named Gmail account configured in `~/.gwi/settings.json` (AWS-CLI style, mirrors the top-level `--profile`) for this invocation.
           
-          Orthogonal to `--profile`: switching the Gmail account never changes which profile is active, and vice versa (see docs/adrs/adr-0066.md). Overrides `GWI_GMAIL_ACCOUNT`. Scoped to the `gmail` subtree — unlike `--profile` it is not usable before the `gmail` subcommand name, only after it (`gmail --account NAME <cmd>` or `gmail <cmd> --account NAME`), so it can't collide with another product's own `--account` flag (Drive has the same one) as more command trees are added.
+          Orthogonal to `--profile`: switching the Gmail account never changes which profile is active, and vice versa (see ADR-0066). Overrides `GWI_GMAIL_ACCOUNT`. Scoped to the `gmail` subtree — unlike `--profile` it is not usable before the `gmail` subcommand name, only after it (`gmail --account NAME <cmd>` or `gmail <cmd> --account NAME`), so it can't collide with another product's own `--account` flag (Drive has the same one) as more command trees are added.
 
       --profile <NAME>
           Selects a named credential/config profile from `~/.gwi/settings.json` (AWS-CLI style).
@@ -260,7 +260,7 @@ Options:
       --account <NAME>
           Selects a named Gmail account configured in `~/.gwi/settings.json` (AWS-CLI style, mirrors the top-level `--profile`) for this invocation.
           
-          Orthogonal to `--profile`: switching the Gmail account never changes which profile is active, and vice versa (see docs/adrs/adr-0066.md). Overrides `GWI_GMAIL_ACCOUNT`. Scoped to the `gmail` subtree — unlike `--profile` it is not usable before the `gmail` subcommand name, only after it (`gmail --account NAME <cmd>` or `gmail <cmd> --account NAME`), so it can't collide with another product's own `--account` flag (Drive has the same one) as more command trees are added.
+          Orthogonal to `--profile`: switching the Gmail account never changes which profile is active, and vice versa (see ADR-0066). Overrides `GWI_GMAIL_ACCOUNT`. Scoped to the `gmail` subtree — unlike `--profile` it is not usable before the `gmail` subcommand name, only after it (`gmail --account NAME <cmd>` or `gmail <cmd> --account NAME`), so it can't collide with another product's own `--account` flag (Drive has the same one) as more command trees are added.
 
       --name <NAME>
           Name to migrate the legacy credentials into.
@@ -289,7 +289,7 @@ Options:
       --account <NAME>
           Selects a named Gmail account configured in `~/.gwi/settings.json` (AWS-CLI style, mirrors the top-level `--profile`) for this invocation.
           
-          Orthogonal to `--profile`: switching the Gmail account never changes which profile is active, and vice versa (see docs/adrs/adr-0066.md). Overrides `GWI_GMAIL_ACCOUNT`. Scoped to the `gmail` subtree — unlike `--profile` it is not usable before the `gmail` subcommand name, only after it (`gmail --account NAME <cmd>` or `gmail <cmd> --account NAME`), so it can't collide with another product's own `--account` flag (Drive has the same one) as more command trees are added.
+          Orthogonal to `--profile`: switching the Gmail account never changes which profile is active, and vice versa (see ADR-0066). Overrides `GWI_GMAIL_ACCOUNT`. Scoped to the `gmail` subtree — unlike `--profile` it is not usable before the `gmail` subcommand name, only after it (`gmail --account NAME <cmd>` or `gmail <cmd> --account NAME`), so it can't collide with another product's own `--account` flag (Drive has the same one) as more command trees are added.
 
       --profile <NAME>
           Selects a named credential/config profile from `~/.gwi/settings.json` (AWS-CLI style).
@@ -340,7 +340,7 @@ Options:
       --account <NAME>
           Selects a named Gmail account configured in `~/.gwi/settings.json` (AWS-CLI style, mirrors the top-level `--profile`) for this invocation.
           
-          Orthogonal to `--profile`: switching the Gmail account never changes which profile is active, and vice versa (see docs/adrs/adr-0066.md). Overrides `GWI_GMAIL_ACCOUNT`. Scoped to the `gmail` subtree — unlike `--profile` it is not usable before the `gmail` subcommand name, only after it (`gmail --account NAME <cmd>` or `gmail <cmd> --account NAME`), so it can't collide with another product's own `--account` flag (Drive has the same one) as more command trees are added.
+          Orthogonal to `--profile`: switching the Gmail account never changes which profile is active, and vice versa (see ADR-0066). Overrides `GWI_GMAIL_ACCOUNT`. Scoped to the `gmail` subtree — unlike `--profile` it is not usable before the `gmail` subcommand name, only after it (`gmail --account NAME <cmd>` or `gmail <cmd> --account NAME`), so it can't collide with another product's own `--account` flag (Drive has the same one) as more command trees are added.
 
       --out-file <PATH>
           Output file (writes to stdout if omitted). With `--detail raw`, the message's exact RFC 2822 bytes, i.e. an `.eml` file
@@ -393,7 +393,7 @@ Options:
       --account <NAME>
           Selects a named Gmail account configured in `~/.gwi/settings.json` (AWS-CLI style, mirrors the top-level `--profile`) for this invocation.
           
-          Orthogonal to `--profile`: switching the Gmail account never changes which profile is active, and vice versa (see docs/adrs/adr-0066.md). Overrides `GWI_GMAIL_ACCOUNT`. Scoped to the `gmail` subtree — unlike `--profile` it is not usable before the `gmail` subcommand name, only after it (`gmail --account NAME <cmd>` or `gmail <cmd> --account NAME`), so it can't collide with another product's own `--account` flag (Drive has the same one) as more command trees are added.
+          Orthogonal to `--profile`: switching the Gmail account never changes which profile is active, and vice versa (see ADR-0066). Overrides `GWI_GMAIL_ACCOUNT`. Scoped to the `gmail` subtree — unlike `--profile` it is not usable before the `gmail` subcommand name, only after it (`gmail --account NAME <cmd>` or `gmail <cmd> --account NAME`), so it can't collide with another product's own `--account` flag (Drive has the same one) as more command trees are added.
 
   -o, --output <OUTPUT>
           Output format
@@ -430,7 +430,7 @@ Options:
       --account <NAME>
           Selects a named Gmail account configured in `~/.gwi/settings.json` (AWS-CLI style, mirrors the top-level `--profile`) for this invocation.
           
-          Orthogonal to `--profile`: switching the Gmail account never changes which profile is active, and vice versa (see docs/adrs/adr-0066.md). Overrides `GWI_GMAIL_ACCOUNT`. Scoped to the `gmail` subtree — unlike `--profile` it is not usable before the `gmail` subcommand name, only after it (`gmail --account NAME <cmd>` or `gmail <cmd> --account NAME`), so it can't collide with another product's own `--account` flag (Drive has the same one) as more command trees are added.
+          Orthogonal to `--profile`: switching the Gmail account never changes which profile is active, and vice versa (see ADR-0066). Overrides `GWI_GMAIL_ACCOUNT`. Scoped to the `gmail` subtree — unlike `--profile` it is not usable before the `gmail` subcommand name, only after it (`gmail --account NAME <cmd>` or `gmail <cmd> --account NAME`), so it can't collide with another product's own `--account` flag (Drive has the same one) as more command trees are added.
 
       --profile <NAME>
           Selects a named credential/config profile from `~/.gwi/settings.json` (AWS-CLI style).
@@ -449,7 +449,7 @@ Options:
       --account <NAME>
           Selects a named Gmail account configured in `~/.gwi/settings.json` (AWS-CLI style, mirrors the top-level `--profile`) for this invocation.
           
-          Orthogonal to `--profile`: switching the Gmail account never changes which profile is active, and vice versa (see docs/adrs/adr-0066.md). Overrides `GWI_GMAIL_ACCOUNT`. Scoped to the `gmail` subtree — unlike `--profile` it is not usable before the `gmail` subcommand name, only after it (`gmail --account NAME <cmd>` or `gmail <cmd> --account NAME`), so it can't collide with another product's own `--account` flag (Drive has the same one) as more command trees are added.
+          Orthogonal to `--profile`: switching the Gmail account never changes which profile is active, and vice versa (see ADR-0066). Overrides `GWI_GMAIL_ACCOUNT`. Scoped to the `gmail` subtree — unlike `--profile` it is not usable before the `gmail` subcommand name, only after it (`gmail --account NAME <cmd>` or `gmail <cmd> --account NAME`), so it can't collide with another product's own `--account` flag (Drive has the same one) as more command trees are added.
 
   -o, --output <OUTPUT>
           Output format
@@ -484,7 +484,7 @@ Options:
       --account <NAME>
           Selects a named Gmail account configured in `~/.gwi/settings.json` (AWS-CLI style, mirrors the top-level `--profile`) for this invocation.
           
-          Orthogonal to `--profile`: switching the Gmail account never changes which profile is active, and vice versa (see docs/adrs/adr-0066.md). Overrides `GWI_GMAIL_ACCOUNT`. Scoped to the `gmail` subtree — unlike `--profile` it is not usable before the `gmail` subcommand name, only after it (`gmail --account NAME <cmd>` or `gmail <cmd> --account NAME`), so it can't collide with another product's own `--account` flag (Drive has the same one) as more command trees are added.
+          Orthogonal to `--profile`: switching the Gmail account never changes which profile is active, and vice versa (see ADR-0066). Overrides `GWI_GMAIL_ACCOUNT`. Scoped to the `gmail` subtree — unlike `--profile` it is not usable before the `gmail` subcommand name, only after it (`gmail --account NAME <cmd>` or `gmail <cmd> --account NAME`), so it can't collide with another product's own `--account` flag (Drive has the same one) as more command trees are added.
 
       --label <LABEL>
           Label id to add (see `gmail label list` for ids)
@@ -510,7 +510,7 @@ Options:
       --account <NAME>
           Selects a named Gmail account configured in `~/.gwi/settings.json` (AWS-CLI style, mirrors the top-level `--profile`) for this invocation.
           
-          Orthogonal to `--profile`: switching the Gmail account never changes which profile is active, and vice versa (see docs/adrs/adr-0066.md). Overrides `GWI_GMAIL_ACCOUNT`. Scoped to the `gmail` subtree — unlike `--profile` it is not usable before the `gmail` subcommand name, only after it (`gmail --account NAME <cmd>` or `gmail <cmd> --account NAME`), so it can't collide with another product's own `--account` flag (Drive has the same one) as more command trees are added.
+          Orthogonal to `--profile`: switching the Gmail account never changes which profile is active, and vice versa (see ADR-0066). Overrides `GWI_GMAIL_ACCOUNT`. Scoped to the `gmail` subtree — unlike `--profile` it is not usable before the `gmail` subcommand name, only after it (`gmail --account NAME <cmd>` or `gmail <cmd> --account NAME`), so it can't collide with another product's own `--account` flag (Drive has the same one) as more command trees are added.
 
       --label <LABEL>
           Label id to remove (see `gmail label list` for ids)
@@ -545,7 +545,7 @@ Options:
       --account <NAME>
           Selects a named Gmail account configured in `~/.gwi/settings.json` (AWS-CLI style, mirrors the top-level `--profile`) for this invocation.
           
-          Orthogonal to `--profile`: switching the Gmail account never changes which profile is active, and vice versa (see docs/adrs/adr-0066.md). Overrides `GWI_GMAIL_ACCOUNT`. Scoped to the `gmail` subtree — unlike `--profile` it is not usable before the `gmail` subcommand name, only after it (`gmail --account NAME <cmd>` or `gmail <cmd> --account NAME`), so it can't collide with another product's own `--account` flag (Drive has the same one) as more command trees are added.
+          Orthogonal to `--profile`: switching the Gmail account never changes which profile is active, and vice versa (see ADR-0066). Overrides `GWI_GMAIL_ACCOUNT`. Scoped to the `gmail` subtree — unlike `--profile` it is not usable before the `gmail` subcommand name, only after it (`gmail --account NAME <cmd>` or `gmail <cmd> --account NAME`), so it can't collide with another product's own `--account` flag (Drive has the same one) as more command trees are added.
 
       --profile <NAME>
           Selects a named credential/config profile from `~/.gwi/settings.json` (AWS-CLI style).
@@ -564,7 +564,7 @@ Options:
       --account <NAME>
           Selects a named Gmail account configured in `~/.gwi/settings.json` (AWS-CLI style, mirrors the top-level `--profile`) for this invocation.
           
-          Orthogonal to `--profile`: switching the Gmail account never changes which profile is active, and vice versa (see docs/adrs/adr-0066.md). Overrides `GWI_GMAIL_ACCOUNT`. Scoped to the `gmail` subtree — unlike `--profile` it is not usable before the `gmail` subcommand name, only after it (`gmail --account NAME <cmd>` or `gmail <cmd> --account NAME`), so it can't collide with another product's own `--account` flag (Drive has the same one) as more command trees are added.
+          Orthogonal to `--profile`: switching the Gmail account never changes which profile is active, and vice versa (see ADR-0066). Overrides `GWI_GMAIL_ACCOUNT`. Scoped to the `gmail` subtree — unlike `--profile` it is not usable before the `gmail` subcommand name, only after it (`gmail --account NAME <cmd>` or `gmail <cmd> --account NAME`), so it can't collide with another product's own `--account` flag (Drive has the same one) as more command trees are added.
 
       --profile <NAME>
           Selects a named credential/config profile from `~/.gwi/settings.json` (AWS-CLI style).
@@ -607,7 +607,7 @@ Options:
       --account <NAME>
           Selects a named Gmail account configured in `~/.gwi/settings.json` (AWS-CLI style, mirrors the top-level `--profile`) for this invocation.
           
-          Orthogonal to `--profile`: switching the Gmail account never changes which profile is active, and vice versa (see docs/adrs/adr-0066.md). Overrides `GWI_GMAIL_ACCOUNT`. Scoped to the `gmail` subtree — unlike `--profile` it is not usable before the `gmail` subcommand name, only after it (`gmail --account NAME <cmd>` or `gmail <cmd> --account NAME`), so it can't collide with another product's own `--account` flag (Drive has the same one) as more command trees are added.
+          Orthogonal to `--profile`: switching the Gmail account never changes which profile is active, and vice versa (see ADR-0066). Overrides `GWI_GMAIL_ACCOUNT`. Scoped to the `gmail` subtree — unlike `--profile` it is not usable before the `gmail` subcommand name, only after it (`gmail --account NAME <cmd>` or `gmail <cmd> --account NAME`), so it can't collide with another product's own `--account` flag (Drive has the same one) as more command trees are added.
 
       --out-file <PATH>
           Output file (writes to stdout if omitted). With `--detail raw`, the message's exact RFC 2822 bytes, i.e. an `.eml` file
@@ -656,7 +656,7 @@ Options:
       --account <NAME>
           Selects a named Gmail account configured in `~/.gwi/settings.json` (AWS-CLI style, mirrors the top-level `--profile`) for this invocation.
           
-          Orthogonal to `--profile`: switching the Gmail account never changes which profile is active, and vice versa (see docs/adrs/adr-0066.md). Overrides `GWI_GMAIL_ACCOUNT`. Scoped to the `gmail` subtree — unlike `--profile` it is not usable before the `gmail` subcommand name, only after it (`gmail --account NAME <cmd>` or `gmail <cmd> --account NAME`), so it can't collide with another product's own `--account` flag (Drive has the same one) as more command trees are added.
+          Orthogonal to `--profile`: switching the Gmail account never changes which profile is active, and vice versa (see ADR-0066). Overrides `GWI_GMAIL_ACCOUNT`. Scoped to the `gmail` subtree — unlike `--profile` it is not usable before the `gmail` subcommand name, only after it (`gmail --account NAME <cmd>` or `gmail <cmd> --account NAME`), so it can't collide with another product's own `--account` flag (Drive has the same one) as more command trees are added.
 
       --from <ADDR>
           Send as this address: one of the account's verified send-as aliases, or its primary address, as `addr@example.com` or `"Name <addr@example.com>"`. Without a name, Gmail's name for the address is used
@@ -730,7 +730,7 @@ Options:
       --account <NAME>
           Selects a named Gmail account configured in `~/.gwi/settings.json` (AWS-CLI style, mirrors the top-level `--profile`) for this invocation.
           
-          Orthogonal to `--profile`: switching the Gmail account never changes which profile is active, and vice versa (see docs/adrs/adr-0066.md). Overrides `GWI_GMAIL_ACCOUNT`. Scoped to the `gmail` subtree — unlike `--profile` it is not usable before the `gmail` subcommand name, only after it (`gmail --account NAME <cmd>` or `gmail <cmd> --account NAME`), so it can't collide with another product's own `--account` flag (Drive has the same one) as more command trees are added.
+          Orthogonal to `--profile`: switching the Gmail account never changes which profile is active, and vice versa (see ADR-0066). Overrides `GWI_GMAIL_ACCOUNT`. Scoped to the `gmail` subtree — unlike `--profile` it is not usable before the `gmail` subcommand name, only after it (`gmail --account NAME <cmd>` or `gmail <cmd> --account NAME`), so it can't collide with another product's own `--account` flag (Drive has the same one) as more command trees are added.
 
       --from <ADDR>
           Send as this address: one of the account's verified send-as aliases, or its primary address, as `addr@example.com` or `"Name <addr@example.com>"`. Without a name, Gmail's name for the address is used
@@ -800,7 +800,7 @@ Options:
       --account <NAME>
           Selects a named Gmail account configured in `~/.gwi/settings.json` (AWS-CLI style, mirrors the top-level `--profile`) for this invocation.
           
-          Orthogonal to `--profile`: switching the Gmail account never changes which profile is active, and vice versa (see docs/adrs/adr-0066.md). Overrides `GWI_GMAIL_ACCOUNT`. Scoped to the `gmail` subtree — unlike `--profile` it is not usable before the `gmail` subcommand name, only after it (`gmail --account NAME <cmd>` or `gmail <cmd> --account NAME`), so it can't collide with another product's own `--account` flag (Drive has the same one) as more command trees are added.
+          Orthogonal to `--profile`: switching the Gmail account never changes which profile is active, and vice versa (see ADR-0066). Overrides `GWI_GMAIL_ACCOUNT`. Scoped to the `gmail` subtree — unlike `--profile` it is not usable before the `gmail` subcommand name, only after it (`gmail --account NAME <cmd>` or `gmail <cmd> --account NAME`), so it can't collide with another product's own `--account` flag (Drive has the same one) as more command trees are added.
 
       --output-dir <PATH>
           Directory to maintain the archive in. Created if missing
@@ -860,7 +860,7 @@ Options:
       --account <NAME>
           Selects a named Gmail account configured in `~/.gwi/settings.json` (AWS-CLI style, mirrors the top-level `--profile`) for this invocation.
           
-          Orthogonal to `--profile`: switching the Gmail account never changes which profile is active, and vice versa (see docs/adrs/adr-0066.md). Overrides `GWI_GMAIL_ACCOUNT`. Scoped to the `gmail` subtree — unlike `--profile` it is not usable before the `gmail` subcommand name, only after it (`gmail --account NAME <cmd>` or `gmail <cmd> --account NAME`), so it can't collide with another product's own `--account` flag (Drive has the same one) as more command trees are added.
+          Orthogonal to `--profile`: switching the Gmail account never changes which profile is active, and vice versa (see ADR-0066). Overrides `GWI_GMAIL_ACCOUNT`. Scoped to the `gmail` subtree — unlike `--profile` it is not usable before the `gmail` subcommand name, only after it (`gmail --account NAME <cmd>` or `gmail <cmd> --account NAME`), so it can't collide with another product's own `--account` flag (Drive has the same one) as more command trees are added.
 
       --context-dir <PATH>
           Overrides the standard `.gwi/` discovery (walk-up from CWD, `GWI_CONFIG_DIR`, `local/` shadow) used to locate `gmail-sync.yaml`
@@ -909,7 +909,7 @@ Options:
       --account <NAME>
           Selects a named Gmail account configured in `~/.gwi/settings.json` (AWS-CLI style, mirrors the top-level `--profile`) for this invocation.
           
-          Orthogonal to `--profile`: switching the Gmail account never changes which profile is active, and vice versa (see docs/adrs/adr-0066.md). Overrides `GWI_GMAIL_ACCOUNT`. Scoped to the `gmail` subtree — unlike `--profile` it is not usable before the `gmail` subcommand name, only after it (`gmail --account NAME <cmd>` or `gmail <cmd> --account NAME`), so it can't collide with another product's own `--account` flag (Drive has the same one) as more command trees are added.
+          Orthogonal to `--profile`: switching the Gmail account never changes which profile is active, and vice versa (see ADR-0066). Overrides `GWI_GMAIL_ACCOUNT`. Scoped to the `gmail` subtree — unlike `--profile` it is not usable before the `gmail` subcommand name, only after it (`gmail --account NAME <cmd>` or `gmail <cmd> --account NAME`), so it can't collide with another product's own `--account` flag (Drive has the same one) as more command trees are added.
 
       --archive-dir <PATH>
           Archive directory previously populated by `gmail sync`/`sync-all`
@@ -953,7 +953,7 @@ Options:
       --account <NAME>
           Selects a named Gmail account configured in `~/.gwi/settings.json` (AWS-CLI style, mirrors the top-level `--profile`) for this invocation.
           
-          Orthogonal to `--profile`: switching the Gmail account never changes which profile is active, and vice versa (see docs/adrs/adr-0066.md). Overrides `GWI_GMAIL_ACCOUNT`. Scoped to the `gmail` subtree — unlike `--profile` it is not usable before the `gmail` subcommand name, only after it (`gmail --account NAME <cmd>` or `gmail <cmd> --account NAME`), so it can't collide with another product's own `--account` flag (Drive has the same one) as more command trees are added.
+          Orthogonal to `--profile`: switching the Gmail account never changes which profile is active, and vice versa (see ADR-0066). Overrides `GWI_GMAIL_ACCOUNT`. Scoped to the `gmail` subtree — unlike `--profile` it is not usable before the `gmail` subcommand name, only after it (`gmail --account NAME <cmd>` or `gmail <cmd> --account NAME`), so it can't collide with another product's own `--account` flag (Drive has the same one) as more command trees are added.
 
       --archive-dir <PATH>
           Archive directory previously populated by `gmail sync`/`sync-all`. Renders every non-deleted message from its `manifest.jsonl` selected by `--all`/`--since`/`--until`/`--id`/`--ids-from`/`--source-label` (see `selection`). Mutually exclusive with positional `PATH` arguments
@@ -1011,7 +1011,7 @@ Options:
       --account <NAME>
           Selects a named Gmail account configured in `~/.gwi/settings.json` (AWS-CLI style, mirrors the top-level `--profile`) for this invocation.
           
-          Orthogonal to `--profile`: switching the Gmail account never changes which profile is active, and vice versa (see docs/adrs/adr-0066.md). Overrides `GWI_GMAIL_ACCOUNT`. Scoped to the `gmail` subtree — unlike `--profile` it is not usable before the `gmail` subcommand name, only after it (`gmail --account NAME <cmd>` or `gmail <cmd> --account NAME`), so it can't collide with another product's own `--account` flag (Drive has the same one) as more command trees are added.
+          Orthogonal to `--profile`: switching the Gmail account never changes which profile is active, and vice versa (see ADR-0066). Overrides `GWI_GMAIL_ACCOUNT`. Scoped to the `gmail` subtree — unlike `--profile` it is not usable before the `gmail` subcommand name, only after it (`gmail --account NAME <cmd>` or `gmail <cmd> --account NAME`), so it can't collide with another product's own `--account` flag (Drive has the same one) as more command trees are added.
 
       --archive-dir <PATH>
           Archive directory previously populated by `gmail sync`/`sync-all`
