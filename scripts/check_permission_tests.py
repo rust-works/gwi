@@ -12,7 +12,7 @@ import re
 # Mask comments and literals, preserving offsets and newlines for diagnostics.
 # Raw strings must precede ordinary strings; chars exclude Rust lifetimes.
 _NON_CODE = re.compile(
-    r'//[^\n]*|/\*.*?\*/|(?:br|r)(?P<hashes>\#*)".*?"(?P=hashes)'
+    r'//[^\n]*|/\*|(?:br|r)(?P<hashes>\#*)".*?"(?P=hashes)'
     r'|b?"(?:\\.|[^"\\])*"|b?\'(?:\\.|[^\'\\])\'',
     re.DOTALL,
 )
@@ -24,11 +24,30 @@ _FUNCTION = re.compile(
 _SKIP = re.compile(r'\bskip_as_root\s*!\s*\(\s*\)')
 
 
+def mask_non_code(text):
+    """Mask literals and comments, including nested Rust block comments."""
+    parts = []
+    position = 0
+    while match := _NON_CODE.search(text, position):
+        end = match.end()
+        if match.group() == '/*':
+            depth = 1
+            end = len(text)
+            for delimiter in re.finditer(r'/\*|\*/', text[match.end():]):
+                depth += 1 if delimiter.group() == '/*' else -1
+                if depth == 0:
+                    end = match.end() + delimiter.end()
+                    break
+        parts.append(text[position:match.start()])
+        parts.append(re.sub(r'[^\n]', ' ', text[match.start():end]))
+        position = end
+    parts.append(text[position:])
+    return ''.join(parts)
+
+
 def check(text):
     """Return (line, function) for each restrictive call without a root skip."""
-    code = _NON_CODE.sub(
-        lambda match: re.sub(r'[^\n]', ' ', match.group()), text
-    )
+    code = mask_non_code(text)
     modes = [mode for mode in _MODE.finditer(code)
              if not int(mode[1].replace('_', ''), 8) & 0o200]
     if not modes:

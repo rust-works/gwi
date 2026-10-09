@@ -43,6 +43,7 @@ class PermissionTests(unittest.TestCase):
 
     def test_comments_and_strings_do_not_supply_a_guard(self):
         for fake in ('// skip_as_root!();', '/* skip_as_root!(); */',
+                     '/* outer /* inner */ skip_as_root!(); */',
                      'let s = "skip_as_root!(); }";',
                      'let s = r##"skip_as_root!(); }"##;'):
             self.assertEqual(len(guard.check(function(
@@ -50,6 +51,7 @@ class PermissionTests(unittest.TestCase):
 
     def test_comments_and_literals_do_not_supply_a_mode(self):
         for fake in ('// from_mode(0o500)', '/* from_mode(0o500) */',
+                     '/* outer /* inner */ from_mode(0o500) */',
                      'let s = "from_mode(0o500)";',
                      'let s = r#"from_mode(0o500)"#;', "let c = '}';"):
             self.assertEqual(guard.check(function(f'    {fake}')), [])
