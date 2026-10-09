@@ -144,6 +144,37 @@ mod audit_log_guard_tests {
     }
 }
 
+/// Installs a request-log environment on this thread only. Like
+/// [`AuditLogGuard`], it observes writes on the test thread; spawned tasks
+/// need their own route. Dropping restores a nested route, including on panic.
+/// Incidental writers on other threads keep their own scratch destination.
+pub(crate) struct RequestLogGuard {
+    previous: env::MapEnv,
+    _thread: std::marker::PhantomData<std::rc::Rc<()>>,
+}
+
+impl RequestLogGuard {
+    pub(crate) fn redirect(path: &std::path::Path) -> Self {
+        Self::with_env(env::MapEnv::new().with("GWI_LOG_FILE", &path.to_string_lossy()))
+    }
+
+    pub(crate) fn with_env(env: env::MapEnv) -> Self {
+        let previous = crate::request_log::TEST_LOG_ENV
+            .with(|slot| std::mem::replace(&mut *slot.borrow_mut(), env));
+        Self {
+            previous,
+            _thread: std::marker::PhantomData,
+        }
+    }
+}
+
+impl Drop for RequestLogGuard {
+    fn drop(&mut self) {
+        crate::request_log::TEST_LOG_ENV
+            .with(|slot| *slot.borrow_mut() = std::mem::take(&mut self.previous));
+    }
+}
+
 /// Thread-scoped log buffer backing [`capture_at`].
 #[derive(Clone, Default)]
 struct CaptureWriter(std::sync::Arc<std::sync::Mutex<Vec<u8>>>);

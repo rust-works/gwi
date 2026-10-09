@@ -63,13 +63,23 @@ impl GmailClient {
             .read_timeout(read_timeout())
             .build()
             .context("Failed to build HTTP client")?;
+        Ok(Self::with_http_client(base_url, credentials, client))
+    }
+
+    /// Builds a client with an already-configured transport. Tests that need
+    /// requests to remain in flight use this seam instead of ambient timeouts.
+    pub(crate) fn with_http_client(
+        base_url: &str,
+        credentials: &GmailCredentials,
+        client: Client,
+    ) -> Self {
         let session = GmailSession::new(client.clone(), credentials);
-        Ok(Self {
+        Self {
             client,
             base_url: base_url.trim_end_matches('/').to_string(),
             session,
             retry_notify: RwLock::new(None),
-        })
+        }
     }
 
     /// Registers `notify` to receive rate-limit retry notices (#1651)

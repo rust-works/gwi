@@ -1351,13 +1351,66 @@ mod tests {
             .mount(server)
             .await;
 
-        let mut client = GmailClient::new(&server.uri(), &test_credentials()).unwrap();
+        // Checkpoint observations require requests to outlive the observation
+        // window, independent of the developer's GWI_HTTP_* exports (#120).
+        let http = reqwest::Client::builder()
+            .connect_timeout(crate::utils::http::DEFAULT_CONNECT_TIMEOUT)
+            .read_timeout(crate::utils::http::DEFAULT_READ_TIMEOUT)
+            .build()
+            .unwrap();
+        let mut client = GmailClient::with_http_client(&server.uri(), &test_credentials(), http);
         crate::gmail::client::test_support::replace_session(
             &mut client,
             &test_credentials(),
             &format!("{}/token", server.uri()),
         );
         client
+    }
+
+    #[tokio::test]
+    async fn sync_test_client_outlives_hostile_ambient_read_timeout() {
+        // Scope the hostile export to a child: ordinary client tests do not
+        // take EnvGuard when resolving HTTP timeouts, so an in-process export
+        // would introduce the very race this sweep is intended to remove.
+        const CHILD: &str = "GWI_TEST_SYNC_TIMEOUT_CHILD";
+        if std::env::var(CHILD).as_deref() != Ok("1") {
+            let full_name = concat!(
+                module_path!(),
+                "::sync_test_client_outlives_hostile_ambient_read_timeout"
+            );
+            let test_name = full_name.split_once("::").unwrap().1;
+            let output = std::process::Command::new(std::env::current_exe().unwrap())
+                .arg("--exact")
+                .arg(test_name)
+                .env(CHILD, "1")
+                .env("GWI_HTTP_READ_TIMEOUT_SECS", "1")
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success()
+                    && String::from_utf8_lossy(&output.stdout).contains(test_name),
+                "{}\n{}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+            return;
+        }
+        let server = wiremock::MockServer::start().await;
+        let client = client_with_bootstrapped_token(&server).await;
+        wiremock::Mock::given(wiremock::matchers::method("GET"))
+            .and(wiremock::matchers::path("/delayed"))
+            .respond_with(
+                wiremock::ResponseTemplate::new(200)
+                    .set_delay(std::time::Duration::from_millis(1200)),
+            )
+            .mount(&server)
+            .await;
+        assert!(client
+            .get_json(&format!("{}/delayed", server.uri()))
+            .await
+            .unwrap()
+            .status()
+            .is_success());
     }
 
     async fn mount_profile(server: &wiremock::MockServer, email: &str, history_id: &str) {

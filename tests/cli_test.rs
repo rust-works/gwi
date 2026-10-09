@@ -99,11 +99,19 @@ fn gwi(home: &Path, args: &[&str]) -> Output {
 fn scrub_ambient_env_removes_the_variables_a_developer_shell_exports() {
     let mut command = Command::new(env!("CARGO_BIN_EXE_gwi"));
     command
+        .env("GWI_LOG_MAX_SIZE", "1")
+        .env("GWI_HTTP_READ_TIMEOUT_SECS", "1")
+        .env("GWI_SECRET_COMMAND_TTL_SECS", "0")
+        .env("GWI_DRIVE_LEASE_BIOMETRICS_ONLY", "1")
         .env("GWI_PROFILE", "exported")
         .env("DRIVE_API_URL", "http://127.0.0.1:1")
         .env("GMAIL_REFRESH_TOKEN_COMMAND", "echo exported");
     common::scrub_ambient_env(&mut command);
     for name in [
+        "GWI_LOG_MAX_SIZE",
+        "GWI_HTTP_READ_TIMEOUT_SECS",
+        "GWI_SECRET_COMMAND_TTL_SECS",
+        "GWI_DRIVE_LEASE_BIOMETRICS_ONLY",
         "GWI_PROFILE",
         "DRIVE_API_URL",
         "GMAIL_REFRESH_TOKEN_COMMAND",
