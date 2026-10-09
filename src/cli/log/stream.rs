@@ -7,7 +7,9 @@
 //! otherwise so it is printed once. A broken pipe (e.g. piping into `head`) is treated
 //! as a clean exit, not an error, and ends the scan at once. A reader that goes
 //! away while `--follow` is idle is noticed on the next poll tick (on unix, by
-//! polling stdout for hangup; elsewhere only on the next write).
+//! polling stdout for hangup; elsewhere only on the next write). Backlog scans
+//! also probe before reading and every 1,024 lines on unix, even when a filter or
+//! `--limit` prevents writes.
 //!
 //! `--follow` also notices the log being replaced (`gwi log prune`, rotation):
 //! by the file's identity (device and inode on unix; volume serial number and file
@@ -28,6 +30,9 @@ use crate::request_log::LogRecord;
 
 /// Poll interval while following the log.
 const FOLLOW_POLL: Duration = Duration::from_millis(250);
+
+/// Amortize the hangup probe across this many backlog lines, including nonmatches.
+const BACKLOG_PROBE_LINES: usize = 1024;
 
 /// Identity of a file on disk, `(device, inode)` on unix and `(volume serial number,
 /// file index)` on Windows; `None` where the platform offers none, so only
@@ -57,8 +62,8 @@ fn file_id(_file: &File) -> FileId {
     None
 }
 
-/// Whether the reader of stdout has gone away (e.g. `| head -1` has exited), so an
-/// idle `--follow`, which writes nothing, can still stop.
+/// Whether the reader of stdout has gone away (e.g. `| head -1` has exited), so
+/// backlog scans and idle `--follow`, which may write nothing, can still stop.
 #[cfg(unix)]
 fn stdout_hung_up() -> bool {
     use std::os::fd::AsFd;
@@ -126,7 +131,15 @@ pub fn run(
             // point is seen as a change of identity by the follow loop.
             tail.id = file_id(&file);
             let mut reader = BufReader::new(file);
-            match emit_backlog(&mut reader, filter, format, limit, follow, &mut out)? {
+            match emit_backlog(
+                &mut reader,
+                filter,
+                format,
+                limit,
+                follow,
+                &mut out,
+                stdout_hung_up,
+            )? {
                 Backlog::Complete { pos, skipped } => {
                     tail.pos = pos;
                     warn_skipped(path, skipped);
@@ -215,7 +228,9 @@ fn read_line_lossy<R: BufRead>(
 /// so when `follow` is set it is also not printed: `--follow` reads it from that
 /// offset and prints it once, when it is complete. A one-shot scan has nothing to
 /// complete it, so it still prints the line if it parses.
-/// Stops at the first write to a closed pipe, without reading the rest.
+/// Stops at the first write to a closed pipe or when `reader_gone` reports hangup,
+/// checked before reading and every [`BACKLOG_PROBE_LINES`] lines thereafter.
+/// The cadence counts every line, regardless of parsing or filtering.
 fn emit_backlog<R: BufRead, W: Write>(
     reader: &mut R,
     filter: &Filter,
@@ -223,13 +238,22 @@ fn emit_backlog<R: BufRead, W: Write>(
     limit: Option<usize>,
     follow: bool,
     out: &mut W,
+    mut reader_gone: impl FnMut() -> bool,
 ) -> Result<Backlog> {
     let mut pos = 0u64;
     let mut skipped = 0usize;
     let mut ring: VecDeque<String> = VecDeque::new();
     let mut buf = Vec::new();
     let mut line = String::new();
+    let mut until_probe = 0;
     loop {
+        if until_probe == 0 {
+            if reader_gone() {
+                return Ok(Backlog::ReaderGone);
+            }
+            until_probe = BACKLOG_PROBE_LINES;
+        }
+        until_probe -= 1;
         let n = read_line_lossy(reader, &mut buf, &mut line)?;
         if n == 0 {
             break;
@@ -434,6 +458,7 @@ mod tests {
             None,
             false,
             &mut out,
+            || false,
         )
         .unwrap();
         let text = String::from_utf8(out).unwrap();
@@ -454,6 +479,7 @@ mod tests {
             Some(2),
             false,
             &mut out,
+            || false,
         )
         .unwrap();
         let text = String::from_utf8(out).unwrap();
@@ -475,6 +501,7 @@ mod tests {
             None,
             false,
             &mut out,
+            || false,
         )
         .unwrap();
         let text = String::from_utf8(out).unwrap();
@@ -499,6 +526,7 @@ mod tests {
             None,
             false,
             &mut out,
+            || false,
         )
         .unwrap();
 
@@ -529,6 +557,7 @@ mod tests {
             None,
             true,
             &mut out,
+            || false,
         )
         .unwrap();
 
@@ -557,6 +586,7 @@ mod tests {
             Some(2),
             true,
             &mut out,
+            || false,
         )
         .unwrap();
 
@@ -579,6 +609,7 @@ mod tests {
             None,
             true,
             &mut out,
+            || false,
         )
         .unwrap();
 
@@ -613,6 +644,7 @@ mod tests {
             None,
             true,
             &mut backlog,
+            || false,
         )
         .unwrap() else {
             panic!("the scan should complete");
@@ -645,8 +677,16 @@ mod tests {
     fn scan(input: &[u8], filter: &Filter, limit: Option<usize>) -> (String, Backlog) {
         let mut reader = BufReader::new(Cursor::new(input.to_vec()));
         let mut out = Vec::new();
-        let result =
-            emit_backlog(&mut reader, filter, Format::Json, limit, false, &mut out).unwrap();
+        let result = emit_backlog(
+            &mut reader,
+            filter,
+            Format::Json,
+            limit,
+            false,
+            &mut out,
+            || false,
+        )
+        .unwrap();
         (String::from_utf8(out).unwrap(), result)
     }
 
@@ -773,6 +813,7 @@ mod tests {
             None,
             false,
             &mut out,
+            || false,
         )
         .unwrap();
         let text = String::from_utf8(out).unwrap();
@@ -810,6 +851,7 @@ mod tests {
             None,
             false,
             &mut out,
+            || false,
         )
         .unwrap();
         let text = String::from_utf8(out).unwrap();
@@ -835,7 +877,16 @@ mod tests {
         .unwrap();
         let mut reader = BufReader::new(Cursor::new(sample_lines()));
         let mut out = Vec::new();
-        emit_backlog(&mut reader, &filter, Format::Json, None, false, &mut out).unwrap();
+        emit_backlog(
+            &mut reader,
+            &filter,
+            Format::Json,
+            None,
+            false,
+            &mut out,
+            || false,
+        )
+        .unwrap();
         // All sample lines are status 200, so nothing matches 5xx.
         assert!(String::from_utf8(out).unwrap().is_empty());
     }
@@ -912,6 +963,117 @@ mod tests {
     }
 
     #[test]
+    fn backlog_probe_stops_scans_that_write_nothing() {
+        let input = many_lines();
+        let mut no_match = filter_input();
+        let queries = ["rare:1".to_string()];
+        no_match.query = &queries;
+        let no_match = Filter::build(no_match).unwrap();
+        for (filter, limit) in [(&no_match, None), (&empty_filter(), Some(3))] {
+            for follow in [false, true] {
+                let mut reader = Cursor::new(input.as_bytes());
+                let mut out = Vec::new();
+                let mut probes = 0;
+                let result = emit_backlog(
+                    &mut reader,
+                    filter,
+                    Format::Json,
+                    limit,
+                    follow,
+                    &mut out,
+                    || {
+                        probes += 1;
+                        probes == 2
+                    },
+                )
+                .unwrap();
+                assert_eq!(result, Backlog::ReaderGone);
+                assert_eq!(probes, 2);
+                assert!(out.is_empty());
+                let consumed = reader.position() as usize;
+                assert!(consumed < input.len());
+                assert_eq!(input[..consumed].lines().count(), BACKLOG_PROBE_LINES);
+            }
+        }
+    }
+
+    #[test]
+    fn backlog_probe_counts_blank_and_malformed_lines() {
+        for line in ["\n", "not json\n"] {
+            let input = line.repeat(BACKLOG_PROBE_LINES * 3);
+            let mut reader = Cursor::new(input.as_bytes());
+            let mut out = Vec::new();
+            let mut probes = 0;
+            let result = emit_backlog(
+                &mut reader,
+                &empty_filter(),
+                Format::Json,
+                None,
+                false,
+                &mut out,
+                || {
+                    probes += 1;
+                    probes == 2
+                },
+            )
+            .unwrap();
+            assert_eq!(result, Backlog::ReaderGone);
+            assert_eq!(reader.position() as usize, line.len() * BACKLOG_PROBE_LINES);
+            assert_eq!(probes, 2);
+            assert!(out.is_empty());
+        }
+    }
+
+    #[test]
+    fn backlog_probe_detects_an_already_closed_reader_before_reading() {
+        let mut reader = Cursor::new(sample_lines());
+        let mut out = Vec::new();
+        let result = emit_backlog(
+            &mut reader,
+            &empty_filter(),
+            Format::Json,
+            None,
+            false,
+            &mut out,
+            || true,
+        )
+        .unwrap();
+        assert_eq!(result, Backlog::ReaderGone);
+        assert_eq!(reader.position(), 0);
+        assert!(out.is_empty());
+    }
+
+    #[test]
+    fn backlog_probe_is_amortized_and_preserves_live_reader_output() {
+        let input = many_lines();
+        let mut reader = Cursor::new(input.as_bytes());
+        let mut out = Vec::new();
+        let mut probes = 0;
+        let result = emit_backlog(
+            &mut reader,
+            &empty_filter(),
+            Format::Json,
+            None,
+            false,
+            &mut out,
+            || {
+                probes += 1;
+                false
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            result,
+            Backlog::Complete {
+                pos: input.len() as u64,
+                skipped: 0
+            }
+        );
+        assert_eq!(out, input.as_bytes());
+        assert_eq!(probes, input.lines().count() / BACKLOG_PROBE_LINES + 1);
+    }
+
+    #[test]
     fn backlog_stops_at_a_closed_pipe_without_reading_the_rest() {
         let input = many_lines();
         let mut reader = BufReader::new(Cursor::new(input.clone()));
@@ -924,6 +1086,7 @@ mod tests {
             None,
             false,
             &mut out,
+            || false,
         )
         .unwrap();
 
@@ -950,6 +1113,7 @@ mod tests {
             Some(3),
             false,
             &mut out,
+            || false,
         )
         .unwrap();
 
@@ -967,7 +1131,8 @@ mod tests {
             Format::Json,
             None,
             false,
-            &mut out
+            &mut out,
+            || false
         )
         .is_err());
     }
