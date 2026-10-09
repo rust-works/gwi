@@ -735,13 +735,32 @@ fn export_extensions_cover_every_known_type_and_default_to_export() {
 }
 
 #[test]
-fn safe_path_reports_inspection_failures_other_than_not_found() {
+fn safe_path_rejects_a_regular_file_as_an_intermediate_directory() {
     let dir = tempfile::tempdir().unwrap();
     fs::write(dir.path().join("file"), "x").unwrap();
     // A regular file must never be accepted as an intermediate directory,
     // including on Windows where inspecting its child returns NotFound.
     let err = safe_path(dir.path(), Path::new("file/child")).unwrap_err();
-    assert!(err.to_string().starts_with("inspect "), "{err:#}");
+    assert!(err.to_string().contains("not a directory"), "{err:#}");
+}
+
+#[cfg(unix)]
+#[test]
+fn safe_path_reports_inspection_failures_other_than_not_found() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().unwrap();
+    let locked = dir.path().join("locked");
+    fs::create_dir(&locked).unwrap();
+    fs::write(locked.join("child"), "x").unwrap();
+    fs::set_permissions(&locked, fs::Permissions::from_mode(0o000)).unwrap();
+    // Root ignores mode bits, so only assert where the lstat really is denied.
+    let denied = fs::symlink_metadata(locked.join("child")).is_err();
+    let result = safe_path(dir.path(), Path::new("locked/child"));
+    fs::set_permissions(&locked, fs::Permissions::from_mode(0o700)).unwrap();
+    if denied {
+        let err = result.unwrap_err();
+        assert!(err.to_string().starts_with("inspect "), "{err:#}");
+    }
 }
 
 #[tokio::test]
