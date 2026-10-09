@@ -907,6 +907,34 @@ fn log_query_quoted_not_is_a_literal_and_status_accepts_drive_statuses() {
 }
 
 #[test]
+fn log_rejects_malformed_statuses_before_scanning_an_empty_log() {
+    let home = tempfile::tempdir().unwrap();
+    std::fs::write(home.path().join("log.jsonl"), "").unwrap();
+
+    for (spec, bad_value) in [
+        ("9xx", "9xx"),
+        (">=abc", ">=abc"),
+        ("20x", "20x"),
+        ("blocked,4xx", "4xx"),
+        ("4xx,blocked", "blocked"),
+        ("blocked,>=400", ">=400"),
+        (">=400,blocked", ">=400,blocked"),
+    ] {
+        let query = format!("status:{spec}");
+        for (flag, value) in [("--status", spec), ("--query", query.as_str())] {
+            let output = gwi(home.path(), &["log", flag, value]);
+            assert!(!output.status.success(), "{flag} {value}");
+            assert!(output.stdout.is_empty(), "{flag} {value}");
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            assert!(stderr.contains(bad_value), "{flag} {value}: {stderr}");
+            if flag == "--query" {
+                assert!(stderr.contains("invalid --query"), "{stderr}");
+            }
+        }
+    }
+}
+
+#[test]
 fn log_prune_trims_the_request_log_but_never_the_audit_log() {
     let home = tempfile::tempdir().unwrap();
     write_logs(home.path());

@@ -287,7 +287,7 @@ impl StatusFilter {
     /// Parses a `--status` value. A leading comparator selects a numeric
     /// comparison, a leading letter selects the domain statuses of a
     /// `drivemutation` record, and anything else is codes and classes, which
-    /// are validated strictly so `9xx` or `4xx,blocked` still fail up front.
+    /// are validated strictly. Lists cannot mix domain words with numeric forms.
     fn parse(spec: &str) -> Result<Self> {
         let spec = spec.trim();
         if has_comparator(spec) {
@@ -298,6 +298,11 @@ impl StatusFilter {
                 .with_context(|| format!("invalid status comparison: {spec}"))?;
             Ok(Self::Compare(spec.to_string()))
         } else if spec.starts_with(|c: char| c.is_ascii_alphabetic()) {
+            for word in status_words(spec) {
+                if !word.starts_with(|c: char| c.is_ascii_alphabetic()) {
+                    bail!("invalid domain status: {word}; cannot mix domain statuses with numeric forms");
+                }
+            }
             Ok(Self::Domain(spec.to_string()))
         } else {
             StatusMatcher::parse(spec).map(Self::Codes)
@@ -327,9 +332,7 @@ fn status_words(spec: &str) -> impl Iterator<Item = &str> {
     spec.split(',').map(str::trim).filter(|w| !w.is_empty())
 }
 
-/// The words of a domain status spec that name a status (start with a letter),
-/// so a stray code or class in a mixed list (`blocked,5xx`) is not mistaken for
-/// a mistyped status.
+/// The words of a domain status spec that name a status (start with a letter).
 fn domain_status_words(spec: &str) -> impl Iterator<Item = &str> {
     status_words(spec).filter(|w| w.starts_with(|c: char| c.is_ascii_alphabetic()))
 }
@@ -432,14 +435,8 @@ fn builtin_field_matches(rec: &LogRecord, field: &str, value: &str) -> Option<bo
             .is_some_and(|s| source_str(s).eq_ignore_ascii_case(value)),
         "service" => opt_eq_ci(rec.service.as_deref(), value),
         "method" => opt_eq_ci(rec.method.as_deref(), value),
-        // A `drivemutation` record has no `status_code` — its domain status
-        // (`blocked`, `written`, `stale-revision`, ...) lives in
-        // `context["status"]`, matched exactly (see [`domain_status_matches`]).
-        "status" if rec.kind == RecordKind::DriveMutation => domain_status_matches(rec, value),
-        // `status` keeps its class syntax (`5xx`, `4xx,5xx`); a leading
-        // comparator (`status:>=400`) routes to the numeric matcher instead.
-        "status" if has_comparator(value) => numeric_match(rec.status_code.map(i64::from), value),
-        "status" => StatusMatcher::parse(value).is_ok_and(|m| m.matches(rec.status_code)),
+        // Query construction validates this with the same parser as `--status`.
+        "status" => StatusFilter::parse(value).is_ok_and(|s| s.matches(rec)),
         "command" | "cmd" => command_matches(rec, value),
         "url" => contains_ci(rec.url.as_deref(), value),
         "id" => rec.id == value || rec.invocation_id == value,
@@ -921,6 +918,9 @@ impl Parser {
                 self.pos += 1;
                 Ok(match word.split_once(':') {
                     Some((field, value)) if !field.is_empty() => {
+                        if field.eq_ignore_ascii_case("status") {
+                            StatusFilter::parse(value)?;
+                        }
                         Expr::Field(field.to_string(), value.to_string())
                     }
                     _ => Expr::Term(word),
@@ -1747,13 +1747,44 @@ mod tests {
     }
 
     #[test]
-    fn only_status_words_in_a_mixed_list_are_watched() {
-        let recs = [drive_rec("written")];
-        let w = status_warnings(Some("written,5xx,500"), &["status:written,>=400"], &recs);
-        assert!(w.is_empty(), "{w:?}");
-        let w = status_warnings(Some("blokced,5xx"), &[], &recs);
-        assert_eq!(w.len(), 1, "{w:?}");
-        assert!(w[0].contains("`blokced`"), "{w:?}");
+    fn mixed_status_lists_are_rejected_in_both_orders() {
+        for bad in [
+            "blocked,4xx",
+            "4xx,blocked",
+            "blocked,200",
+            "200,blocked",
+            "blocked,>=400",
+            ">=400,blocked",
+            "blocked,9xx",
+            "9xx,blocked",
+            "written,5xx,500",
+            " blocked, 4xx ",
+        ] {
+            assert!(filter_for(Some(bad), &[]).is_err(), "{bad:?}");
+            assert!(
+                filter_for(None, &[&format!(r#"status:"{bad}""#)]).is_err(),
+                "{bad:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn malformed_status_queries_fail_during_construction() {
+        for bad in ["9xx", "", ">=abc", ">", "!!", "20x", "200,9xx", "65536"] {
+            assert!(filter_for(Some(bad), &[]).is_err(), "{bad:?}");
+            for query in [
+                format!("status:{bad}"),
+                format!("NOT status:{bad}"),
+                format!("service:gmail OR (STATUS:{bad})"),
+            ] {
+                let err = filter_for(None, &[&query]).err().unwrap();
+                let message = format!("{err:#}");
+                assert!(message.contains("invalid --query"), "{message}");
+                assert!(message.contains(bad), "{message}");
+            }
+        }
+        // Fully quoted words are fuzzy text, even when they look like invalid fields.
+        assert!(filter_for(None, &["\"status:9xx\""]).is_ok());
     }
 
     #[test]
@@ -1821,15 +1852,25 @@ mod tests {
         for spec in [
             "blocked",
             "blocked,written",
+            "BLOCKED",
+            "stale-revision",
             "200",
             "5xx",
             "4xx,5xx",
             ">=400",
             "<300",
             "=404",
+            ">400",
+            "<=404",
+            "5XX",
+            "200,5xx",
+            ",200,,5xx,",
+            "blocked,,written,",
+            " blocked, written ",
+            " >= 400 ",
         ] {
             let flag = filter_for(Some(spec), &[]).unwrap();
-            let query = filter_for(None, &[&format!("status:{spec}")]).unwrap();
+            let query = filter_for(None, &[&format!(r#"status:"{spec}""#)]).unwrap();
             for rec in &records {
                 assert_eq!(
                     flag.matches(rec, "{}"),
