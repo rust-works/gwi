@@ -56,12 +56,12 @@ enum LeaseAction {
     /// Restores a file from a backup lease's recorded content, minting a
     /// fresh lease of its own before writing.
     Restore(RestoreCommand),
-    /// Ends a lease's write window early, without waiting for it to expire
-    /// (issue #1685). Keeps the backup, which stays restorable.
+    /// Ends a lease's write window early, without waiting for it to expire (issue
+    /// rust-works/omni-dev#1685). Keeps the backup, which stays restorable.
     Release(ReleaseCommand),
-    /// Bounds the ledger's and the backup directory/folder's growth by
-    /// dropping expired rows together with the backups they point at
-    /// (ADR-0080 Consequences fast-follow, #1678).
+    /// Bounds the ledger's and the backup directory/folder's growth by dropping expired
+    /// rows together with the backups they point at (ADR-0080 Consequences fast-follow,
+    /// rust-works/omni-dev#1678).
     Prune(PruneCommand),
 }
 

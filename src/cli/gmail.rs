@@ -62,7 +62,7 @@ pub enum GmailSubcommands {
     Label(label::LabelCommand),
     /// Manages Gmail drafts; never sends or deletes one (mirrors the
     /// `gmail_draft_list`/`gmail_draft_show` MCP tools for `list`/`show`;
-    /// `create`/`update` are CLI-only; #1920).
+    /// `create`/`update` are CLI-only; rust-works/omni-dev#1920).
     Draft(draft::DraftCommand),
     /// Maintains a durable local archive of a mailbox (CLI-only; no MCP equivalent).
     Sync(sync::SyncCommand),
@@ -70,16 +70,16 @@ pub enum GmailSubcommands {
     /// `.gwi/gmail-sync.yaml`, concurrently (CLI-only; no MCP
     /// equivalent; ADR-0068).
     SyncAll(sync_all::SyncAllCommand),
-    /// Retroactively extracts attachments for already-archived messages,
-    /// without re-fetching from Gmail (CLI-only; no MCP equivalent; purely
-    /// local, no client/credentials needed; #1510).
+    /// Retroactively extracts attachments for already-archived messages, without
+    /// re-fetching from Gmail (CLI-only; no MCP equivalent; purely local, no
+    /// client/credentials needed; rust-works/omni-dev#1510).
     ExtractAttachments(extract_attachments::ExtractAttachmentsCommand),
-    /// Renders one or more archived `.eml` files as human-readable Markdown
-    /// (CLI-only; no MCP equivalent; purely local, no client/credentials
-    /// needed; #1513).
+    /// Renders one or more archived `.eml` files as human-readable Markdown (CLI-only;
+    /// no MCP equivalent; purely local, no client/credentials needed;
+    /// rust-works/omni-dev#1513).
     Render(render::RenderCommand),
-    /// Restores archived `.eml` messages into a mailbox (needs
-    /// `gmail.modify`; CLI-only; no MCP equivalent; #1655).
+    /// Restores archived `.eml` messages into a mailbox (needs `gmail.modify`;
+    /// CLI-only; no MCP equivalent; rust-works/omni-dev#1655).
     Insert(insert::InsertCommand),
 }
 

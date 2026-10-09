@@ -108,12 +108,12 @@ pub struct MessageOutputArgs {
     #[arg(short = 'o', long, value_enum, default_value_t = ReadOutputFormat::Table)]
     pub output: ReadOutputFormat,
 
-    /// Collapses `>`-quoted reply history nested more than one level deep
-    /// into a one-line `*(N quoted lines omitted)*` marker (#1514). Only
-    /// affects `-o markdown`, mirroring `--detail`'s reverse asymmetry (it
-    /// is silently ignored elsewhere). Off by default: verbatim rendering
-    /// is fully information-preserving, and the full text is one re-render
-    /// away without this flag.
+    /// Collapses `>`-quoted reply history nested more than one level deep into a
+    /// one-line `*(N quoted lines omitted)*` marker (rust-works/omni-dev#1514). Only
+    /// affects `-o markdown`, mirroring `--detail`'s reverse asymmetry (it is silently
+    /// ignored elsewhere). Off by default: verbatim rendering is fully
+    /// information-preserving, and the full text is one re-render away without this
+    /// flag.
     #[arg(long)]
     pub fold_quotes: bool,
 }

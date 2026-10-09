@@ -149,8 +149,8 @@ pub struct SyncAllCommand {
     #[arg(long)]
     pub full: bool,
 
-    /// Retries every account's pending failed fetches now, ignoring their
-    /// retry backoff, same as `gmail sync --retry-pending` (#1790).
+    /// Retries every account's pending failed fetches now, ignoring their retry
+    /// backoff, same as `gmail sync --retry-pending` (rust-works/omni-dev#1790).
     #[arg(long)]
     pub retry_pending: bool,
 

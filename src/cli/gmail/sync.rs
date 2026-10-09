@@ -59,17 +59,17 @@ pub struct SyncCommand {
     #[arg(long)]
     pub query: Option<String>,
 
-    /// Excludes messages carrying this label id from the archive (#1780).
-    /// Repeatable — e.g. `--exclude-label SPAM --exclude-label TRASH`.
-    /// Applied fully and generally on incremental passes (no extra API
-    /// calls; a `messagesAdded` history event matching this filter is never
-    /// fetched, and a `labelsAdded`/`labelsRemoved` event that crosses the
-    /// excluded boundary soft-deletes/undeletes the archived record). On
-    /// backfill/`--full`/reconciliation passes, only entries with a known
-    /// query translation take effect (currently `SPAM`/`TRASH` — folded
-    /// into the listing query as `-in:spam`/`-in:trash`); anything else
-    /// still filters future incremental runs, but won't be excluded
-    /// retroactively on this pass unless you also pass `--query`.
+    /// Excludes messages carrying this label id from the archive
+    /// (rust-works/omni-dev#1780). Repeatable — e.g. `--exclude-label SPAM
+    /// --exclude-label TRASH`. Applied fully and generally on incremental passes (no
+    /// extra API calls; a `messagesAdded` history event matching this filter is never
+    /// fetched, and a `labelsAdded`/`labelsRemoved` event that crosses the excluded
+    /// boundary soft-deletes/undeletes the archived record). On
+    /// backfill/`--full`/reconciliation passes, only entries with a known query
+    /// translation take effect (currently `SPAM`/`TRASH` — folded into the listing
+    /// query as `-in:spam`/`-in:trash`); anything else still filters future incremental
+    /// runs, but won't be excluded retroactively on this pass unless you also pass
+    /// `--query`.
     #[arg(long, value_name = "LABEL_ID")]
     pub exclude_label: Vec<String>,
 
@@ -78,10 +78,10 @@ pub struct SyncCommand {
     #[arg(long)]
     pub full: bool,
 
-    /// Retries every message still pending from an earlier failed fetch now,
-    /// ignoring the retry backoff that would otherwise defer it (#1790). Use
-    /// after fixing whatever made the fetches fail. A retry that fails again
-    /// still counts toward — and restarts — that message's backoff.
+    /// Retries every message still pending from an earlier failed fetch now, ignoring
+    /// the retry backoff that would otherwise defer it (rust-works/omni-dev#1790). Use
+    /// after fixing whatever made the fetches fail. A retry that fails again still
+    /// counts toward — and restarts — that message's backoff.
     #[arg(long)]
     pub retry_pending: bool,
 
@@ -107,9 +107,9 @@ pub struct SyncCommand {
     #[arg(long)]
     pub extract_attachments: bool,
 
-    /// Only shows errors/warnings, suppresses info-level output — including
-    /// the live progress bars a backfill/`--full`/reconciliation pass shows
-    /// on an interactive terminal (#1502).
+    /// Only shows errors/warnings, suppresses info-level output — including the live
+    /// progress bars a backfill/`--full`/reconciliation pass shows on an interactive
+    /// terminal (rust-works/omni-dev#1502).
     #[arg(long)]
     pub quiet: bool,
 

@@ -76,10 +76,10 @@ pub struct RenderCommand {
     #[arg(short = 'o', long, value_enum, default_value_t = OutputFormat::Table)]
     pub output: OutputFormat,
 
-    /// Collapses `>`-quoted reply history nested more than one level deep
-    /// into a one-line `*(N quoted lines omitted)*` marker (#1514). Off by
-    /// default: verbatim rendering is fully information-preserving, and the
-    /// full text is one re-render away without this flag.
+    /// Collapses `>`-quoted reply history nested more than one level deep into a
+    /// one-line `*(N quoted lines omitted)*` marker (rust-works/omni-dev#1514). Off by
+    /// default: verbatim rendering is fully information-preserving, and the full text
+    /// is one re-render away without this flag.
     #[arg(long)]
     pub fold_quotes: bool,
 }

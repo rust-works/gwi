@@ -36,14 +36,13 @@ pub enum DocsSubcommands {
     /// Reads a document's structural elements with their index ranges
     /// (mirrors the `drive_docs_read` MCP tool).
     Read(read::ReadCommand),
-    /// Replaces every occurrence of some text, gated by the
-    /// write-permission rules (issue #1615). Requires the `drive.file` or
-    /// `drive` scope (`drive auth login --write-file`/`--write-full`).
-    /// (mirrors the `drive_docs_replace` MCP tool).
+    /// Replaces every occurrence of some text, gated by the write-permission rules
+    /// (issue rust-works/omni-dev#1615). Requires the `drive.file` or `drive` scope
+    /// (`drive auth login --write-file`/`--write-full`). (mirrors the
+    /// `drive_docs_replace` MCP tool).
     Replace(write::ReplaceCommand),
-    /// Appends text to the end of a document, gated by the write-permission
-    /// rules (issue #1615).
-    /// (mirrors the `drive_docs_append` MCP tool).
+    /// Appends text to the end of a document, gated by the write-permission rules
+    /// (issue rust-works/omni-dev#1615). (mirrors the `drive_docs_append` MCP tool).
     Append(write::AppendCommand),
     /// Inserts text before or after a unique body or segment anchor, gated by docs-write.
     Insert(write::InsertCommand),
@@ -68,7 +67,7 @@ pub enum DocsSubcommands {
     /// Removes one table column, under docs-table-delete; refuses the last column.
     DeleteTableColumn(table::DeleteDimensionCommand),
     /// Creates a new Google Doc, optionally seeded with text. Gated by the
-    /// write-permission rules' `create` operation (issue #1615).
+    /// write-permission rules' `create` operation (issue rust-works/omni-dev#1615).
     Create(create::CreateCommand),
     /// Creates a scoped named-range label, gated by docs-structure.
     CreateNamedRange(named_range::CreateNamedRangeCommand),

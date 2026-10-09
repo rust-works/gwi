@@ -33,10 +33,9 @@ pub struct SetBasicFilterCommand {
     #[arg(long, value_name = "A1")]
     pub range: String,
 
-    /// A `COLUMN:asc|desc` sort spec, in priority order. Repeatable.
-    /// Physically reorders the range's rows (the reorder outlives
-    /// `clear-basic-filter`), so it also needs the `sheets-write`
-    /// operation (issue #1940).
+    /// A `COLUMN:asc|desc` sort spec, in priority order. Repeatable. Physically
+    /// reorders the range's rows (the reorder outlives `clear-basic-filter`), so it
+    /// also needs the `sheets-write` operation (issue rust-works/omni-dev#1940).
     #[arg(long = "sort-by", value_name = "COLUMN:asc|desc")]
     pub sort_by: Vec<String>,
 
