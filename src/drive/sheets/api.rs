@@ -85,62 +85,67 @@ pub(in crate::drive) fn applied_reply_unreadable_line(
 /// `structure.rs`'s `structure()` has exactly one `get_spreadsheet` call
 /// site shared by all fifteen `StructureVerb`s, so branching it per verb
 /// would be new complexity for no real savings.
-const SPREADSHEET_FIELDS: &str = "spreadsheetId,\
+pub const SPREADSHEET_FIELDS: &str = "spreadsheetId,\
     properties(title,locale,timeZone,autoRecalc,iterativeCalculationSettings),\
     sheets.properties(sheetId,title,index,hidden,rightToLeft,gridProperties(rowCount,columnCount,frozenRowCount,frozenColumnCount,hideGridlines))";
 
-/// `fields` mask for `spreadsheets.get` when protected ranges are needed
-/// too (issue #1643's `list-protections`/`update-protection`/
+/// `fields` mask for spreadsheet metadata including protected ranges.
+///
+/// Used by issue #1643's `list-protections`/`update-protection`/
 /// `unprotect-range`, which must resolve an *existing* protection before
-/// they can act on it). A superset of [`SPREADSHEET_FIELDS`], kept separate
+/// they can act on it. A superset of [`SPREADSHEET_FIELDS`], kept separate
 /// so every other caller — `sheets info`, `structure.rs`, `format.rs`,
 /// `validation.rs` — never pays for data it doesn't use.
-const SPREADSHEET_FIELDS_WITH_PROTECTIONS: &str = "spreadsheetId,properties.title,\
+pub const SPREADSHEET_FIELDS_WITH_PROTECTIONS: &str = "spreadsheetId,properties.title,\
     sheets.properties(sheetId,title,index,hidden,rightToLeft,gridProperties(rowCount,columnCount,frozenRowCount,frozenColumnCount,hideGridlines)),\
     sheets.protectedRanges(protectedRangeId,range,description,warningOnly,editors.users)";
 
-/// `fields` mask for `spreadsheets.get` when the basic filter and filter
-/// views are needed too (issue #1794's `set-basic-filter`/
+/// `fields` mask for spreadsheet metadata including basic filters and filter views.
+///
+/// Used by issue #1794's `set-basic-filter`/
 /// `list-filter-views`/`update-filter-view`/`delete-filter-view`, which must
-/// resolve an *existing* filter view before they can act on one). A
+/// resolve an *existing* filter view before they can act on one. A
 /// superset of [`SPREADSHEET_FIELDS`], kept separate for the same reason
 /// [`SPREADSHEET_FIELDS_WITH_PROTECTIONS`] is.
-const SPREADSHEET_FIELDS_WITH_FILTER_VIEWS: &str = "spreadsheetId,properties.title,\
+pub const SPREADSHEET_FIELDS_WITH_FILTER_VIEWS: &str = "spreadsheetId,properties.title,\
     sheets.properties(sheetId,title,index,hidden,rightToLeft,gridProperties(rowCount,columnCount,frozenRowCount,frozenColumnCount,hideGridlines)),\
     sheets.basicFilter(range,sortSpecs,criteria),\
     sheets.filterViews(filterViewId,title,range,namedRangeId,tableId,sortSpecs,criteria)";
 
-/// `fields` mask for `spreadsheets.get` when conditional format rules are
-/// needed too (issue #1793's `add-conditional-format`/
+/// `fields` mask for spreadsheet metadata including conditional format rules.
+///
+/// Used by issue #1793's `add-conditional-format`/
 /// `update-conditional-format`/`delete-conditional-format`/
 /// `list-conditional-formats`, all four of which share one fetch — see
 /// [`SheetsApi::get_spreadsheet_with_conditional_formats`]'s doc comment for
 /// why `add` uses the same wider mask as the other three despite not
-/// strictly needing it). A superset of [`SPREADSHEET_FIELDS`], kept separate
+/// strictly needing it. A superset of [`SPREADSHEET_FIELDS`], kept separate
 /// for the same reason [`SPREADSHEET_FIELDS_WITH_PROTECTIONS`] is.
-const SPREADSHEET_FIELDS_WITH_CONDITIONAL_FORMATS: &str = "spreadsheetId,properties.title,\
+pub const SPREADSHEET_FIELDS_WITH_CONDITIONAL_FORMATS: &str = "spreadsheetId,properties.title,\
     sheets.properties(sheetId,title,index,hidden,rightToLeft,gridProperties(rowCount,columnCount,frozenRowCount,frozenColumnCount,hideGridlines)),\
     sheets.conditionalFormats(ranges,booleanRule,gradientRule)";
 
-/// `fields` mask for `spreadsheets.get` when named ranges are needed too
-/// (issue #1796's `list-named-ranges`/`update-named-range`/
+/// `fields` mask for spreadsheet metadata including named ranges.
+///
+/// Used by issue #1796's `list-named-ranges`/`update-named-range`/
 /// `delete-named-range`, which must resolve an *existing* named range by
-/// name before they can act on one). A superset of [`SPREADSHEET_FIELDS`],
+/// name before they can act on one. A superset of [`SPREADSHEET_FIELDS`],
 /// kept separate for the same reason as
 /// [`SPREADSHEET_FIELDS_WITH_PROTECTIONS`]: every other caller never pays
 /// for data it doesn't use. Named ranges are workbook-scoped, so
 /// `namedRanges` sits at the top level, not nested under `sheets` the way
 /// `protectedRanges` is.
-const SPREADSHEET_FIELDS_WITH_NAMED_RANGES: &str = "spreadsheetId,properties.title,\
+pub const SPREADSHEET_FIELDS_WITH_NAMED_RANGES: &str = "spreadsheetId,properties.title,\
     sheets.properties(sheetId,title,index,hidden,rightToLeft,gridProperties(rowCount,columnCount,frozenRowCount,frozenColumnCount,hideGridlines)),\
     namedRanges(namedRangeId,name,range)";
 
-/// `fields` mask for `spreadsheets.get` when charts and slicers are needed
-/// too (issue #1797's `add-chart`/`update-chart`/`delete-chart`/
+/// `fields` mask for spreadsheet metadata including charts and slicers.
+///
+/// Used by issue #1797's `add-chart`/`update-chart`/`delete-chart`/
 /// `list-charts`/`add-slicer`/`update-slicer`/`delete-slicer`/
 /// `list-slicers`, all eight of which share one fetch, mirroring
-/// `SPREADSHEET_FIELDS_WITH_CONDITIONAL_FORMATS`'s reuse across its four
-/// verbs). Deliberately requests `sheets.charts`/`sheets.slicers`
+/// [`SPREADSHEET_FIELDS_WITH_CONDITIONAL_FORMATS`]'s reuse across its four
+/// verbs. Deliberately requests `sheets.charts`/`sheets.slicers`
 /// **unmasked below the object level** — every other wider mask in this
 /// file narrows to the specific sub-fields each verb reads, but
 /// `update-chart` must merge onto the chart's *entire* existing spec (see
@@ -148,37 +153,40 @@ const SPREADSHEET_FIELDS_WITH_NAMED_RANGES: &str = "spreadsheetId,properties.tit
 /// so nothing here can be safely left out. A superset of
 /// [`SPREADSHEET_FIELDS`], kept separate for the same reason
 /// [`SPREADSHEET_FIELDS_WITH_PROTECTIONS`] is.
-const SPREADSHEET_FIELDS_WITH_EMBEDDED_OBJECTS: &str = "spreadsheetId,properties.title,\
+pub const SPREADSHEET_FIELDS_WITH_EMBEDDED_OBJECTS: &str = "spreadsheetId,properties.title,\
     sheets.properties(sheetId,title,index,hidden,rightToLeft,gridProperties(rowCount,columnCount,frozenRowCount,frozenColumnCount,hideGridlines)),\
     sheets.charts,sheets.slicers";
 
-/// `fields` mask for `spreadsheets.get` when every pivot table in the
-/// workbook is needed (issue #1798's `list-pivot-tables`, which must scan
+/// `fields` mask for spreadsheet metadata including every pivot table.
+///
+/// Used by issue #1798's `list-pivot-tables`, which must scan
 /// every sheet's grid data for a populated `pivotTable` property — there is
 /// no index or list endpoint for pivot tables the way there is for
-/// protected ranges or filter views). Requesting `pivotTable` alone (no
+/// protected ranges or filter views. Requesting `pivotTable` alone (no
 /// `formattedValue`) keeps the response to one `{}` per populated cell that
 /// has no pivot, same order of cost as `sheets read`. A superset of
 /// [`SPREADSHEET_FIELDS`], kept separate for the same reason
 /// [`SPREADSHEET_FIELDS_WITH_PROTECTIONS`] is.
-const SPREADSHEET_FIELDS_WITH_PIVOT_TABLES: &str = "spreadsheetId,properties.title,\
+pub const SPREADSHEET_FIELDS_WITH_PIVOT_TABLES: &str = "spreadsheetId,properties.title,\
     sheets.properties(sheetId,title,index,hidden,rightToLeft,gridProperties(rowCount,columnCount,frozenRowCount,frozenColumnCount,hideGridlines)),\
     sheets.data(startRow,startColumn,rowData.values(pivotTable))";
 
-/// `fields` mask for `spreadsheets.get` when only a single cell's pivot
-/// table (and displayed value) is needed — `add-pivot-table`'s
-/// occupied-anchor check and `delete-pivot-table`'s "currently:" preview,
-/// both of which read exactly one cell rather than the whole workbook.
+/// `fields` mask for a single cell’s pivot table and displayed value.
+///
+/// Used by `add-pivot-table`'s
+/// occupied-anchor check and `delete-pivot-table`'s "currently:" preview.
+/// Both read exactly one cell rather than the whole workbook.
 /// Paired with a `ranges=` query parameter scoping the response to that one
 /// cell (see [`SheetsApi::get_cell_pivot`]), so this mask alone would still
 /// return every sheet's grid data without it.
-const CELL_PIVOT_FIELDS: &str = "spreadsheetId,properties.title,\
+pub const CELL_PIVOT_FIELDS: &str = "spreadsheetId,properties.title,\
     sheets.properties(sheetId,title,index,hidden,rightToLeft,gridProperties(rowCount,columnCount,frozenRowCount,frozenColumnCount,hideGridlines)),\
     sheets.data(startRow,startColumn,rowData.values(pivotTable,formattedValue))";
 
-/// `fields` mask for `spreadsheets.get` when a range's cell-level formatting
-/// is needed (issue #1878's `read-cell-format`, the tool that answers
-/// ADR-0083 §5's "does this verb move formatting?" question). Paired with a
+/// `fields` mask for a range’s cell-level formatting.
+///
+/// Used by issue #1878's `read-cell-format`, the tool that answers
+/// ADR-0083 §5's "does this verb move formatting?" question. Paired with a
 /// `ranges=` query parameter scoping the response to the caller's range
 /// (see [`SheetsApi::get_cell_formats`]), so this mask alone would still
 /// return every sheet's grid data without it.
@@ -198,27 +206,29 @@ const CELL_PIVOT_FIELDS: &str = "spreadsheetId,properties.title,\
 /// different mask path entirely (a per-sheet list, not a per-cell
 /// property), so they need their own field and outcome shape; deferred as
 /// a follow-up (issue #1878's own open question).
-const CELL_FORMAT_FIELDS: &str = "spreadsheetId,properties.title,\
+pub const CELL_FORMAT_FIELDS: &str = "spreadsheetId,properties.title,\
     sheets.properties(sheetId,title,index,hidden,rightToLeft,gridProperties(rowCount,columnCount,frozenRowCount,frozenColumnCount,hideGridlines)),\
     sheets.data(startRow,startColumn,rowData.values(userEnteredFormat(backgroundColorStyle,textFormat(bold,italic,strikethrough,underline,foregroundColorStyle),numberFormat,horizontalAlignment,borders(top,bottom,left,right)),note,dataValidation))";
 
-/// `fields` mask for `spreadsheets.get` when banded ranges are needed too
-/// (issue #1832's `add-banding`/`update-banding`/`delete-banding`/
+/// `fields` mask for spreadsheet metadata including banded ranges.
+///
+/// Used by issue #1832's `add-banding`/`update-banding`/`delete-banding`/
 /// `list-bandings`, which must resolve an *existing* banded range by id
-/// before three of the four can act on one). A superset of
+/// before three of the four can act on one. A superset of
 /// [`SPREADSHEET_FIELDS`], kept separate for the same reason
 /// [`SPREADSHEET_FIELDS_WITH_PROTECTIONS`] is.
-const SPREADSHEET_FIELDS_WITH_BANDING: &str = "spreadsheetId,properties.title,\
+pub const SPREADSHEET_FIELDS_WITH_BANDING: &str = "spreadsheetId,properties.title,\
     sheets.properties(sheetId,title,index,hidden,rightToLeft,gridProperties(rowCount,columnCount,frozenRowCount,frozenColumnCount,hideGridlines)),\
     sheets.bandedRanges(bandedRangeId,range,rowProperties,columnProperties)";
 
-/// `fields` mask for `spreadsheets.get` when dimension groups are needed
-/// too (issue #1833's `add-dimension-group`/`update-dimension-group`/
+/// `fields` mask for spreadsheet metadata including dimension groups.
+///
+/// Used by issue #1833's `add-dimension-group`/`update-dimension-group`/
 /// `delete-dimension-group`/`list-dimension-groups`, which must resolve an
 /// *existing* group by its `(range, depth)` before three of the four can
-/// act on one). A superset of [`SPREADSHEET_FIELDS`], kept separate for
+/// act on one. A superset of [`SPREADSHEET_FIELDS`], kept separate for
 /// the same reason [`SPREADSHEET_FIELDS_WITH_BANDING`] is.
-const SPREADSHEET_FIELDS_WITH_DIMENSION_GROUPS: &str = "spreadsheetId,properties.title,\
+pub const SPREADSHEET_FIELDS_WITH_DIMENSION_GROUPS: &str = "spreadsheetId,properties.title,\
     sheets.properties(sheetId,title,index,hidden,gridProperties(rowCount,columnCount)),\
     sheets.rowGroups(range,depth,collapsed),sheets.columnGroups(range,depth,collapsed)";
 
@@ -312,7 +322,7 @@ impl<'a> SheetsApi<'a> {
 
     /// Fetches a spreadsheet's metadata — its title and the list of sheets.
     ///
-    /// Always `fields`-masked; see `SPREADSHEET_FIELDS`.
+    /// Always `fields`-masked; see [`SPREADSHEET_FIELDS`].
     pub async fn get_spreadsheet(&self, spreadsheet_id: &str) -> Result<Spreadsheet> {
         let url = build_spreadsheet_get_url(self.client.base_url(), spreadsheet_id)?;
         self.client
@@ -323,7 +333,7 @@ impl<'a> SheetsApi<'a> {
 
     /// Fetches a spreadsheet's metadata **including protected ranges** —
     /// the one read the protection verbs need that no other caller does.
-    /// See `SPREADSHEET_FIELDS_WITH_PROTECTIONS`.
+    /// See [`SPREADSHEET_FIELDS_WITH_PROTECTIONS`].
     pub async fn get_spreadsheet_with_protections(
         &self,
         spreadsheet_id: &str,
@@ -341,7 +351,7 @@ impl<'a> SheetsApi<'a> {
 
     /// Fetches a spreadsheet's metadata **including the basic filter and
     /// filter views** — the one read `filter.rs`'s verbs need that no other
-    /// caller does. See `SPREADSHEET_FIELDS_WITH_FILTER_VIEWS`.
+    /// caller does. See [`SPREADSHEET_FIELDS_WITH_FILTER_VIEWS`].
     pub async fn get_spreadsheet_with_filter_views(
         &self,
         spreadsheet_id: &str,
@@ -364,7 +374,7 @@ impl<'a> SheetsApi<'a> {
     /// strictly need the existing list, but reusing this one fetch instead
     /// of adding a second, narrower one keeps `Sheet.conditional_formats`
     /// consistently populated whenever any conditional-format verb runs.
-    /// See `SPREADSHEET_FIELDS_WITH_CONDITIONAL_FORMATS`.
+    /// See [`SPREADSHEET_FIELDS_WITH_CONDITIONAL_FORMATS`].
     pub async fn get_spreadsheet_with_conditional_formats(
         &self,
         spreadsheet_id: &str,
@@ -384,7 +394,7 @@ impl<'a> SheetsApi<'a> {
 
     /// Fetches a spreadsheet's metadata **including named ranges** — the
     /// one read the named-range verbs need that no other caller does. See
-    /// `SPREADSHEET_FIELDS_WITH_NAMED_RANGES`.
+    /// [`SPREADSHEET_FIELDS_WITH_NAMED_RANGES`].
     pub async fn get_spreadsheet_with_named_ranges(
         &self,
         spreadsheet_id: &str,
@@ -404,7 +414,7 @@ impl<'a> SheetsApi<'a> {
     /// shared by all eight `embedded_object.rs` verbs (issue #1797), the
     /// same way [`Self::get_spreadsheet_with_conditional_formats`] is
     /// shared by its four. See
-    /// `SPREADSHEET_FIELDS_WITH_EMBEDDED_OBJECTS`.
+    /// [`SPREADSHEET_FIELDS_WITH_EMBEDDED_OBJECTS`].
     pub async fn get_spreadsheet_with_embedded_objects(
         &self,
         spreadsheet_id: &str,
@@ -424,7 +434,7 @@ impl<'a> SheetsApi<'a> {
 
     /// Fetches a spreadsheet's metadata **including every populated cell's
     /// `pivotTable` property** — `list-pivot-tables`' one fetch (issue
-    /// #1798). See `SPREADSHEET_FIELDS_WITH_PIVOT_TABLES`.
+    /// #1798). See [`SPREADSHEET_FIELDS_WITH_PIVOT_TABLES`].
     pub async fn get_spreadsheet_with_pivot_tables(
         &self,
         spreadsheet_id: &str,
@@ -443,7 +453,7 @@ impl<'a> SheetsApi<'a> {
     /// Fetches a spreadsheet's metadata **including banded ranges** —
     /// shared by all four `banding.rs` verbs (issue #1832), mirroring
     /// [`Self::get_spreadsheet_with_filter_views`]'s reuse across its own
-    /// four verbs. See `SPREADSHEET_FIELDS_WITH_BANDING`.
+    /// four verbs. See [`SPREADSHEET_FIELDS_WITH_BANDING`].
     pub async fn get_spreadsheet_with_banding(&self, spreadsheet_id: &str) -> Result<Spreadsheet> {
         let url = build_spreadsheet_get_with_banding_url(self.client.base_url(), spreadsheet_id)?;
         self.client
@@ -458,7 +468,7 @@ impl<'a> SheetsApi<'a> {
     /// Fetches a spreadsheet's metadata **including dimension groups** —
     /// shared by all four `dimension_group.rs` verbs (issue #1833),
     /// mirroring [`Self::get_spreadsheet_with_banding`]'s reuse across its
-    /// own four verbs. See `SPREADSHEET_FIELDS_WITH_DIMENSION_GROUPS`.
+    /// own four verbs. See [`SPREADSHEET_FIELDS_WITH_DIMENSION_GROUPS`].
     pub async fn get_spreadsheet_with_dimension_groups(
         &self,
         spreadsheet_id: &str,
@@ -483,7 +493,7 @@ impl<'a> SheetsApi<'a> {
     /// response's `sheets` list still carries every sheet's properties (the
     /// mask's own `sheets.properties(...)` clause), but `sheets.data` is
     /// scoped to `composed_a1` by the `ranges` query parameter. See
-    /// `CELL_PIVOT_FIELDS`.
+    /// [`CELL_PIVOT_FIELDS`].
     pub async fn get_cell_pivot(
         &self,
         spreadsheet_id: &str,
@@ -499,7 +509,7 @@ impl<'a> SheetsApi<'a> {
     /// Fetches a range's cell-level formatting — `read-cell-format` (issue
     /// #1878). `composed_a1` may be any range `a1::compose` can build, not
     /// just a single cell; the response's `sheets.data` is scoped to it by
-    /// the `ranges` query parameter. See `CELL_FORMAT_FIELDS`.
+    /// the `ranges` query parameter. See [`CELL_FORMAT_FIELDS`].
     pub async fn get_cell_formats(
         &self,
         spreadsheet_id: &str,
