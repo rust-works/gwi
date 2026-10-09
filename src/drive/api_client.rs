@@ -688,11 +688,17 @@ mod tests {
     /// outer one that a caller would treat as a failure to retry.
     #[tokio::test]
     async fn parse_success_response_reports_a_truncated_2xx_body_as_an_inner_error() {
-        use tokio::io::AsyncWriteExt;
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
         tokio::spawn(async move {
             let (mut socket, _) = listener.accept().await.unwrap();
+            // Consume the request before closing: Windows can otherwise reset
+            // the connection before the client receives the response headers.
+            let mut request = Vec::new();
+            while !request.ends_with(b"\r\n\r\n") {
+                request.push(socket.read_u8().await.unwrap());
+            }
             // Promises 100 bytes, delivers 3, then hangs up.
             socket
                 .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 100\r\n\r\nabc")

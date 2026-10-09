@@ -21,6 +21,76 @@
 /// own independent mutex) in issue #1465.
 pub(crate) static HOME_ENV_MUTEX: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
+thread_local! {
+    static SETTINGS_PATH: std::cell::RefCell<Option<std::path::PathBuf>> = const {
+        std::cell::RefCell::new(None)
+    };
+}
+
+/// An explicit settings fixture for the current test thread. Windows' Known
+/// Folder API ignores `HOME`, so changing that variable cannot isolate settings.
+/// Like the audit-log route, this affects unit tests only, not production binaries.
+pub(crate) struct SettingsPathGuard {
+    previous: Option<std::path::PathBuf>,
+    _thread_bound: std::marker::PhantomData<std::rc::Rc<()>>,
+}
+
+impl SettingsPathGuard {
+    pub(crate) fn take() -> Self {
+        Self {
+            previous: settings_path(),
+            _thread_bound: std::marker::PhantomData,
+        }
+    }
+
+    pub(crate) fn redirect(&self, home: &std::path::Path) {
+        SETTINGS_PATH.with(|slot| *slot.borrow_mut() = Some(home.join(".gwi/settings.json")));
+    }
+}
+
+impl Drop for SettingsPathGuard {
+    fn drop(&mut self) {
+        SETTINGS_PATH.with(|slot| *slot.borrow_mut() = self.previous.take());
+    }
+}
+
+pub(crate) fn settings_path() -> Option<std::path::PathBuf> {
+    SETTINGS_PATH.with(|slot| slot.borrow().clone())
+}
+
+#[cfg(test)]
+mod settings_path_tests {
+    use super::*;
+    use crate::utils::settings::Settings;
+
+    #[test]
+    fn settings_routes_load_independent_fixtures_and_restore_on_drop() {
+        let first = tempfile::tempdir().unwrap();
+        let second = tempfile::tempdir().unwrap();
+        let outer = SettingsPathGuard::take();
+        outer.redirect(first.path());
+        let path = Settings::get_settings_path().unwrap();
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, r#"{"env":{"FIXTURE":"first"}}"#).unwrap();
+        assert_eq!(Settings::load().unwrap().env["FIXTURE"], "first");
+
+        {
+            let inner = SettingsPathGuard::take();
+            inner.redirect(second.path());
+            assert!(Settings::load().unwrap().env.is_empty());
+            assert_eq!(
+                Settings::get_settings_path().unwrap(),
+                second.path().join(".gwi/settings.json")
+            );
+            // A different test thread must never see this thread's route.
+            assert!(std::thread::spawn(settings_path).join().unwrap().is_none());
+        }
+        assert_eq!(Settings::load().unwrap().env["FIXTURE"], "first");
+        drop(outer);
+        assert!(settings_path().is_none());
+    }
+}
+
 /// Returns from the calling test when the process runs as root, which
 /// bypasses the file-permission checks (DAC) a test relies on: a `0o500`
 /// directory is still writable and a file root creates is root-owned. Put it

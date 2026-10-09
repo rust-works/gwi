@@ -208,6 +208,8 @@ fn binary_rejects_a_missing_or_unknown_command() {
     }
 }
 
+// Requires HOME-based settings isolation; Windows uses the Known Folder API.
+#[cfg(unix)]
 #[test]
 fn binary_reports_unconfigured_credentials_before_any_api_call() {
     let home = tempfile::tempdir().unwrap();
@@ -219,6 +221,8 @@ fn binary_reports_unconfigured_credentials_before_any_api_call() {
     assert!(stderr.contains("not configured"), "{stderr}");
 }
 
+// Requires HOME-based settings isolation; Windows uses the Known Folder API.
+#[cfg(unix)]
 #[test]
 fn binary_rejects_an_unknown_profile_before_dispatch() {
     let home = tempfile::tempdir().unwrap();
@@ -243,6 +247,7 @@ fn binary_rejects_an_unknown_profile_before_dispatch() {
 }
 
 /// A fixture settings file shaped like omni-dev's, holding one Gmail account.
+#[cfg(unix)]
 fn write_omni_dev_settings(home: &Path) {
     let dir = home.join(".omni-dev");
     std::fs::create_dir_all(&dir).unwrap();
@@ -256,6 +261,8 @@ fn write_omni_dev_settings(home: &Path) {
     .unwrap();
 }
 
+// Requires HOME-based settings/state discovery; Windows uses the Known Folder API.
+#[cfg(unix)]
 #[test]
 fn import_brings_an_omni_dev_account_across_without_touching_the_source() {
     let home = tempfile::tempdir().unwrap();
@@ -310,6 +317,8 @@ fn import_brings_an_omni_dev_account_across_without_touching_the_source() {
     }
 }
 
+// Requires HOME-based settings/state discovery; Windows uses the Known Folder API.
+#[cfg(unix)]
 #[test]
 fn import_fails_on_a_conflict_until_forced() {
     let home = tempfile::tempdir().unwrap();
@@ -336,6 +345,8 @@ fn import_fails_on_a_conflict_until_forced() {
         .contains("fixture-id"));
 }
 
+// Requires HOME-based settings/state discovery; Windows uses the Known Folder API.
+#[cfg(unix)]
 #[test]
 fn import_dry_run_exits_zero_on_a_settings_conflict() {
     let home = tempfile::tempdir().unwrap();
@@ -363,6 +374,8 @@ fn import_dry_run_exits_zero_on_a_settings_conflict() {
     assert_eq!(gwi(home.path(), &["import"]).status.code(), Some(1));
 }
 
+// Requires HOME-based settings/state discovery; Windows uses the Known Folder API.
+#[cfg(unix)]
 #[test]
 fn import_dry_run_exits_zero_on_a_ledger_conflict() {
     let home = tempfile::tempdir().unwrap();
@@ -401,6 +414,7 @@ fn import_dry_run_exits_zero_on_a_ledger_conflict() {
 }
 
 /// Where `dirs` puts the state directory when `HOME` is `home`.
+#[cfg(unix)]
 fn state_dir(home: &Path) -> std::path::PathBuf {
     if cfg!(target_os = "macos") {
         home.join("Library").join("Application Support")
@@ -410,6 +424,7 @@ fn state_dir(home: &Path) -> std::path::PathBuf {
 }
 
 /// A fixture omni-dev lease ledger holding one live and one expired lease.
+#[cfg(unix)]
 fn write_omni_dev_ledger(home: &Path) -> std::path::PathBuf {
     let path = state_dir(home).join("omni-dev").join("lease-ledger.jsonl");
     std::fs::create_dir_all(path.parent().unwrap()).unwrap();
@@ -430,6 +445,8 @@ fn write_omni_dev_ledger(home: &Path) -> std::path::PathBuf {
     path
 }
 
+// Requires HOME-based settings/state discovery; Windows uses the Known Folder API.
+#[cfg(unix)]
 #[test]
 fn import_carries_the_lease_ledger_across_and_a_second_run_changes_nothing() {
     let home = tempfile::tempdir().unwrap();
@@ -467,6 +484,8 @@ fn import_carries_the_lease_ledger_across_and_a_second_run_changes_nothing() {
     assert_eq!(std::fs::read(&source).unwrap(), source_before);
 }
 
+// Requires HOME-based settings/state discovery; Windows uses the Known Folder API.
+#[cfg(unix)]
 #[test]
 fn import_propagates_a_release_made_in_omni_dev_after_the_import() {
     let home = tempfile::tempdir().unwrap();
@@ -524,6 +543,8 @@ fn import_propagates_a_release_made_in_omni_dev_after_the_import() {
     assert_eq!(std::fs::read_to_string(&source).unwrap(), released);
 }
 
+// Requires HOME-based settings/state discovery; Windows uses the Known Folder API.
+#[cfg(unix)]
 #[test]
 fn import_reads_the_ledger_from_source_ledger_and_fails_on_a_ledger_conflict() {
     let home = tempfile::tempdir().unwrap();
@@ -565,6 +586,8 @@ fn import_reads_the_ledger_from_source_ledger_and_fails_on_a_ledger_conflict() {
     assert!(std::fs::read_to_string(&target).unwrap().contains("\"2\""));
 }
 
+// Requires HOME-based settings/state discovery; Windows uses the Known Folder API.
+#[cfg(unix)]
 #[test]
 fn import_without_a_source_file_says_how_to_find_one() {
     let home = tempfile::tempdir().unwrap();
