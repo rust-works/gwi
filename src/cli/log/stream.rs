@@ -6,8 +6,10 @@
 //! is printed by the backlog only in a one-shot run, and left for the follow loop
 //! otherwise so it is printed once. A broken pipe (e.g. piping into `head`) is treated
 //! as a clean exit, not an error, and ends the scan at once. A reader that goes
-//! away while `--follow` is idle is noticed on the next poll tick (on unix, by
-//! polling stdout for hangup; elsewhere only on the next write). Backlog scans
+//! away while `--follow` is idle is noticed on the next poll tick on unix, by
+//! polling stdout for hangup. On Windows and other non-unix platforms, closure is
+//! noticed only on the next matching write; an idle follow may run indefinitely
+//! until explicitly interrupted (accepted platform limit, #91). Backlog scans
 //! also probe before reading and every 1,024 lines on unix, even when a filter or
 //! `--limit` prevents writes.
 //!
@@ -70,7 +72,13 @@ fn stdout_hung_up() -> bool {
     fd_hung_up(io::stdout().as_fd())
 }
 
-/// No hangup probe off unix: a closed pipe is only found by the next write.
+/// Returns false off unix: a closed pipe is only found by the next write.
+///
+/// Accepted limit (#91): `PeekNamedPipe` requires read access, which an inherited
+/// stdout write handle need not have, and may block on synchronous handles in a
+/// multithreaded application. Adding a Windows API dependency alone would not
+/// provide a general nonblocking probe. See the Windows API requirements:
+/// <https://learn.microsoft.com/en-us/windows/win32/api/namedpipeapi/nf-namedpipeapi-peeknamedpipe>.
 #[cfg(not(unix))]
 fn stdout_hung_up() -> bool {
     false
