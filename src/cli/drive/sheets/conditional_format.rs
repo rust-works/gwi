@@ -304,6 +304,7 @@ impl ConditionalFormatRuleArgs {
     .required(true)))]
 pub struct AddConditionalFormatCommand {
     /// Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL).
+    #[arg(help = "Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).")]
     pub spreadsheet_id: String,
 
     /// Sheet (tab) title every `--range` belongs to.
@@ -355,6 +356,7 @@ impl AddConditionalFormatCommand {
     .required(true)))]
 pub struct UpdateConditionalFormatCommand {
     /// Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL).
+    #[arg(help = "Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).")]
     pub spreadsheet_id: String,
 
     /// Sheet (tab) title the rule belongs to.
@@ -414,6 +416,7 @@ impl UpdateConditionalFormatCommand {
 #[derive(Parser)]
 pub struct DeleteConditionalFormatCommand {
     /// Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL).
+    #[arg(help = "Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).")]
     pub spreadsheet_id: String,
 
     /// Sheet (tab) title the rule belongs to.
@@ -465,6 +468,7 @@ impl DeleteConditionalFormatCommand {
 #[derive(Parser)]
 pub struct ListConditionalFormatsCommand {
     /// Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL).
+    #[arg(help = "Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).")]
     pub spreadsheet_id: String,
 
     /// Output format.

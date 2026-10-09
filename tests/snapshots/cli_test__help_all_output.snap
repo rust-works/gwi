@@ -2166,7 +2166,7 @@ Usage: gwi drive docs info [OPTIONS] <DOCUMENT_ID>
 
 Arguments:
   <DOCUMENT_ID>
-          Document id (the `/d/<ID>/` segment of a Docs URL)
+          Document id (the /d/<ID>/ segment of a Docs URL).
 
 Options:
       --account <NAME>
@@ -2201,7 +2201,7 @@ Usage: gwi drive docs read [OPTIONS] <DOCUMENT_ID>
 
 Arguments:
   <DOCUMENT_ID>
-          Document id (the `/d/<ID>/` segment of a Docs URL)
+          Document id (the /d/<ID>/ segment of a Docs URL).
 
 Options:
       --account <NAME>
@@ -2250,7 +2250,7 @@ Usage: gwi drive docs replace [OPTIONS] --search <SEARCH> --replace <REPLACE> <D
 
 Arguments:
   <DOCUMENT_ID>
-          Document id (the `/d/<ID>/` segment of a Docs URL)
+          Document id (the /d/<ID>/ segment of a Docs URL).
 
 Options:
       --account <NAME>
@@ -2302,7 +2302,7 @@ Usage: gwi drive docs append [OPTIONS] <DOCUMENT_ID>
 
 Arguments:
   <DOCUMENT_ID>
-          Document id (the `/d/<ID>/` segment of a Docs URL)
+          Document id (the /d/<ID>/ segment of a Docs URL).
 
 Options:
       --account <NAME>
@@ -3234,7 +3234,7 @@ Usage: gwi drive slides info [OPTIONS] <PRESENTATION_ID>
 
 Arguments:
   <PRESENTATION_ID>
-          Presentation id (the `/d/<ID>/` segment of a Slides URL)
+          Presentation id (the /d/<ID>/ segment of a Slides URL).
 
 Options:
       --account <NAME>
@@ -3269,7 +3269,7 @@ Usage: gwi drive slides read [OPTIONS] <PRESENTATION_ID>
 
 Arguments:
   <PRESENTATION_ID>
-          Presentation id (the `/d/<ID>/` segment of a Slides URL)
+          Presentation id (the /d/<ID>/ segment of a Slides URL).
 
 Options:
       --account <NAME>
@@ -3307,7 +3307,7 @@ Usage: gwi drive slides replace [OPTIONS] --search <SEARCH> --replace <REPLACE> 
 
 Arguments:
   <PRESENTATION_ID>
-          Presentation id (the `/d/<ID>/` segment of a Slides URL)
+          Presentation id (the /d/<ID>/ segment of a Slides URL).
 
 Options:
       --account <NAME>
@@ -3467,7 +3467,7 @@ Usage: gwi drive sheets info [OPTIONS] <SPREADSHEET_ID>
 
 Arguments:
   <SPREADSHEET_ID>
-          Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL)
+          Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).
 
 Options:
       --account <NAME>
@@ -3502,7 +3502,7 @@ Usage: gwi drive sheets read [OPTIONS] <SPREADSHEET_ID>
 
 Arguments:
   <SPREADSHEET_ID>
-          Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL)
+          Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).
 
 Options:
       --account <NAME>
@@ -3553,7 +3553,7 @@ Usage: gwi drive sheets read-cell-format [OPTIONS] --range <A1> <SPREADSHEET_ID>
 
 Arguments:
   <SPREADSHEET_ID>
-          Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL)
+          Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).
 
 Options:
       --account <NAME>
@@ -3594,7 +3594,7 @@ Usage: gwi drive sheets write [OPTIONS] --values <PATH|-> <SPREADSHEET_ID>
 
 Arguments:
   <SPREADSHEET_ID>
-          Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL)
+          Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).
 
 Options:
       --account <NAME>
@@ -3664,7 +3664,7 @@ Usage: gwi drive sheets append [OPTIONS] --values <PATH|-> <SPREADSHEET_ID>
 
 Arguments:
   <SPREADSHEET_ID>
-          Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL)
+          Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).
 
 Options:
       --account <NAME>
@@ -3734,7 +3734,7 @@ Usage: gwi drive sheets clear [OPTIONS] <SPREADSHEET_ID>
 
 Arguments:
   <SPREADSHEET_ID>
-          Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL)
+          Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).
 
 Options:
       --account <NAME>
@@ -3781,7 +3781,7 @@ Usage: gwi drive sheets find-replace [OPTIONS] --find <TEXT> --replacement <TEXT
 
 Arguments:
   <SPREADSHEET_ID>
-          Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL)
+          Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).
 
 Options:
       --account <NAME>
@@ -3915,7 +3915,7 @@ Usage: gwi drive sheets add-sheet [OPTIONS] --title <TITLE> <SPREADSHEET_ID>
 
 Arguments:
   <SPREADSHEET_ID>
-          Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL)
+          Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).
 
 Options:
       --account <NAME>
@@ -3968,7 +3968,7 @@ Usage: gwi drive sheets rename-sheet [OPTIONS] --sheet <NAME> --title <TITLE> <S
 
 Arguments:
   <SPREADSHEET_ID>
-          Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL)
+          Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).
 
 Options:
       --account <NAME>
@@ -4015,7 +4015,7 @@ Usage: gwi drive sheets insert-rows [OPTIONS] --sheet <NAME> --at <ROW> <SPREADS
 
 Arguments:
   <SPREADSHEET_ID>
-          Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL)
+          Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).
 
 Options:
       --account <NAME>
@@ -4067,7 +4067,7 @@ Usage: gwi drive sheets insert-columns [OPTIONS] --sheet <NAME> --at <COLUMN> <S
 
 Arguments:
   <SPREADSHEET_ID>
-          Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL)
+          Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).
 
 Options:
       --account <NAME>
@@ -4119,7 +4119,7 @@ Usage: gwi drive sheets insert-range [OPTIONS] --sheet <NAME> --start-row <ROW> 
 
 Arguments:
   <SPREADSHEET_ID>
-          Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL)
+          Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).
 
 Options:
       --account <NAME>
@@ -4182,7 +4182,7 @@ Usage: gwi drive sheets move-rows [OPTIONS] --sheet <NAME> --at <ROW> --before <
 
 Arguments:
   <SPREADSHEET_ID>
-          Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL)
+          Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).
 
 Options:
       --account <NAME>
@@ -4237,7 +4237,7 @@ Usage: gwi drive sheets move-columns [OPTIONS] --sheet <NAME> --at <COLUMN> --be
 
 Arguments:
   <SPREADSHEET_ID>
-          Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL)
+          Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).
 
 Options:
       --account <NAME>
@@ -4292,7 +4292,7 @@ Usage: gwi drive sheets delete-sheet [OPTIONS] --sheet <NAME> <SPREADSHEET_ID>
 
 Arguments:
   <SPREADSHEET_ID>
-          Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL)
+          Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).
 
 Options:
       --account <NAME>
@@ -4336,7 +4336,7 @@ Usage: gwi drive sheets delete-rows [OPTIONS] --sheet <NAME> --at <ROW> <SPREADS
 
 Arguments:
   <SPREADSHEET_ID>
-          Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL)
+          Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).
 
 Options:
       --account <NAME>
@@ -4388,7 +4388,7 @@ Usage: gwi drive sheets delete-columns [OPTIONS] --sheet <NAME> --at <COLUMN> <S
 
 Arguments:
   <SPREADSHEET_ID>
-          Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL)
+          Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).
 
 Options:
       --account <NAME>
@@ -4440,7 +4440,7 @@ Usage: gwi drive sheets delete-range [OPTIONS] --sheet <NAME> --start-row <ROW> 
 
 Arguments:
   <SPREADSHEET_ID>
-          Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL)
+          Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).
 
 Options:
       --account <NAME>
@@ -4503,7 +4503,7 @@ Usage: gwi drive sheets duplicate-sheet [OPTIONS] --sheet <NAME> <SPREADSHEET_ID
 
 Arguments:
   <SPREADSHEET_ID>
-          Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL)
+          Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).
 
 Options:
       --account <NAME>
@@ -4553,7 +4553,7 @@ Usage: gwi drive sheets reorder-sheet [OPTIONS] --sheet <NAME> --index <N> <SPRE
 
 Arguments:
   <SPREADSHEET_ID>
-          Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL)
+          Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).
 
 Options:
       --account <NAME>
@@ -4600,7 +4600,7 @@ Usage: gwi drive sheets hide-sheet [OPTIONS] --sheet <NAME> <SPREADSHEET_ID>
 
 Arguments:
   <SPREADSHEET_ID>
-          Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL)
+          Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).
 
 Options:
       --account <NAME>
@@ -4644,7 +4644,7 @@ Usage: gwi drive sheets show-sheet [OPTIONS] --sheet <NAME> <SPREADSHEET_ID>
 
 Arguments:
   <SPREADSHEET_ID>
-          Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL)
+          Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).
 
 Options:
       --account <NAME>
@@ -4688,7 +4688,7 @@ Usage: gwi drive sheets update-sheet-properties [OPTIONS] --sheet <NAME> <--free
 
 Arguments:
   <SPREADSHEET_ID>
-          Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL)
+          Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).
 
 Options:
       --account <NAME>
@@ -4754,7 +4754,7 @@ Usage: gwi drive sheets update-workbook-properties [OPTIONS] <SPREADSHEET_ID>
 
 Arguments:
   <SPREADSHEET_ID>
-          Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL)
+          Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).
 
 Options:
       --account <NAME>
@@ -4822,7 +4822,7 @@ Usage: gwi drive sheets format-cells [OPTIONS] <SPREADSHEET_ID>
 
 Arguments:
   <SPREADSHEET_ID>
-          Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL)
+          Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).
 
 Options:
       --account <NAME>
@@ -4952,7 +4952,7 @@ Usage: gwi drive sheets update-borders [OPTIONS] <SPREADSHEET_ID>
 
 Arguments:
   <SPREADSHEET_ID>
-          Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL)
+          Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).
 
 Options:
       --account <NAME>
@@ -5029,7 +5029,7 @@ Usage: gwi drive sheets merge-cells [OPTIONS] <SPREADSHEET_ID>
 
 Arguments:
   <SPREADSHEET_ID>
-          Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL)
+          Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).
 
 Options:
       --account <NAME>
@@ -5082,7 +5082,7 @@ Usage: gwi drive sheets unmerge-cells [OPTIONS] <SPREADSHEET_ID>
 
 Arguments:
   <SPREADSHEET_ID>
-          Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL)
+          Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).
 
 Options:
       --account <NAME>
@@ -5129,7 +5129,7 @@ Usage: gwi drive sheets auto-resize-dimension [OPTIONS] --sheet <NAME> --dimensi
 
 Arguments:
   <SPREADSHEET_ID>
-          Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL)
+          Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).
 
 Options:
       --account <NAME>
@@ -5184,7 +5184,7 @@ Usage: gwi drive sheets update-dimension-properties [OPTIONS] --sheet <NAME> --d
 
 Arguments:
   <SPREADSHEET_ID>
-          Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL)
+          Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).
 
 Options:
       --account <NAME>
@@ -5244,7 +5244,7 @@ Usage: gwi drive sheets set-data-validation [OPTIONS] <--one-of-list <A,B,C>|--o
 
 Arguments:
   <SPREADSHEET_ID>
-          Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL)
+          Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).
 
 Options:
       --account <NAME>
@@ -5366,7 +5366,7 @@ Usage: gwi drive sheets clear-data-validation [OPTIONS] <SPREADSHEET_ID>
 
 Arguments:
   <SPREADSHEET_ID>
-          Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL)
+          Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).
 
 Options:
       --account <NAME>
@@ -5413,7 +5413,7 @@ Usage: gwi drive sheets set-developer-metadata [OPTIONS] --key <KEY> --value <VA
 
 Arguments:
   <SPREADSHEET_ID>
-          Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL)
+          Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).
 
 Options:
       --account <NAME>
@@ -5474,7 +5474,7 @@ Usage: gwi drive sheets delete-developer-metadata [OPTIONS] --key <KEY> <SPREADS
 
 Arguments:
   <SPREADSHEET_ID>
-          Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL)
+          Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).
 
 Options:
       --account <NAME>
@@ -5532,7 +5532,7 @@ Usage: gwi drive sheets search-developer-metadata [OPTIONS] <SPREADSHEET_ID>
 
 Arguments:
   <SPREADSHEET_ID>
-          Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL)
+          Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).
 
 Options:
       --account <NAME>
@@ -5584,7 +5584,7 @@ Usage: gwi drive sheets protect-range [OPTIONS] <SPREADSHEET_ID>
 
 Arguments:
   <SPREADSHEET_ID>
-          Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL)
+          Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).
 
 Options:
       --account <NAME>
@@ -5643,7 +5643,7 @@ Usage: gwi drive sheets update-protection [OPTIONS] <SPREADSHEET_ID>
 
 Arguments:
   <SPREADSHEET_ID>
-          Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL)
+          Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).
 
 Options:
       --account <NAME>
@@ -5707,7 +5707,7 @@ Usage: gwi drive sheets unprotect-range [OPTIONS] <SPREADSHEET_ID>
 
 Arguments:
   <SPREADSHEET_ID>
-          Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL)
+          Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).
 
 Options:
       --account <NAME>
@@ -5757,7 +5757,7 @@ Usage: gwi drive sheets list-protections [OPTIONS] <SPREADSHEET_ID>
 
 Arguments:
   <SPREADSHEET_ID>
-          Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL)
+          Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).
 
 Options:
       --account <NAME>
@@ -5792,7 +5792,7 @@ Usage: gwi drive sheets set-basic-filter [OPTIONS] --sheet <NAME> --range <A1> <
 
 Arguments:
   <SPREADSHEET_ID>
-          Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL)
+          Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).
 
 Options:
       --account <NAME>
@@ -5845,7 +5845,7 @@ Usage: gwi drive sheets clear-basic-filter [OPTIONS] --sheet <NAME> <SPREADSHEET
 
 Arguments:
   <SPREADSHEET_ID>
-          Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL)
+          Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).
 
 Options:
       --account <NAME>
@@ -5889,7 +5889,7 @@ Usage: gwi drive sheets add-filter-view [OPTIONS] --sheet <NAME> --range <A1> <S
 
 Arguments:
   <SPREADSHEET_ID>
-          Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL)
+          Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).
 
 Options:
       --account <NAME>
@@ -5945,7 +5945,7 @@ Usage: gwi drive sheets update-filter-view [OPTIONS] --filter-view-id <ID> <--ti
 
 Arguments:
   <SPREADSHEET_ID>
-          Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL)
+          Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).
 
 Options:
       --account <NAME>
@@ -6010,7 +6010,7 @@ Usage: gwi drive sheets delete-filter-view [OPTIONS] --filter-view-id <ID> <SPRE
 
 Arguments:
   <SPREADSHEET_ID>
-          Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL)
+          Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).
 
 Options:
       --account <NAME>
@@ -6054,7 +6054,7 @@ Usage: gwi drive sheets list-filter-views [OPTIONS] <SPREADSHEET_ID>
 
 Arguments:
   <SPREADSHEET_ID>
-          Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL)
+          Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).
 
 Options:
       --account <NAME>
@@ -6091,7 +6091,7 @@ Usage: gwi drive sheets add-conditional-format [OPTIONS] --sheet <NAME> --range 
 
 Arguments:
   <SPREADSHEET_ID>
-          Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL)
+          Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).
 
 Options:
       --account <NAME>
@@ -6232,7 +6232,7 @@ Usage: gwi drive sheets update-conditional-format [OPTIONS] --sheet <NAME> --ind
 
 Arguments:
   <SPREADSHEET_ID>
-          Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL)
+          Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).
 
 Options:
       --account <NAME>
@@ -6373,7 +6373,7 @@ Usage: gwi drive sheets delete-conditional-format [OPTIONS] --sheet <NAME> --ind
 
 Arguments:
   <SPREADSHEET_ID>
-          Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL)
+          Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).
 
 Options:
       --account <NAME>
@@ -6420,7 +6420,7 @@ Usage: gwi drive sheets list-conditional-formats [OPTIONS] <SPREADSHEET_ID>
 
 Arguments:
   <SPREADSHEET_ID>
-          Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL)
+          Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).
 
 Options:
       --account <NAME>
@@ -6455,7 +6455,7 @@ Usage: gwi drive sheets add-named-range [OPTIONS] --name <NAME> <SPREADSHEET_ID>
 
 Arguments:
   <SPREADSHEET_ID>
-          Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL)
+          Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).
 
 Options:
       --account <NAME>
@@ -6508,7 +6508,7 @@ Usage: gwi drive sheets update-named-range [OPTIONS] <--name <NAME>|--id <ID>> <
 
 Arguments:
   <SPREADSHEET_ID>
-          Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL)
+          Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).
 
 Options:
       --account <NAME>
@@ -6567,7 +6567,7 @@ Usage: gwi drive sheets delete-named-range [OPTIONS] <--name <NAME>|--id <ID>> <
 
 Arguments:
   <SPREADSHEET_ID>
-          Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL)
+          Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).
 
 Options:
       --account <NAME>
@@ -6614,7 +6614,7 @@ Usage: gwi drive sheets list-named-ranges [OPTIONS] <SPREADSHEET_ID>
 
 Arguments:
   <SPREADSHEET_ID>
-          Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL)
+          Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).
 
 Options:
       --account <NAME>
@@ -6651,7 +6651,7 @@ Usage: gwi drive sheets add-chart [OPTIONS] --type <TYPE> --domain <A1> <SPREADS
 
 Arguments:
   <SPREADSHEET_ID>
-          Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL)
+          Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).
 
 Options:
       --account <NAME>
@@ -6748,7 +6748,7 @@ Usage: gwi drive sheets update-chart [OPTIONS] --chart-id <ID> <SPREADSHEET_ID>
 
 Arguments:
   <SPREADSHEET_ID>
-          Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL)
+          Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).
 
 Options:
       --account <NAME>
@@ -6828,7 +6828,7 @@ Usage: gwi drive sheets delete-chart [OPTIONS] --chart-id <ID> <SPREADSHEET_ID>
 
 Arguments:
   <SPREADSHEET_ID>
-          Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL)
+          Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).
 
 Options:
       --account <NAME>
@@ -6872,7 +6872,7 @@ Usage: gwi drive sheets list-charts [OPTIONS] <SPREADSHEET_ID>
 
 Arguments:
   <SPREADSHEET_ID>
-          Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL)
+          Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).
 
 Options:
       --account <NAME>
@@ -6907,7 +6907,7 @@ Usage: gwi drive sheets add-slicer [OPTIONS] --range <A1> --column <N> --anchor 
 
 Arguments:
   <SPREADSHEET_ID>
-          Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL)
+          Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).
 
 Options:
       --account <NAME>
@@ -6983,7 +6983,7 @@ Usage: gwi drive sheets update-slicer [OPTIONS] --slicer-id <ID> <SPREADSHEET_ID
 
 Arguments:
   <SPREADSHEET_ID>
-          Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL)
+          Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).
 
 Options:
       --account <NAME>
@@ -7050,7 +7050,7 @@ Usage: gwi drive sheets delete-slicer [OPTIONS] --slicer-id <ID> <SPREADSHEET_ID
 
 Arguments:
   <SPREADSHEET_ID>
-          Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL)
+          Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).
 
 Options:
       --account <NAME>
@@ -7094,7 +7094,7 @@ Usage: gwi drive sheets list-slicers [OPTIONS] <SPREADSHEET_ID>
 
 Arguments:
   <SPREADSHEET_ID>
-          Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL)
+          Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).
 
 Options:
       --account <NAME>
@@ -7129,7 +7129,7 @@ Usage: gwi drive sheets move-chart [OPTIONS] --chart-id <ID> <SPREADSHEET_ID>
 
 Arguments:
   <SPREADSHEET_ID>
-          Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL)
+          Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).
 
 Options:
       --account <NAME>
@@ -7194,7 +7194,7 @@ Usage: gwi drive sheets move-slicer [OPTIONS] --slicer-id <ID> <SPREADSHEET_ID>
 
 Arguments:
   <SPREADSHEET_ID>
-          Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL)
+          Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).
 
 Options:
       --account <NAME>
@@ -7256,7 +7256,7 @@ Usage: gwi drive sheets update-chart-border [OPTIONS] --chart-id <ID> <SPREADSHE
 
 Arguments:
   <SPREADSHEET_ID>
-          Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL)
+          Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).
 
 Options:
       --account <NAME>
@@ -7306,7 +7306,7 @@ Usage: gwi drive sheets add-pivot-table [OPTIONS] --sheet <NAME> --anchor <A1> -
 
 Arguments:
   <SPREADSHEET_ID>
-          Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL)
+          Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).
 
 Options:
       --account <NAME>
@@ -7378,7 +7378,7 @@ Usage: gwi drive sheets delete-pivot-table [OPTIONS] --sheet <NAME> --anchor <A1
 
 Arguments:
   <SPREADSHEET_ID>
-          Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL)
+          Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).
 
 Options:
       --account <NAME>
@@ -7425,7 +7425,7 @@ Usage: gwi drive sheets list-pivot-tables [OPTIONS] <SPREADSHEET_ID>
 
 Arguments:
   <SPREADSHEET_ID>
-          Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL)
+          Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).
 
 Options:
       --account <NAME>
@@ -7460,7 +7460,7 @@ Usage: gwi drive sheets add-banding [OPTIONS] --sheet <NAME> --range <A1> --firs
 
 Arguments:
   <SPREADSHEET_ID>
-          Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL)
+          Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).
 
 Options:
       --account <NAME>
@@ -7528,7 +7528,7 @@ Usage: gwi drive sheets update-banding [OPTIONS] --banded-range-id <ID> <--sheet
 
 Arguments:
   <SPREADSHEET_ID>
-          Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL)
+          Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).
 
 Options:
       --account <NAME>
@@ -7599,7 +7599,7 @@ Usage: gwi drive sheets delete-banding [OPTIONS] --banded-range-id <ID> <SPREADS
 
 Arguments:
   <SPREADSHEET_ID>
-          Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL)
+          Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).
 
 Options:
       --account <NAME>
@@ -7643,7 +7643,7 @@ Usage: gwi drive sheets list-bandings [OPTIONS] <SPREADSHEET_ID>
 
 Arguments:
   <SPREADSHEET_ID>
-          Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL)
+          Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).
 
 Options:
       --account <NAME>
@@ -7678,7 +7678,7 @@ Usage: gwi drive sheets add-dimension-group [OPTIONS] --sheet <NAME> --dimension
 
 Arguments:
   <SPREADSHEET_ID>
-          Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL)
+          Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).
 
 Options:
       --account <NAME>
@@ -7733,7 +7733,7 @@ Usage: gwi drive sheets update-dimension-group [OPTIONS] --sheet <NAME> --dimens
 
 Arguments:
   <SPREADSHEET_ID>
-          Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL)
+          Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).
 
 Options:
       --account <NAME>
@@ -7796,7 +7796,7 @@ Usage: gwi drive sheets delete-dimension-group [OPTIONS] --sheet <NAME> --dimens
 
 Arguments:
   <SPREADSHEET_ID>
-          Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL)
+          Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).
 
 Options:
       --account <NAME>
@@ -7851,7 +7851,7 @@ Usage: gwi drive sheets list-dimension-groups [OPTIONS] <SPREADSHEET_ID>
 
 Arguments:
   <SPREADSHEET_ID>
-          Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL)
+          Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).
 
 Options:
       --account <NAME>
@@ -7886,7 +7886,7 @@ Usage: gwi drive sheets cut-paste [OPTIONS] --source <[SHEET!]A1_RANGE> --destin
 
 Arguments:
   <SPREADSHEET_ID>
-          Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL)
+          Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).
 
 Options:
       --account <NAME>
@@ -7947,7 +7947,7 @@ Usage: gwi drive sheets copy-paste [OPTIONS] --source <[SHEET!]A1_RANGE> --desti
 
 Arguments:
   <SPREADSHEET_ID>
-          Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL)
+          Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).
 
 Options:
       --account <NAME>
@@ -8017,7 +8017,7 @@ Usage: gwi drive sheets paste-data [OPTIONS] --destination <[SHEET!]A1> <SPREADS
 
 Arguments:
   <SPREADSHEET_ID>
-          Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL)
+          Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).
 
 Options:
       --account <NAME>
@@ -8086,7 +8086,7 @@ Usage: gwi drive sheets auto-fill [OPTIONS] <--range <A1>|--source <A1>> <SPREAD
 
 Arguments:
   <SPREADSHEET_ID>
-          Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL)
+          Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).
 
 Options:
       --account <NAME>
@@ -8147,7 +8147,7 @@ Usage: gwi drive sheets sort-range [OPTIONS] --range <A1> --sort-by <COLUMN:ORDE
 
 Arguments:
   <SPREADSHEET_ID>
-          Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL)
+          Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).
 
 Options:
       --account <NAME>
@@ -8197,7 +8197,7 @@ Usage: gwi drive sheets randomize-range [OPTIONS] --range <A1> <SPREADSHEET_ID>
 
 Arguments:
   <SPREADSHEET_ID>
-          Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL)
+          Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).
 
 Options:
       --account <NAME>
@@ -8244,7 +8244,7 @@ Usage: gwi drive sheets text-to-columns [OPTIONS] --source <A1> --delimiter <DEL
 
 Arguments:
   <SPREADSHEET_ID>
-          Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL)
+          Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).
 
 Options:
       --account <NAME>
@@ -8299,7 +8299,7 @@ Usage: gwi drive sheets trim-whitespace [OPTIONS] <SPREADSHEET_ID>
 
 Arguments:
   <SPREADSHEET_ID>
-          Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL)
+          Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).
 
 Options:
       --account <NAME>
@@ -8349,7 +8349,7 @@ Usage: gwi drive sheets delete-duplicates [OPTIONS] --range <A1> <SPREADSHEET_ID
 
 Arguments:
   <SPREADSHEET_ID>
-          Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL)
+          Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).
 
 Options:
       --account <NAME>

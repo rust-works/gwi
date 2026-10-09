@@ -52,6 +52,7 @@ impl From<ValueLayoutArg> for ValueLayout {
 #[derive(Parser)]
 pub struct AddPivotTableCommand {
     /// Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL).
+    #[arg(help = "Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).")]
     pub spreadsheet_id: String,
 
     /// Sheet (tab) title `--anchor` lives on.
@@ -149,6 +150,7 @@ impl AddPivotTableCommand {
 #[derive(Parser)]
 pub struct DeletePivotTableCommand {
     /// Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL).
+    #[arg(help = "Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).")]
     pub spreadsheet_id: String,
 
     /// Sheet (tab) title `--anchor` lives on.
@@ -196,6 +198,7 @@ impl DeletePivotTableCommand {
 #[derive(Parser)]
 pub struct ListPivotTablesCommand {
     /// Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL).
+    #[arg(help = "Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).")]
     pub spreadsheet_id: String,
 
     /// Output format.

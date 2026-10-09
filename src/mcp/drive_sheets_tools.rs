@@ -40,6 +40,7 @@ use super::truncate::build_truncated_result;
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct DriveSheetsInfoParams {
     /// Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL). Required.
+    #[schemars(description = "Spreadsheet id (the /d/<ID>/ segment of a Sheets URL). Required.")]
     pub spreadsheet_id: String,
     #[doc = account_param_doc!()]
     #[serde(default)]
@@ -50,6 +51,7 @@ pub struct DriveSheetsInfoParams {
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct DriveSheetsReadParams {
     /// Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL). Required.
+    #[schemars(description = "Spreadsheet id (the /d/<ID>/ segment of a Sheets URL). Required.")]
     pub spreadsheet_id: String,
     /// An explicit A1 range, which may carry its own `Sheet!` prefix (e.g.
     /// `A1:C10`, `'My Sheet'!A:A`). Combined with `sheet` when bare. Omit

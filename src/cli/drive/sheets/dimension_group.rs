@@ -30,6 +30,7 @@ use crate::drive::sheets::dimension_group::{
 #[derive(Parser)]
 pub struct AddDimensionGroupCommand {
     /// Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL).
+    #[arg(help = "Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).")]
     pub spreadsheet_id: String,
 
     /// Title of the sheet to modify.
@@ -80,6 +81,7 @@ impl AddDimensionGroupCommand {
 #[derive(Parser)]
 pub struct UpdateDimensionGroupCommand {
     /// Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL).
+    #[arg(help = "Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).")]
     pub spreadsheet_id: String,
 
     /// Title of the sheet the group is on.
@@ -146,6 +148,7 @@ impl UpdateDimensionGroupCommand {
 #[derive(Parser)]
 pub struct DeleteDimensionGroupCommand {
     /// Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL).
+    #[arg(help = "Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).")]
     pub spreadsheet_id: String,
 
     /// Title of the sheet the group is on.
@@ -196,6 +199,7 @@ impl DeleteDimensionGroupCommand {
 #[derive(Parser)]
 pub struct ListDimensionGroupsCommand {
     /// Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL).
+    #[arg(help = "Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).")]
     pub spreadsheet_id: String,
 
     /// Output format.

@@ -42,6 +42,7 @@ use crate::drive::sheets::validation::{
     .required(true)))]
 pub struct SetDataValidationCommand {
     /// Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL).
+    #[arg(help = "Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).")]
     pub spreadsheet_id: String,
 
     /// A1 range to validate, optionally carrying its own `Sheet!` prefix.
@@ -246,6 +247,7 @@ impl SetDataValidationCommand {
 #[derive(Parser)]
 pub struct ClearDataValidationCommand {
     /// Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL).
+    #[arg(help = "Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).")]
     pub spreadsheet_id: String,
 
     /// A1 range to clear validation from, optionally carrying its own

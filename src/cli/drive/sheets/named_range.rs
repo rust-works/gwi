@@ -27,6 +27,7 @@ use crate::drive::sheets::{render_grid_range, sheet_title_by_id};
 #[derive(Parser)]
 pub struct AddNamedRangeCommand {
     /// Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL).
+    #[arg(help = "Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).")]
     pub spreadsheet_id: String,
 
     /// The name to create. Must be unique workbook-wide.
@@ -81,6 +82,7 @@ impl AddNamedRangeCommand {
 #[command(group(clap::ArgGroup::new("target").args(["name", "id"]).required(true)))]
 pub struct UpdateNamedRangeCommand {
     /// Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL).
+    #[arg(help = "Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).")]
     pub spreadsheet_id: String,
 
     /// The existing name to change, by case-insensitive exact match.
@@ -154,6 +156,7 @@ impl UpdateNamedRangeCommand {
 #[command(group(clap::ArgGroup::new("target").args(["name", "id"]).required(true)))]
 pub struct DeleteNamedRangeCommand {
     /// Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL).
+    #[arg(help = "Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).")]
     pub spreadsheet_id: String,
 
     /// The existing name to remove, by case-insensitive exact match.
@@ -204,6 +207,7 @@ impl DeleteNamedRangeCommand {
 #[derive(Parser)]
 pub struct ListNamedRangesCommand {
     /// Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL).
+    #[arg(help = "Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).")]
     pub spreadsheet_id: String,
 
     /// Output format.

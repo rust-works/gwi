@@ -17,6 +17,7 @@ use crate::drive::write_gate::FolderPermissionRule;
 #[derive(Parser)]
 pub struct ReplaceCommand {
     /// Document id (the `/d/<ID>/` segment of a Docs URL).
+    #[arg(help = "Document id (the /d/<ID>/ segment of a Docs URL).")]
     pub document_id: String,
 
     /// The literal text to find. Not a regular expression.
@@ -51,6 +52,7 @@ pub struct ReplaceCommand {
 #[derive(Parser)]
 pub struct AppendCommand {
     /// Document id (the `/d/<ID>/` segment of a Docs URL).
+    #[arg(help = "Document id (the /d/<ID>/ segment of a Docs URL).")]
     pub document_id: String,
 
     /// The text to append.

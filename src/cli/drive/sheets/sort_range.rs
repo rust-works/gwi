@@ -19,6 +19,7 @@ use crate::drive::sheets::sort_range::{describe_lines, sort_range, SortRangeOpti
 #[derive(Parser)]
 pub struct SortRangeCommand {
     /// Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL).
+    #[arg(help = "Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).")]
     pub spreadsheet_id: String,
 
     /// Sheet (tab) title. Supplies the prefix for a bare `--range`.

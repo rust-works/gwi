@@ -29,6 +29,7 @@ use crate::mcp::drive_tools::account_param_doc;
 #[serde(deny_unknown_fields)]
 pub struct DriveDocsReplaceParams {
     /// Document id from `/d/<ID>/` in a Docs URL, e.g. 1a2B3c4D. Required.
+    #[schemars(description = "Document id from /d/<ID>/ in a Docs URL, e.g. 1a2B3c4D. Required.")]
     pub document_id: String,
     /// Literal text to find, e.g. draft; not a regular expression. Required.
     pub search: String,
@@ -55,6 +56,7 @@ pub struct DriveDocsReplaceParams {
 #[serde(deny_unknown_fields)]
 pub struct DriveDocsAppendParams {
     /// Document id from `/d/<ID>/` in a Docs URL, e.g. 1a2B3c4D. Required.
+    #[schemars(description = "Document id from /d/<ID>/ in a Docs URL, e.g. 1a2B3c4D. Required.")]
     pub document_id: String,
     /// Text to append, e.g. a new paragraph. Exactly one of text or text_path is required.
     #[serde(default)]
@@ -82,6 +84,9 @@ pub struct DriveDocsAppendParams {
 #[serde(deny_unknown_fields)]
 pub struct DriveSheetsWriteParams {
     /// Spreadsheet id from `/d/<ID>/` in a Sheets URL, e.g. 1a2B3c4D. Required.
+    #[schemars(
+        description = "Spreadsheet id from /d/<ID>/ in a Sheets URL, e.g. 1a2B3c4D. Required."
+    )]
     pub spreadsheet_id: String,
     /// A1 range, e.g. A1:B2 or Sheet1!A1:B2. Omit with sheet to target the tab.
     #[serde(default)]
@@ -123,6 +128,9 @@ pub struct DriveSheetsWriteParams {
 #[serde(deny_unknown_fields)]
 pub struct DriveSheetsClearParams {
     /// Spreadsheet id from `/d/<ID>/` in a Sheets URL, e.g. 1a2B3c4D. Required.
+    #[schemars(
+        description = "Spreadsheet id from /d/<ID>/ in a Sheets URL, e.g. 1a2B3c4D. Required."
+    )]
     pub spreadsheet_id: String,
     /// A1 range, e.g. A1:B2 or Sheet1!A1:B2. Omit with sheet to target the tab.
     #[serde(default)]

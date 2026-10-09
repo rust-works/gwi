@@ -74,6 +74,7 @@ impl From<OrientationArg> for PasteOrientation {
 #[derive(Parser)]
 pub struct CutPasteCommand {
     /// Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL).
+    #[arg(help = "Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).")]
     pub spreadsheet_id: String,
 
     /// Default sheet for `--source`/`--destination` when either lacks its
@@ -137,6 +138,7 @@ impl CutPasteCommand {
 #[derive(Parser)]
 pub struct CopyPasteCommand {
     /// Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL).
+    #[arg(help = "Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).")]
     pub spreadsheet_id: String,
 
     /// Default sheet for `--source`/`--destination` when either lacks its
@@ -206,6 +208,7 @@ impl CopyPasteCommand {
 #[derive(Parser)]
 pub struct PasteDataCommand {
     /// Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL).
+    #[arg(help = "Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).")]
     pub spreadsheet_id: String,
 
     /// Default sheet for `--destination` when it lacks its own `Sheet!`

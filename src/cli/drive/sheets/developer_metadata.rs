@@ -30,6 +30,7 @@ use crate::drive::sheets::developer_metadata::{
 #[derive(Parser)]
 pub struct SetDeveloperMetadataCommand {
     /// Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL).
+    #[arg(help = "Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).")]
     pub spreadsheet_id: String,
 
     /// The key to set.
@@ -91,6 +92,7 @@ impl SetDeveloperMetadataCommand {
 #[derive(Parser)]
 pub struct DeleteDeveloperMetadataCommand {
     /// Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL).
+    #[arg(help = "Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).")]
     pub spreadsheet_id: String,
 
     /// The key to remove.
@@ -180,6 +182,7 @@ async fn run_developer_metadata(
 #[derive(Parser)]
 pub struct SearchDeveloperMetadataCommand {
     /// Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL).
+    #[arg(help = "Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).")]
     pub spreadsheet_id: String,
 
     /// Restrict to this key. Omit to match every key.

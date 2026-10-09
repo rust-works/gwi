@@ -13,6 +13,7 @@ use crate::drive::sheets::find_replace::{describe_lines, find_replace, FindRepla
 #[derive(Parser)]
 pub struct FindReplaceCommand {
     /// Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL).
+    #[arg(help = "Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).")]
     pub spreadsheet_id: String,
 
     /// Text to find. Cannot be empty.

@@ -47,6 +47,7 @@ impl From<InputArg> for ValueInputOption {
 #[derive(Parser)]
 pub struct WriteCommand {
     /// Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL).
+    #[arg(help = "Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).")]
     pub spreadsheet_id: String,
 
     /// A1 range to write, optionally carrying its own `Sheet!` prefix.
@@ -93,6 +94,7 @@ pub struct WriteCommand {
 #[derive(Parser)]
 pub struct AppendCommand {
     /// Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL).
+    #[arg(help = "Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).")]
     pub spreadsheet_id: String,
 
     /// A1 range identifying the table to append to, optionally carrying its
@@ -133,6 +135,7 @@ pub struct AppendCommand {
 #[derive(Parser)]
 pub struct ClearCommand {
     /// Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL).
+    #[arg(help = "Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).")]
     pub spreadsheet_id: String,
 
     /// A1 range to clear, optionally carrying its own `Sheet!` prefix.
