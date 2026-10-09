@@ -15,7 +15,9 @@
 //!
 //! `--follow` also notices the log being replaced (`gwi log prune`, rotation):
 //! by the file's identity (device and inode on unix; volume serial number and file
-//! index on Windows), and on any other platform only by its shrinking.
+//! index on Windows), and on any other platform only by its shrinking. It skips
+//! the contents present at detection and follows subsequent appends; replacement
+//! never replays a backlog, so `--limit` applies only to the initial scan.
 
 use std::collections::VecDeque;
 use std::ffi::OsStr;
@@ -428,8 +430,8 @@ fn write_line<W: Write>(out: &mut W, rendered: &str) -> io::Result<bool> {
 /// Tails the file from `pos`, printing newly appended complete lines forever
 /// (until the process is interrupted, a write finds the pipe closed, or
 /// `reader_gone` reports that the reader has gone away, which is checked each
-/// tick so an idle follow, which never writes, still stops). Restarts from the
-/// top when the file is truncated or replaced.
+/// tick so an idle follow, which never writes, still stops). Resumes from the
+/// end when the file is truncated or replaced, without replaying its contents.
 fn follow_loop<W: Write>(
     path: &Path,
     filter: &Filter,
@@ -450,8 +452,9 @@ fn follow_loop<W: Write>(
 }
 
 /// Reads and emits any complete lines appended past `tail.pos`, advancing the
-/// tail. Restarts from the top if the file was replaced (its identity changed)
+/// tail. Skips to the observed end if the file was replaced (its identity changed)
 /// or shrank (truncation); a no-op if the file is absent or has not grown.
+/// This also applies to replacement during the initial backlog scan.
 /// A trailing partial line (no newline yet) is left for the next call.
 fn drain_appended<W: Write>(
     path: &Path,
@@ -470,7 +473,10 @@ fn drain_appended<W: Write>(
     // one, and do not take a first successful read after a failure for a change.
     let replaced = matches!((id, tail.id), (Some(now), Some(saved)) if now != saved);
     if replaced || len < tail.pos {
-        tail.pos = 0; // replaced, truncated or rotated — restart
+        // Prune retains records already seen, and identity cannot tell it apart
+        // from rotation. Never replay replacement contents, including records
+        // written before this poll; follow only subsequent appends.
+        tail.pos = len;
     }
     tail.id = id.or(tail.id);
     if len > tail.pos {
@@ -1580,11 +1586,13 @@ mod tests {
         assert!(String::from_utf8(out).unwrap().is_empty());
         assert_eq!(tail.pos, pos2, "partial line does not advance the position");
 
-        // Truncation resets to the top and re-reads.
+        // Truncation skips existing contents and follows subsequent appends.
         std::fs::write(&path, "{\"id\":\"x\",\"kind\":\"http\"}\n").unwrap();
         let mut out = Vec::new();
         drain_appended(&path, &empty_filter(), Format::Json, &mut tail, &mut out).unwrap();
-        assert!(String::from_utf8(out).unwrap().contains(r#""id":"x""#));
+        assert!(out.is_empty());
+        assert_eq!(tail.pos, std::fs::metadata(&path).unwrap().len());
+        assert_follows_next_append(&path, &mut tail);
 
         // A missing file is a no-op that preserves the tail.
         let missing = dir.path().join("gone.jsonl");
@@ -1654,7 +1662,7 @@ mod tests {
 
     #[cfg(any(unix, windows))]
     #[test]
-    fn drain_appended_restarts_when_the_log_is_replaced_by_a_larger_file() {
+    fn drain_appended_skips_contents_when_the_log_is_replaced_by_a_larger_file() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("log.jsonl");
         std::fs::write(&path, sample_lines()).unwrap();
@@ -1676,14 +1684,14 @@ mod tests {
         let mut out = Vec::new();
         drain_appended(&path, &empty_filter(), Format::Json, &mut tail, &mut out).unwrap();
         let text = String::from_utf8(out).unwrap();
-        assert_eq!(text.lines().count(), 10, "text was: {text}");
-        assert!(text.starts_with(r#"{"id":"0""#), "text was: {text}");
+        assert!(text.is_empty(), "text was: {text}");
         assert_eq!(tail.pos, replacement.len() as u64);
+        assert_follows_next_append(&path, &mut tail);
     }
 
     #[cfg(any(unix, windows))]
     #[test]
-    fn drain_appended_restarts_when_the_log_is_replaced_by_a_same_size_file() {
+    fn drain_appended_skips_contents_when_the_log_is_replaced_by_a_same_size_file() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("log.jsonl");
         std::fs::write(&path, sample_lines()).unwrap();
@@ -1704,7 +1712,93 @@ mod tests {
         let mut out = Vec::new();
         drain_appended(&path, &empty_filter(), Format::Json, &mut tail, &mut out).unwrap();
         let text = String::from_utf8(out).unwrap();
-        assert_eq!(text.lines().count(), 5, "text was: {text}");
-        assert!(text.contains(r#""url":"/y/0""#), "text was: {text}");
+        assert!(text.is_empty(), "text was: {text}");
+        assert_eq!(tail.pos, replacement.len() as u64);
+        assert_follows_next_append(&path, &mut tail);
+    }
+
+    fn assert_follows_next_append(path: &Path, tail: &mut Tail) {
+        let mut file = std::fs::OpenOptions::new().append(true).open(path).unwrap();
+        writeln!(file, "{GOOD}").unwrap();
+        let mut out = Vec::new();
+        drain_appended(path, &empty_filter(), Format::Json, tail, &mut out).unwrap();
+        assert_eq!(out, format!("{GOOD}\n").as_bytes());
+        out.clear();
+        drain_appended(path, &empty_filter(), Format::Json, tail, &mut out).unwrap();
+        assert!(out.is_empty(), "the next append is printed exactly once");
+    }
+
+    #[test]
+    fn drain_appended_reads_a_file_created_after_a_missing_log() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("log.jsonl");
+        let mut tail = tail_at_start();
+        let mut out = Vec::new();
+        drain_appended(&path, &empty_filter(), Format::Json, &mut tail, &mut out).unwrap();
+        std::fs::write(&path, sample_lines()).unwrap();
+        drain_appended(&path, &empty_filter(), Format::Json, &mut tail, &mut out).unwrap();
+        assert_eq!(out, sample_lines().as_bytes());
+    }
+
+    #[cfg(any(unix, windows))]
+    #[test]
+    fn replacement_during_or_after_backlog_never_replays_even_with_a_limit() {
+        for during_scan in [false, true] {
+            for limit in [None, Some(0), Some(2)] {
+                for rotation in [false, true] {
+                    let dir = tempfile::tempdir().unwrap();
+                    let path = dir.path().join("log.jsonl");
+                    let original = sample_lines();
+                    std::fs::write(&path, &original).unwrap();
+                    let file = File::open(&path).unwrap();
+                    let mut tail = Tail {
+                        pos: 0,
+                        id: file_id(&file),
+                    };
+                    let mut reader = BufReader::new(file);
+                    // Prune retains the last two old records; rotation contains all-new IDs.
+                    let replacement = if rotation {
+                        original.replace("\"id\":\"", "\"id\":\"new-")
+                    } else {
+                        original.split_inclusive('\n').skip(3).collect()
+                    };
+                    let mut out = Vec::new();
+                    let result = emit_backlog(
+                        &mut reader,
+                        &empty_filter(),
+                        Format::Json,
+                        limit,
+                        true,
+                        &mut out,
+                        || {
+                            if during_scan {
+                                replace_by_rename(&path, &replacement);
+                            }
+                            false
+                        },
+                    )
+                    .unwrap();
+                    let Backlog::Complete { pos, .. } = result else {
+                        panic!("backlog should complete");
+                    };
+                    tail.pos = pos;
+                    assert_eq!(
+                        out.split(|byte| *byte == b'\n')
+                            .filter(|line| !line.is_empty())
+                            .count(),
+                        limit.unwrap_or(5)
+                    );
+                    if !during_scan {
+                        replace_by_rename(&path, &replacement);
+                    }
+                    out.clear();
+                    drain_appended(&path, &empty_filter(), Format::Json, &mut tail, &mut out)
+                        .unwrap();
+                    assert!(out.is_empty(), "replacement must never replay records");
+                    assert_eq!(tail.pos, replacement.len() as u64);
+                    assert_follows_next_append(&path, &mut tail);
+                }
+            }
+        }
     }
 }
