@@ -101,6 +101,22 @@ async fn list_tools_advertises_exactly_the_gmail_and_drive_tools() -> Result<()>
     for tool in &tools.tools {
         let description = tool.description.as_deref().unwrap_or_default();
         assert!(!description.is_empty(), "{} has no description", tool.name);
+        if let Some(properties) = tool.input_schema.get("properties") {
+            let properties = properties
+                .as_object()
+                .unwrap_or_else(|| panic!("{}: schema properties must be an object", tool.name));
+            for (field, schema) in properties {
+                let description = schema
+                    .get("description")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or_default();
+                assert!(
+                    !description.trim().is_empty(),
+                    "{}: parameter `{field}` has no non-empty description",
+                    tool.name
+                );
+            }
+        }
     }
     client.cancel().await?;
     let _ = server_handle.await;
