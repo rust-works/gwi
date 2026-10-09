@@ -1216,6 +1216,34 @@ mod tests {
     }
 
     #[test]
+    fn lease_defaults_ignore_other_threads_exports() {
+        crate::test_support::while_another_thread_exports(
+            &[
+                ("GWI_DRIVE_LEASE_EXPIRY_MINUTES", "1"),
+                ("GWI_DRIVE_LEASE_BACKUP_DIR", "/exported/backups"),
+                ("GWI_DRIVE_LEASE_BIOMETRICS_ONLY", "1"),
+                ("GWI_DRIVE_LEASE_ALLOW_HEADLESS", "1"),
+            ],
+            20,
+            || {
+                let guard = crate::drive::test_support::EnvGuard::take();
+                let _dir = guard.clear_credentials();
+                let flags = LeaseFlags {
+                    backup_dir: None,
+                    expiry_minutes: None,
+                    biometrics_only: false,
+                    allow_headless: false,
+                };
+                let resolved = flags.resolve().unwrap();
+                assert_eq!(resolved.auth_policy, AuthPolicy::DeviceOwner);
+                assert!(!resolved.allow_headless);
+                assert!(resolved.backup_dir.ends_with("drive-backups"));
+                assert_eq!(resolved.expiry, chrono::Duration::minutes(30));
+            },
+        );
+    }
+
+    #[test]
     fn print_result_does_not_panic_for_any_variant() {
         for result in [
             AcquireResult::Acquired {

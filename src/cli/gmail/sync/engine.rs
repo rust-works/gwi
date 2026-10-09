@@ -1351,13 +1351,42 @@ mod tests {
             .mount(server)
             .await;
 
-        let mut client = GmailClient::new(&server.uri(), &test_credentials()).unwrap();
+        // Checkpoint observations require requests to outlive the observation
+        // window, independent of the developer's GWI_HTTP_* exports (#120).
+        let http = reqwest::Client::builder()
+            .connect_timeout(crate::utils::http::DEFAULT_CONNECT_TIMEOUT)
+            .read_timeout(crate::utils::http::DEFAULT_READ_TIMEOUT)
+            .build()
+            .unwrap();
+        let mut client = GmailClient::with_http_client(&server.uri(), &test_credentials(), http);
         crate::gmail::client::test_support::replace_session(
             &mut client,
             &test_credentials(),
             &format!("{}/token", server.uri()),
         );
         client
+    }
+
+    #[tokio::test]
+    async fn sync_test_client_outlives_hostile_ambient_read_timeout() {
+        let _guard = crate::gmail::test_support::EnvGuard::take();
+        let _timeout = crate::utils::env::ScopedEnvVar::set("GWI_HTTP_READ_TIMEOUT_SECS", "1");
+        let server = wiremock::MockServer::start().await;
+        let client = client_with_bootstrapped_token(&server).await;
+        wiremock::Mock::given(wiremock::matchers::method("GET"))
+            .and(wiremock::matchers::path("/delayed"))
+            .respond_with(
+                wiremock::ResponseTemplate::new(200)
+                    .set_delay(std::time::Duration::from_millis(1200)),
+            )
+            .mount(&server)
+            .await;
+        assert!(client
+            .get_json(&format!("{}/delayed", server.uri()))
+            .await
+            .unwrap()
+            .status()
+            .is_success());
     }
 
     async fn mount_profile(server: &wiremock::MockServer, email: &str, history_id: &str) {

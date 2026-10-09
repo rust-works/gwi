@@ -27,7 +27,7 @@ use crate::utils::settings::PROFILE_ENV_VAR;
 static DRIVE_ENV_MUTEX: &Mutex<()> = &crate::test_support::HOME_ENV_MUTEX;
 
 /// RAII guard: snapshots `HOME`, `GWI_PROFILE` + every Drive credential and
-/// endpoint env var on construction and restores them on drop.
+/// endpoint and lease-policy env var on construction and restores them on drop.
 pub(crate) struct EnvGuard {
     _lock: MutexGuard<'static, ()>,
     snapshot: Vec<(String, Option<String>)>,
@@ -48,6 +48,10 @@ impl EnvGuard {
             SHEETS_API_URL.to_string(),
             DOCS_API_URL.to_string(),
             SLIDES_API_URL.to_string(),
+            "GWI_DRIVE_LEASE_EXPIRY_MINUTES".to_string(),
+            "GWI_DRIVE_LEASE_BACKUP_DIR".to_string(),
+            "GWI_DRIVE_LEASE_BIOMETRICS_ONLY".to_string(),
+            "GWI_DRIVE_LEASE_ALLOW_HEADLESS".to_string(),
         ];
         // The `_FILE` / `_COMMAND` companions of every Drive secret, derived from
         // the registry so a new secret is covered without touching this list:

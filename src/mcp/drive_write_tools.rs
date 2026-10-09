@@ -634,32 +634,6 @@ mod tests {
         Mock, MockServer, ResponseTemplate,
     };
 
-    // EnvGuard serializes this HOME/settings-dependent test with other domains.
-    // Restore logging overrides even if an assertion panics.
-    struct LogRoute(Vec<(&'static str, Option<std::ffi::OsString>)>);
-    impl LogRoute {
-        fn new(path: &std::path::Path) -> Self {
-            let snapshot = ["GWI_LOG_FILE", "GWI_LOG_DISABLE"]
-                .into_iter()
-                .map(|key| (key, std::env::var_os(key)))
-                .collect();
-            std::env::set_var("GWI_LOG_FILE", path);
-            std::env::remove_var("GWI_LOG_DISABLE");
-            Self(snapshot)
-        }
-    }
-    impl Drop for LogRoute {
-        fn drop(&mut self) {
-            for (key, value) in &self.0 {
-                if let Some(value) = value {
-                    std::env::set_var(key, value); // patchcov: coverage ignore-line reason="only runs when the developer exported GWI_LOG_FILE/GWI_LOG_DISABLE before the test; CI and a clean shell take the remove_var arm"
-                } else {
-                    std::env::remove_var(key);
-                }
-            }
-        }
-    }
-
     fn decoded(result: &CallToolResult) -> serde_yaml::Value {
         let text = result.content[0].as_text().unwrap();
         serde_yaml::from_str(&text.text).unwrap()
@@ -831,7 +805,7 @@ mod tests {
         let dir = guard.clear_credentials();
         configure(dir.path(), false);
         let log = dir.path().join("requests.jsonl");
-        let _log_route = LogRoute::new(&log);
+        let _log_route = crate::test_support::RequestLogGuard::redirect(&log);
         let server = MockServer::start().await;
         let (drive, docs, _) = clients(&server).await;
         file(&server, crate::drive::types::GOOGLE_DOC_MIME_TYPE).await;

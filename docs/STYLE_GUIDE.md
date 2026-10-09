@@ -1519,10 +1519,9 @@ tests that call `std::env::set_var` / `remove_var`:
 - **Mutate only under the guard.** Take `EnvGuard::take()` before the first
   `set_var` / `remove_var`. Drop restores only the keys in its snapshot, so
   add a new variable to that list (`EnvGuard::keys()`) before a test mutates
-  it. Today neither snapshot covers `GWI_LOG_FILE` / `GWI_LOG_DISABLE`: a test
-  that mutates those restores them itself (`ScopedEnvVar`, a local `Drop`)
-  *and* still takes the guard. A new secret's `_FILE` / `_COMMAND`
-  companions are picked up from `SECRET_ENV_VARS`.
+  it. The Drive guard also snapshots and clears `GWI_DRIVE_LEASE_*`,
+  because default-policy tests resolve them through settings. A new secret's
+  `_FILE` / `_COMMAND` companions are picked up from `SECRET_ENV_VARS`.
 - **A test that needs a variable unset takes the guard.** The credential,
   account, profile and endpoint variables (`GMAIL_*`, `DRIVE_*` with their
   `_FILE` / `_COMMAND` companions, `GWI_PROFILE`, `GWI_*_ACCOUNT`, the
@@ -1531,6 +1530,20 @@ tests that call `std::env::set_var` / `remove_var`:
   host, "no profile selected", "not configured") takes the guard and calls
   `clear_credentials()`, even for a single read (#62). A spawned `gwi`
   removes them with `tests/common`'s `scrub_ambient_env`.
+- **Logging uses a local seam.** Unit-test logging ignores ambient
+  `GWI_LOG_*` overrides (including rotation and header/body opt-ins). To observe
+  request records, use `crate::test_support::RequestLogGuard`; audit records use
+  `AuditLogGuard`. Both route only the current thread, so spawned tasks need
+  their own route. Test environment parsing with `MapEnv` and the `*_with`
+  functions. Mutating an env var under the shared mutex cannot protect ordinary
+  logging calls on other threads. Integration tests exercise the production
+  environment boundary through `Command::env` and scrub ambient logging,
+  HTTP/secret-command limits and lease policy with `tests/common`.
+- **Timing-sensitive HTTP tests inject a transport.** A mock response deliberately
+  held in flight must outlive the observation window independently of
+  `GWI_HTTP_*` exports. Construct a transport with explicit timeouts and pass it
+  through the client seam (`GmailClient::with_http_client`), instead of changing
+  process timeouts. Secret-command limit tests inject `MapEnv` or `Limits`.
 - **Enforcement is partial.**
   `every_gmail_and_drive_env_mutation_holds_the_env_guard` fails a function
   that mutates one of the credential or endpoint variables in its

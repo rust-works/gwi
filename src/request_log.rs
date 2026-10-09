@@ -297,9 +297,28 @@ pub fn current_context() -> RequestLogContext {
     RequestLogContext::default()
 }
 
+/// Production logging reads the process environment. Unit tests use an
+/// empty map unless this thread explicitly installs a route, so incidental
+/// writes cannot enter another test's file or inherit ambient rotation.
+#[cfg(not(test))]
+fn log_env() -> SystemEnv {
+    SystemEnv
+}
+
+#[cfg(test)]
+fn log_env() -> crate::test_support::env::MapEnv {
+    TEST_LOG_ENV.with(|slot| slot.borrow().clone())
+}
+
+#[cfg(test)]
+thread_local! {
+    pub(crate) static TEST_LOG_ENV: std::cell::RefCell<crate::test_support::env::MapEnv> =
+        std::cell::RefCell::new(crate::test_support::env::MapEnv::new());
+}
+
 /// Whether logging is disabled entirely (`GWI_LOG_DISABLE=1`).
 pub fn disabled() -> bool {
-    disabled_with(&SystemEnv)
+    disabled_with(&log_env())
 }
 
 /// [`disabled`], reading through an injected [`EnvSource`] (STYLE-0028).
@@ -309,7 +328,7 @@ fn disabled_with(env: &impl EnvSource) -> bool {
 
 /// Whether request/response bodies may be recorded (`GWI_LOG_BODIES=1`).
 pub fn bodies_enabled() -> bool {
-    bodies_enabled_with(&SystemEnv)
+    bodies_enabled_with(&log_env())
 }
 
 /// [`bodies_enabled`], reading through an injected [`EnvSource`] (STYLE-0028).
@@ -319,7 +338,7 @@ fn bodies_enabled_with(env: &impl EnvSource) -> bool {
 
 /// Whether (redacted) headers may be recorded (`GWI_LOG_HEADERS=1`).
 pub fn headers_enabled() -> bool {
-    truthy_var(&SystemEnv, "GWI_LOG_HEADERS")
+    truthy_var(&log_env(), "GWI_LOG_HEADERS")
 }
 
 /// The default location of an gwi runtime file: `state_dir` (falling
@@ -339,7 +358,7 @@ pub(crate) fn gwi_state_subpath(component: &str) -> Option<PathBuf> {
 /// In a test build the fallback is a scratch file instead (see
 /// `default_log_file_path`).
 pub fn log_file_path() -> Option<PathBuf> {
-    log_file_path_with(&SystemEnv)
+    log_file_path_with(&log_env())
 }
 
 /// [`log_file_path`], reading through an injected [`EnvSource`]
@@ -611,8 +630,8 @@ fn default_log_file_path() -> Option<PathBuf> {
 /// about the log. Without this fallback each of them appended to the
 /// developer's real `log.jsonl` — about 8,000 rows per `cargo test` run
 /// ([#61](https://github.com/rust-works/gwi/issues/61)). A test that wants
-/// to observe the log sets `GWI_LOG_FILE` or passes an explicit path, both
-/// of which are honoured before this fallback.
+/// to observe its own log uses [`crate::test_support::RequestLogGuard`]
+/// or passes an explicit path. Ambient overrides are ignored in test builds.
 #[cfg(test)]
 fn default_log_file_path() -> Option<PathBuf> {
     Some(test_scratch_dir().join(LOG_FILE_NAME))
@@ -1002,7 +1021,8 @@ struct RotationConfig {
 /// debug and disables rotation rather than failing the write.
 #[cfg(unix)]
 fn rotation_config() -> Option<RotationConfig> {
-    let raw = std::env::var("GWI_LOG_MAX_SIZE").ok()?;
+    let env = log_env();
+    let raw = env.var("GWI_LOG_MAX_SIZE")?;
     if raw.trim().is_empty() {
         return None;
     }
@@ -1014,8 +1034,8 @@ fn rotation_config() -> Option<RotationConfig> {
             return None;
         }
     };
-    let keep_files = std::env::var("GWI_LOG_KEEP_FILES")
-        .ok()
+    let keep_files = env
+        .var("GWI_LOG_KEEP_FILES")
         .and_then(|v| v.trim().parse::<u32>().ok())
         .unwrap_or(DEFAULT_KEEP_FILES);
     Some(RotationConfig {
@@ -4179,5 +4199,84 @@ mod tests {
         );
         assert!(result.is_err(), "a failing rewrite surfaces as an error");
         let _ = std::fs::remove_dir(&tmp);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn rotation_config_uses_the_injected_log_environment() {
+        use crate::test_support::RequestLogGuard;
+        for raw in ["", "0", "invalid"] {
+            let _route = RequestLogGuard::with_env(MapEnv::new().with("GWI_LOG_MAX_SIZE", raw));
+            assert!(rotation_config().is_none(), "{raw}");
+        }
+        let _route = RequestLogGuard::with_env(MapEnv::new().with("GWI_LOG_MAX_SIZE", "2K"));
+        let defaults = rotation_config().unwrap();
+        assert_eq!(defaults.max_size, 2048);
+        assert_eq!(defaults.keep_files, DEFAULT_KEEP_FILES);
+        for (raw, expected) in [("0", 0), ("3", 3), ("invalid", DEFAULT_KEEP_FILES)] {
+            let _route = RequestLogGuard::with_env(
+                MapEnv::new()
+                    .with("GWI_LOG_MAX_SIZE", "1")
+                    .with("GWI_LOG_KEEP_FILES", raw),
+            );
+            let parsed = rotation_config().unwrap();
+            assert_eq!(parsed.max_size, 1);
+            assert_eq!(parsed.keep_files, expected);
+        }
+    }
+
+    #[test]
+    fn request_logging_ignores_other_threads_exports() {
+        let exports = tempfile::tempdir().unwrap();
+        let exported_log = exports.path().join("exported.jsonl");
+        let exported_audit = exports.path().join("audit.jsonl");
+        crate::test_support::while_another_thread_exports(
+            &[
+                ("GWI_LOG_FILE", exported_log.to_str().unwrap()),
+                ("GWI_LOG_DISABLE", "1"),
+                ("GWI_LOG_BODIES", "1"),
+                ("GWI_LOG_HEADERS", "1"),
+                ("GWI_LOG_MAX_SIZE", "1"),
+                ("GWI_LOG_KEEP_FILES", "0"),
+                ("GWI_AUDIT_LOG_FILE", exported_audit.to_str().unwrap()),
+            ],
+            20,
+            || {
+                assert!(!disabled());
+                assert!(!bodies_enabled());
+                assert!(!headers_enabled());
+                assert_eq!(log_file_path(), default_log_file_path());
+                assert_eq!(audit_file_path(), default_audit_file_path());
+                let dir = tempfile::tempdir().unwrap();
+                let path = dir.path().join("request.jsonl");
+                let _route = crate::test_support::RequestLogGuard::redirect(&path);
+                let entry = LogRecord::new(RecordKind::Invocation, "isolated".into());
+                record(&entry);
+                record(&entry);
+                assert_eq!(std::fs::read_to_string(&path).unwrap().lines().count(), 2);
+            },
+        );
+    }
+
+    #[test]
+    fn request_log_routes_are_thread_local_and_restore_after_panic() {
+        use crate::test_support::RequestLogGuard;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("request.jsonl");
+        let default = log_file_path();
+        {
+            let _outer = RequestLogGuard::redirect(&path);
+            assert_eq!(log_file_path(), Some(path.clone()));
+            assert_eq!(std::thread::spawn(log_file_path).join().unwrap(), default);
+            let result = std::panic::catch_unwind(|| {
+                let _inner = RequestLogGuard::with_env(MapEnv::new().with("GWI_LOG_DISABLE", "1"));
+                assert!(disabled());
+                panic!("exercise route restoration");
+            });
+            assert!(result.is_err());
+            assert!(!disabled());
+            assert_eq!(log_file_path(), Some(path));
+        }
+        assert_eq!(log_file_path(), default);
     }
 }

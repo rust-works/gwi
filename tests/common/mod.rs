@@ -2,11 +2,26 @@
 
 use std::process::Command;
 
-/// The credential, account, profile and endpoint variables the binary reads
-/// from its environment, so a test that must not depend on the developer's
-/// shell removes them all (issue #62). `src/gmail/test_support.rs` and
+/// Variables the binary reads for credentials, accounts, profiles, endpoints,
+/// logging, timeouts and leases. Tests remove these so their results do not
+/// depend on the developer's shell (issues #62 and #120). `src/gmail/test_support.rs` and
 /// `src/drive/test_support.rs` keep the in-process equivalent.
-const AMBIENT_ENV: [&str; 27] = [
+const AMBIENT_ENV: [&str; 42] = [
+    "GWI_LOG_FILE",
+    "GWI_LOG_DISABLE",
+    "GWI_AUDIT_LOG_FILE",
+    "GWI_LOG_MAX_SIZE",
+    "GWI_LOG_KEEP_FILES",
+    "GWI_LOG_BODIES",
+    "GWI_LOG_HEADERS",
+    "GWI_HTTP_CONNECT_TIMEOUT_SECS",
+    "GWI_HTTP_READ_TIMEOUT_SECS",
+    "GWI_SECRET_COMMAND_TIMEOUT_SECS",
+    "GWI_SECRET_COMMAND_TTL_SECS",
+    "GWI_DRIVE_LEASE_EXPIRY_MINUTES",
+    "GWI_DRIVE_LEASE_BACKUP_DIR",
+    "GWI_DRIVE_LEASE_BIOMETRICS_ONLY",
+    "GWI_DRIVE_LEASE_ALLOW_HEADLESS",
     "GMAIL_CLIENT_ID",
     "GMAIL_CLIENT_SECRET",
     "GMAIL_CLIENT_SECRET_FILE",
