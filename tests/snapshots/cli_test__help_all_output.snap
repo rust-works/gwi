@@ -8488,6 +8488,9 @@ Options:
   -n, --limit <N>
           Show at most N (most recent) matching records
 
+      --rotated
+          Include numbered request-log backups, oldest first, before the live log. The limit applies across all files; follow then tails only the live log
+
   -f, --follow
           Follow the log, printing new matching records as they are appended
 

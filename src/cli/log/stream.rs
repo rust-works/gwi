@@ -18,12 +18,13 @@
 //! index on Windows), and on any other platform only by its shrinking.
 
 use std::collections::VecDeque;
+use std::ffi::OsStr;
 use std::fs::File;
 use std::io::{self, BufRead, BufReader, Seek, SeekFrom, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 
 use super::format;
 use super::query::Filter;
@@ -121,55 +122,163 @@ enum Backlog {
     ReaderGone,
 }
 
-/// Streams the log file at `path`, applying `filter` and rendering as `format`.
+/// Returns numbered backups oldest first, followed by the live file.
+/// Discovers files without assuming contiguous suffixes or current retention settings.
+fn backlog_paths(path: &Path, rotated: bool) -> Result<Vec<PathBuf>> {
+    let mut backups = Vec::new();
+    if rotated {
+        let parent = path
+            .parent()
+            .filter(|p| !p.as_os_str().is_empty())
+            .unwrap_or(Path::new("."));
+        let entries = match std::fs::read_dir(parent) {
+            Ok(entries) => Some(entries),
+            Err(e) if e.kind() == io::ErrorKind::NotFound => None,
+            Err(e) => {
+                return Err(e)
+                    .with_context(|| format!("Failed to read log directory {}", parent.display()))
+            }
+        };
+        if let (Some(entries), Some(name)) = (entries, path.file_name()) {
+            // Strip the exact OsStr prefix first, preserving non-UTF-8 log filenames.
+            let mut prefix = name.to_os_string();
+            prefix.push(".");
+            for entry in entries {
+                let entry = entry?;
+                let filename = entry.file_name();
+                let Some(generation) = backup_generation(&filename, &prefix) else {
+                    continue;
+                };
+                if entry.file_type()?.is_file() {
+                    backups.push((generation, entry.path()));
+                }
+            }
+        }
+    }
+    backups.sort_unstable_by_key(|(generation, _)| std::cmp::Reverse(*generation));
+    let mut paths: Vec<_> = backups.into_iter().map(|(_, path)| path).collect();
+    paths.push(path.to_path_buf());
+    Ok(paths)
+}
+
+/// Returns the canonical positive generation suffix after the exact log-name prefix.
+fn backup_generation(filename: &OsStr, prefix: &OsStr) -> Option<u32> {
+    let suffix = filename
+        .as_encoded_bytes()
+        .strip_prefix(prefix.as_encoded_bytes())?;
+    let suffix = std::str::from_utf8(suffix).ok()?;
+    let generation = suffix.parse::<u32>().ok()?;
+    (generation > 0 && suffix == generation.to_string()).then_some(generation)
+}
+
+/// Streams the selected backlog, then optionally follows only the live file.
 pub fn run(
     path: &Path,
     filter: &Filter,
     format: Format,
     limit: Option<usize>,
     follow: bool,
+    rotated: bool,
 ) -> Result<()> {
     let stdout = io::stdout();
     let mut out = stdout.lock();
-
-    let mut tail = Tail { pos: 0, id: None };
-    match File::open(path) {
-        Ok(file) => {
-            // Taken from the handle that is scanned, so a replacement after this
-            // point is seen as a change of identity by the follow loop.
-            tail.id = file_id(&file);
-            let mut reader = BufReader::new(file);
-            match emit_backlog(
-                &mut reader,
-                filter,
-                format,
-                limit,
-                follow,
-                &mut out,
-                stdout_hung_up,
-            )? {
-                Backlog::Complete { pos, skipped } => {
-                    tail.pos = pos;
-                    warn_skipped(path, skipped);
-                }
-                Backlog::ReaderGone => return Ok(()),
-            }
-            warn_unmatched_terms(filter, follow);
-        }
-        Err(e) if e.kind() == io::ErrorKind::NotFound => {
-            if !follow {
-                return Ok(());
-            }
-        }
-        Err(e) => return Err(e.into()),
-    }
-
+    let mut sink = BacklogSink {
+        format,
+        limit,
+        ring: VecDeque::new(),
+        out: &mut out,
+    };
+    let Some(tail) = scan_files(path, filter, follow, rotated, &mut sink, stdout_hung_up)? else {
+        return Ok(());
+    };
     if follow {
         if let Err(e) = follow_loop(path, filter, format, tail, &mut out, stdout_hung_up) {
             return swallow_broken_pipe(e);
         }
     }
     Ok(())
+}
+
+/// Scans the selected files with shared output state and returns the live-file tail.
+/// Returns `None` if the output reader has gone away.
+fn scan_files<W: Write>(
+    path: &Path,
+    filter: &Filter,
+    follow: bool,
+    rotated: bool,
+    sink: &mut BacklogSink<'_, W>,
+    mut reader_gone: impl FnMut() -> bool,
+) -> Result<Option<Tail>> {
+    let mut tail = Tail { pos: 0, id: None };
+    let mut scanned = false;
+    for current in backlog_paths(path, rotated)? {
+        let file = match File::open(&current) {
+            Ok(file) => file,
+            Err(e) if e.kind() == io::ErrorKind::NotFound => continue,
+            Err(e) => {
+                return Err(e)
+                    .with_context(|| format!("Failed to open log file {}", current.display()))
+            }
+        };
+        let live = current == path;
+        if live {
+            tail.id = file_id(&file);
+        }
+        let mut reader = BufReader::new(file);
+        match scan_backlog(&mut reader, filter, follow && live, sink, &mut reader_gone)? {
+            Backlog::Complete { pos, skipped } => {
+                if live {
+                    tail.pos = pos;
+                }
+                warn_skipped(&current, skipped);
+            }
+            Backlog::ReaderGone => return Ok(None),
+        }
+        scanned = true;
+    }
+    if !sink.finish()? {
+        return Ok(None);
+    }
+    if scanned {
+        warn_unmatched_terms(filter, follow);
+    }
+    Ok(Some(tail))
+}
+
+/// Rendering and the single limit buffer shared by every backlog file.
+struct BacklogSink<'a, W> {
+    format: Format,
+    limit: Option<usize>,
+    ring: VecDeque<String>,
+    out: &'a mut W,
+}
+
+impl<W: Write> BacklogSink<'_, W> {
+    /// Streams one match or retains it among the most recent matches.
+    fn emit(&mut self, rendered: String) -> io::Result<bool> {
+        match self.limit {
+            Some(cap) => {
+                if cap > 0 {
+                    if self.ring.len() == cap {
+                        self.ring.pop_front();
+                    }
+                    self.ring.push_back(rendered);
+                }
+                Ok(true)
+            }
+            None => write_line(self.out, &rendered),
+        }
+    }
+
+    /// Emits the retained matches after all files have been scanned.
+    fn finish(&mut self) -> io::Result<bool> {
+        for rendered in &self.ring {
+            if !write_line(self.out, rendered)? {
+                return Ok(false);
+            }
+        }
+        Ok(true)
+    }
 }
 
 /// The warning for `skipped` lines of `path` that could not be parsed, or `None`
@@ -228,8 +337,8 @@ fn read_line_lossy<R: BufRead>(
     Ok(n)
 }
 
-/// Reads every existing line, emitting matches. With `limit`, only the most
-/// recent N matches are kept (ring buffer) and printed at the end; without it,
+/// Reads every existing line, passing matches to the shared sink. With a limit,
+/// the sink retains only the most recent N matches across scans; without it,
 /// matches stream out as they are read. Returns the byte offset just past the last
 /// newline-terminated line, and how many of those lines did not parse. A trailing
 /// partial line (a writer mid-append) is neither counted as read nor as malformed,
@@ -239,18 +348,15 @@ fn read_line_lossy<R: BufRead>(
 /// Stops at the first write to a closed pipe or when `reader_gone` reports hangup,
 /// checked before reading and every [`BACKLOG_PROBE_LINES`] lines thereafter.
 /// The cadence counts every line, regardless of parsing or filtering.
-fn emit_backlog<R: BufRead, W: Write>(
+fn scan_backlog<R: BufRead, W: Write>(
     reader: &mut R,
     filter: &Filter,
-    format: Format,
-    limit: Option<usize>,
     follow: bool,
-    out: &mut W,
+    sink: &mut BacklogSink<'_, W>,
     mut reader_gone: impl FnMut() -> bool,
 ) -> Result<Backlog> {
     let mut pos = 0u64;
     let mut skipped = 0usize;
-    let mut ring: VecDeque<String> = VecDeque::new();
     let mut buf = Vec::new();
     let mut line = String::new();
     let mut until_probe = 0;
@@ -272,30 +378,41 @@ fn emit_backlog<R: BufRead, W: Write>(
         } else if follow {
             break; // a partial last line: left for the follow loop to print once
         }
-        match parse_line(&line, filter, format) {
+        match parse_line(&line, filter, sink.format) {
             Line::Blank | Line::Filtered => {}
             Line::Malformed => skipped += usize::from(complete),
-            Line::Match(rendered) => match limit {
-                Some(cap) => {
-                    ring.push_back(rendered);
-                    while ring.len() > cap {
-                        ring.pop_front();
-                    }
+            Line::Match(rendered) => {
+                if !sink.emit(rendered)? {
+                    return Ok(Backlog::ReaderGone);
                 }
-                None => {
-                    if !write_line(out, &rendered)? {
-                        return Ok(Backlog::ReaderGone);
-                    }
-                }
-            },
-        }
-    }
-    for rendered in &ring {
-        if !write_line(out, rendered)? {
-            return Ok(Backlog::ReaderGone);
+            }
         }
     }
     Ok(Backlog::Complete { pos, skipped })
+}
+
+/// Single-file test adapter for the backlog parser and output behavior.
+#[cfg(test)]
+fn emit_backlog<R: BufRead, W: Write>(
+    reader: &mut R,
+    filter: &Filter,
+    format: Format,
+    limit: Option<usize>,
+    follow: bool,
+    out: &mut W,
+    reader_gone: impl FnMut() -> bool,
+) -> Result<Backlog> {
+    let mut sink = BacklogSink {
+        format,
+        limit,
+        ring: VecDeque::new(),
+        out,
+    };
+    let result = scan_backlog(reader, filter, follow, &mut sink, reader_gone)?;
+    if result == Backlog::ReaderGone || !sink.finish()? {
+        return Ok(Backlog::ReaderGone);
+    }
+    Ok(result)
 }
 
 /// Writes one rendered record. `Ok(false)` means the reader closed the pipe and the
@@ -453,6 +570,194 @@ mod tests {
             s.push('\n');
         }
         s
+    }
+
+    #[test]
+    fn custom_log_name_discovers_backups_even_in_a_missing_directory() {
+        let dir = tempfile::tempdir().unwrap();
+        let live = dir.path().join("custom.requests");
+        let backup = dir.path().join("custom.requests.7");
+        std::fs::write(&backup, "").unwrap();
+        std::fs::write(dir.path().join("log.jsonl.8"), "").unwrap();
+        assert_eq!(
+            backlog_paths(&live, true).unwrap(),
+            vec![backup, live.clone()]
+        );
+        assert_eq!(backlog_paths(&live, false).unwrap(), vec![live]);
+        let missing = dir.path().join("absent/log.jsonl");
+        assert_eq!(backlog_paths(&missing, true).unwrap(), vec![missing]);
+    }
+
+    #[test]
+    fn rotated_discovery_reports_an_invalid_log_directory() {
+        let dir = tempfile::tempdir().unwrap();
+        let parent = dir.path().join("not-a-directory");
+        std::fs::write(&parent, "").unwrap();
+        let err = backlog_paths(&parent.join("log.jsonl"), true).unwrap_err();
+        assert_eq!(
+            err.to_string(),
+            format!("Failed to read log directory {}", parent.display())
+        );
+        assert!(err.downcast_ref::<io::Error>().is_some());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn backup_generation_accepts_non_utf8_prefixes_but_rejects_non_utf8_suffixes() {
+        use std::os::unix::ffi::OsStrExt;
+
+        let prefix = OsStr::from_bytes(b"requests-\xff.jsonl.");
+        assert_eq!(
+            backup_generation(OsStr::from_bytes(b"requests-\xff.jsonl.7"), prefix),
+            Some(7)
+        );
+        assert_eq!(
+            backup_generation(OsStr::from_bytes(b"requests-\xff.jsonl.\xff"), prefix),
+            None
+        );
+    }
+
+    #[test]
+    fn backup_generation_accepts_only_canonical_positive_numbers_with_the_exact_prefix() {
+        let prefix = OsStr::new("log.jsonl.");
+        assert_eq!(
+            backup_generation(OsStr::new("log.jsonl.10"), prefix),
+            Some(10)
+        );
+        for filename in [
+            "other.jsonl.1",
+            "log.jsonl.0",
+            "log.jsonl.01",
+            "log.jsonl.+1",
+            "log.jsonl.-1",
+            "log.jsonl.tmp",
+            "log.jsonl.4294967296",
+        ] {
+            assert_eq!(
+                backup_generation(OsStr::new(filename), prefix),
+                None,
+                "{filename}"
+            );
+        }
+    }
+
+    // Linux permits these filenames; macOS filesystems reject them with EILSEQ.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn rotated_discovery_ignores_non_utf8_suffixes_and_preserves_non_utf8_log_names() {
+        use std::ffi::OsString;
+        use std::os::unix::ffi::OsStringExt;
+
+        let dir = tempfile::tempdir().unwrap();
+        let live = dir
+            .path()
+            .join(OsString::from_vec(b"requests-\xff.jsonl".to_vec()));
+        let backup = dir
+            .path()
+            .join(OsString::from_vec(b"requests-\xff.jsonl.1".to_vec()));
+        let unrelated = dir
+            .path()
+            .join(OsString::from_vec(b"requests-\xff.jsonl.\xff".to_vec()));
+        std::fs::write(&backup, "").unwrap();
+        std::fs::write(unrelated, "").unwrap();
+        assert_eq!(backlog_paths(&live, true).unwrap(), vec![backup, live]);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn rotated_scan_reports_an_unreadable_backup_instead_of_silently_skipping_it() {
+        use std::os::unix::fs::PermissionsExt;
+
+        // Root bypasses the permissions used to force this open failure.
+        crate::test_support::skip_as_root!();
+        let dir = tempfile::tempdir().unwrap();
+        let live = dir.path().join("log.jsonl");
+        let backup = dir.path().join("log.jsonl.1");
+        std::fs::write(&backup, sample_lines()).unwrap();
+        std::fs::write(&live, sample_lines()).unwrap();
+        std::fs::set_permissions(&backup, std::fs::Permissions::from_mode(0o000)).unwrap();
+        let mut out = Vec::new();
+        let mut sink = BacklogSink {
+            format: Format::Json,
+            limit: None,
+            ring: VecDeque::new(),
+            out: &mut out,
+        };
+        let err = scan_files(&live, &empty_filter(), false, true, &mut sink, || false).unwrap_err();
+        assert_eq!(
+            err.to_string(),
+            format!("Failed to open log file {}", backup.display())
+        );
+        assert_eq!(
+            err.downcast_ref::<io::Error>().unwrap().kind(),
+            io::ErrorKind::PermissionDenied
+        );
+        assert!(out.is_empty());
+    }
+
+    #[test]
+    fn rotated_scan_exits_cleanly_when_the_pipe_closes_during_limit_replay() {
+        let dir = tempfile::tempdir().unwrap();
+        let live = dir.path().join("log.jsonl");
+        std::fs::write(dir.path().join("log.jsonl.1"), sample_lines()).unwrap();
+        std::fs::write(&live, sample_lines()).unwrap();
+        let mut out = PipeWriter::failing_with(io::ErrorKind::BrokenPipe, 0);
+        let mut sink = BacklogSink {
+            format: Format::Json,
+            limit: Some(3),
+            ring: VecDeque::new(),
+            out: &mut out,
+        };
+        let mut probes = 0;
+        let result = scan_files(&live, &empty_filter(), false, true, &mut sink, || {
+            probes += 1;
+            false
+        })
+        .unwrap();
+        assert!(result.is_none());
+        // Both files were scanned before the first buffered write found the closed pipe.
+        assert_eq!(probes, 2);
+        assert_eq!(sink.ring.len(), 3);
+        assert_eq!(out.attempts, 1);
+    }
+
+    #[test]
+    fn rotated_backlog_follow_uses_one_ring_and_only_the_live_offset() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("log.jsonl");
+        std::fs::write(dir.path().join("log.jsonl.1"), UNTERMINATED).unwrap();
+        let complete = sample_lines();
+        std::fs::write(&path, format!("{complete}{UNTERMINATED}")).unwrap();
+        let filter = empty_filter();
+        let mut out = Vec::new();
+        let mut sink = BacklogSink {
+            format: Format::Json,
+            limit: Some(6),
+            ring: VecDeque::new(),
+            out: &mut out,
+        };
+        let mut tail = scan_files(&path, &filter, true, true, &mut sink, || false)
+            .unwrap()
+            .unwrap();
+        assert_eq!(tail.pos, complete.len() as u64);
+        assert_eq!(
+            String::from_utf8_lossy(&out),
+            format!("{UNTERMINATED}\n{complete}")
+        );
+        // Complete the live partial record; it is emitted once, without rescanning archives.
+        use std::io::Write;
+        std::fs::OpenOptions::new()
+            .append(true)
+            .open(&path)
+            .unwrap()
+            .write_all(b"\n")
+            .unwrap();
+        drain_appended(&path, &filter, Format::Json, &mut tail, &mut out).unwrap();
+        drain_appended(&path, &filter, Format::Json, &mut tail, &mut out).unwrap();
+        assert_eq!(
+            String::from_utf8_lossy(&out),
+            format!("{UNTERMINATED}\n{complete}{UNTERMINATED}\n")
+        );
     }
 
     #[test]
@@ -904,7 +1209,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let missing = dir.path().join("nope.jsonl");
         // No file yet and not following: clean no-op.
-        assert!(run(&missing, &empty_filter(), Format::Json, None, false).is_ok());
+        assert!(run(&missing, &empty_filter(), Format::Json, None, false, false).is_ok());
     }
 
     #[test]
@@ -913,7 +1218,7 @@ mod tests {
         let path = dir.path().join("log.jsonl");
         std::fs::write(&path, sample_lines()).unwrap();
         // Exercises the open + backlog path (output goes to captured stdout).
-        assert!(run(&path, &empty_filter(), Format::Json, Some(2), false).is_ok());
+        assert!(run(&path, &empty_filter(), Format::Json, Some(2), false, false).is_ok());
     }
 
     #[test]

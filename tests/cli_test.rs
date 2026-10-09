@@ -581,6 +581,107 @@ fn log_reads_the_request_log_and_audit_reads_the_audit_log() {
 }
 
 #[test]
+fn log_rotated_searches_backups_in_numeric_order_with_one_limit() {
+    let home = tempfile::tempdir().unwrap();
+    for (suffix, line) in [
+        (".10", HTTP_LINE),
+        (".2", DRIVE_MUTATION_LINE),
+        (".1", AUDIT_LINE),
+        ("", HTTP_LINE),
+    ] {
+        std::fs::write(
+            home.path().join(format!("log.jsonl{suffix}")),
+            format!("{line}\n"),
+        )
+        .unwrap();
+    }
+    // These are not files named by the rotation writer.
+    for suffix in [".0", ".01", ".-1", ".tmp", ".2.tmp", ".4294967296"] {
+        std::fs::write(home.path().join(format!("log.jsonl{suffix}")), "bad\n").unwrap();
+    }
+    std::fs::create_dir(home.path().join("log.jsonl.3")).unwrap();
+    let default = gwi(home.path(), &["log", "-o", "json"]);
+    assert!(default.status.success());
+    assert_eq!(default.stdout, format!("{HTTP_LINE}\n").as_bytes());
+    let all = gwi(home.path(), &["log", "--rotated", "-o", "json"]);
+    assert!(all.status.success(), "{all:?}");
+    assert_eq!(
+        all.stdout,
+        format!("{HTTP_LINE}\n{DRIVE_MUTATION_LINE}\n{AUDIT_LINE}\n{HTTP_LINE}\n").as_bytes()
+    );
+    assert!(all.stderr.is_empty(), "{all:?}");
+    let recent = gwi(home.path(), &["log", "--rotated", "-o", "json", "-n", "3"]);
+    assert!(recent.status.success());
+    assert_eq!(
+        recent.stdout,
+        format!("{DRIVE_MUTATION_LINE}\n{AUDIT_LINE}\n{HTTP_LINE}\n").as_bytes()
+    );
+    let filtered = gwi(
+        home.path(),
+        &[
+            "log",
+            "--rotated",
+            "-o",
+            "json",
+            "--query",
+            "kind:drivemutation",
+            "--query",
+            "file_id:f1",
+            "--status",
+            "blocked",
+            "-n",
+            "1",
+        ],
+    );
+    assert!(filtered.status.success());
+    assert_eq!(
+        filtered.stdout,
+        format!("{DRIVE_MUTATION_LINE}\n").as_bytes()
+    );
+    // Observations include archives, so their fields/statuses produce no typo warnings.
+    assert!(filtered.stderr.is_empty(), "{filtered:?}");
+    let zero = gwi(home.path(), &["log", "--rotated", "-n", "0"]);
+    assert!(zero.status.success());
+    assert!(zero.stdout.is_empty());
+    let audit = gwi(home.path(), &["log", "--rotated", "--audit"]);
+    assert_eq!(audit.status.code(), Some(2));
+}
+
+#[test]
+fn log_rotated_finds_archived_records_without_a_live_file_and_warns_per_file() {
+    let home = tempfile::tempdir().unwrap();
+    std::fs::write(
+        home.path().join("log.jsonl.2"),
+        format!("bad\n{DRIVE_MUTATION_LINE}\n"),
+    )
+    .unwrap();
+    // An archived final record is read even without a terminating newline.
+    std::fs::write(home.path().join("log.jsonl.1"), HTTP_LINE).unwrap();
+    let default = gwi(home.path(), &["log", "-o", "json"]);
+    assert!(default.status.success());
+    assert!(default.stdout.is_empty());
+    let archived = gwi(
+        home.path(),
+        &["log", "--rotated", "-o", "json", "--status", "blocked"],
+    );
+    assert!(archived.status.success());
+    assert_eq!(
+        archived.stdout,
+        format!("{DRIVE_MUTATION_LINE}\n").as_bytes()
+    );
+    let warning = String::from_utf8_lossy(&archived.stderr);
+    assert!(warning.contains("1 unparseable line"), "{warning}");
+    assert!(warning.contains("log.jsonl.2"), "{warning}");
+    assert!(!warning.contains("no drivemutation"), "{warning}");
+    let both = gwi(home.path(), &["log", "--rotated", "-o", "json"]);
+    assert!(both.status.success());
+    assert_eq!(
+        both.stdout,
+        format!("{DRIVE_MUTATION_LINE}\n{HTTP_LINE}\n").as_bytes()
+    );
+}
+
+#[test]
 fn log_query_selects_drive_mutations() {
     let home = tempfile::tempdir().unwrap();
     write_logs(home.path());
