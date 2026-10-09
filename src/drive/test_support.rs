@@ -309,6 +309,42 @@ mod tests {
         }
     }
 
+    fn env_mutation_pattern() -> regex::Regex {
+        regex::Regex::new(&format!(
+            r#"(?:set_var|remove_var)\(\s*"?(?:[A-Za-z_][A-Za-z0-9_]*::)*(?:{})\b"#,
+            GUARDED_KEYS.join("|")
+        ))
+        .unwrap()
+    }
+
+    fn mutates_env_without_guard(body: &str, mutation: &regex::Regex) -> bool {
+        mutation.is_match(body) && !body.contains("EnvGuard::take()")
+    }
+
+    #[test]
+    fn slides_env_mutations_require_the_guard() {
+        let mutation = env_mutation_pattern();
+        for key in [
+            "SLIDES_API_URL",
+            "super::SLIDES_API_URL",
+            "crate::drive::slides::client::SLIDES_API_URL",
+            "\"SLIDES_API_URL\"",
+        ] {
+            for call in [
+                format!("std::env::set_var(\n    {key}, \"http://127.0.0.1:1\");"),
+                format!("std::env::remove_var({key});"),
+            ] {
+                assert!(mutates_env_without_guard(&call, &mutation), "{call}");
+                let guarded = format!("let _guard = EnvGuard::take(); {call}");
+                assert!(!mutates_env_without_guard(&guarded, &mutation), "{guarded}");
+            }
+        }
+        assert!(!mutates_env_without_guard(
+            "std::env::set_var(SLIDES_API_URL_OTHER, \"unrelated\");",
+            &mutation,
+        ));
+    }
+
     /// Grep guard: any function that sets or removes one of the Drive or
     /// Gmail keys must hold an `EnvGuard`, or it races every guarded test that
     /// points the same key at its own server — exactly how an unguarded
@@ -320,11 +356,7 @@ mod tests {
     /// the loud direction.
     #[test]
     fn every_gmail_and_drive_env_mutation_holds_the_env_guard() {
-        let mutation = regex::Regex::new(&format!(
-            r#"(?:set_var|remove_var)\(\s*"?(?:[A-Za-z_][A-Za-z0-9_]*::)*(?:{})\b"#,
-            GUARDED_KEYS.join("|")
-        ))
-        .unwrap();
+        let mutation = env_mutation_pattern();
         let src = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
         let this_file = src.join("drive").join("test_support.rs");
         let mut files = Vec::new();
@@ -334,7 +366,7 @@ mod tests {
         for path in files.into_iter().filter(|p| *p != this_file) {
             let text = std::fs::read_to_string(&path).unwrap();
             for body in text.split("fn ").skip(1) {
-                if mutation.is_match(body) && !body.contains("EnvGuard::take()") {
+                if mutates_env_without_guard(body, &mutation) {
                     // patchcov: coverage ignore reason="only runs if a function mutates a Gmail or Drive env var without EnvGuard::take(); offenders.is_empty() below is this test's whole point"
                     let name = body.split(['(', '<']).next().unwrap_or_default();
                     offenders.push(format!(
