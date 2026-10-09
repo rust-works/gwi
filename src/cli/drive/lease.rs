@@ -483,7 +483,7 @@ fn print_result(result: &AcquireResult) {
                 LeaseBackup::Bytes { path, .. } => {
                     sanitize_for_terminal(&path.display().to_string())
                 }
-                LeaseBackup::DriveCopy { file_id } => {
+                LeaseBackup::DriveCopy { file_id, .. } => {
                     format!("Drive copy {}", sanitize_for_terminal(file_id))
                 }
             };
@@ -534,7 +534,7 @@ fn print_restore_result(result: &RestoreResult) {
                 LeaseBackup::Bytes { path, .. } => {
                     sanitize_for_terminal(&path.display().to_string())
                 }
-                LeaseBackup::DriveCopy { file_id } => {
+                LeaseBackup::DriveCopy { file_id, .. } => {
                     format!("Drive copy {}", sanitize_for_terminal(file_id))
                 }
             };
@@ -565,7 +565,7 @@ fn print_restore_result(result: &RestoreResult) {
                     sanitize_for_terminal(&path.display().to_string())
                 }
                 // patchcov: coverage end
-                LeaseBackup::DriveCopy { file_id } => {
+                LeaseBackup::DriveCopy { file_id, .. } => {
                     format!("Drive copy {}", sanitize_for_terminal(file_id))
                 }
             };
@@ -960,6 +960,7 @@ mod tests {
                 path: backup_path,
                 sha256,
                 size: b"original".len() as u64,
+                extra: serde_json::Map::new(),
             },
             acquired_at: chrono::Utc::now() - chrono::Duration::hours(2),
             expires_at: chrono::Utc::now() - chrono::Duration::hours(1),
@@ -1007,6 +1008,7 @@ mod tests {
                     path: std::path::PathBuf::from("/tmp/backup"),
                     sha256: "deadbeef".to_string(),
                     size: 0,
+                    extra: serde_json::Map::new(),
                 },
                 headless_waiver: false,
             },
@@ -1015,6 +1017,7 @@ mod tests {
                 expires_at: chrono::Utc::now(),
                 backup: LeaseBackup::DriveCopy {
                     file_id: "copy-1".to_string(),
+                    extra: serde_json::Map::new(),
                 },
                 headless_waiver: true,
             },
@@ -1023,6 +1026,7 @@ mod tests {
                 expires_at: chrono::Utc::now(),
                 backup: LeaseBackup::DriveCopy {
                     file_id: "copy-2".to_string(),
+                    extra: serde_json::Map::new(),
                 },
                 spreadsheet_id: "sheet-1".to_string(),
                 sheet_id: 999,
@@ -1139,6 +1143,7 @@ mod tests {
             modified_time: None,
             backup: LeaseBackup::DriveCopy {
                 file_id: "copy-1".to_string(),
+                extra: serde_json::Map::new(),
             },
             acquired_at: chrono::Utc::now(),
             expires_at: chrono::Utc::now() + chrono::Duration::minutes(30),
@@ -1220,6 +1225,7 @@ mod tests {
                     path: std::path::PathBuf::from("/tmp/backup"),
                     sha256: "deadbeef".to_string(),
                     size: 0,
+                    extra: serde_json::Map::new(),
                 },
                 headless_waiver: false,
                 superseded_lease_id: None,
@@ -1229,6 +1235,7 @@ mod tests {
                 expires_at: chrono::Utc::now(),
                 backup: LeaseBackup::DriveCopy {
                     file_id: "copy-1".to_string(),
+                    extra: serde_json::Map::new(),
                 },
                 headless_waiver: true,
                 superseded_lease_id: None,
@@ -1479,6 +1486,7 @@ mod tests {
                 path: backup_path.clone(),
                 sha256: "deadbeef".to_string(),
                 size: 5,
+                extra: serde_json::Map::new(),
             },
             acquired_at: chrono::Utc::now() - chrono::Duration::days(10),
             expires_at: chrono::Utc::now() - chrono::Duration::days(9),
@@ -1533,6 +1541,7 @@ mod tests {
                 path: old_backup.clone(),
                 sha256: "deadbeef".to_string(),
                 size: 100,
+                extra: serde_json::Map::new(),
             },
             acquired_at: chrono::Utc::now() - chrono::Duration::hours(3),
             expires_at: chrono::Utc::now() - chrono::Duration::hours(2),
@@ -1551,6 +1560,7 @@ mod tests {
                 path: new_backup.clone(),
                 sha256: "deadbeef".to_string(),
                 size: 100,
+                extra: serde_json::Map::new(),
             },
             acquired_at: chrono::Utc::now() - chrono::Duration::hours(2),
             expires_at: chrono::Utc::now() - chrono::Duration::hours(1),
@@ -1602,6 +1612,7 @@ mod tests {
                 path: backup_path.clone(),
                 sha256: "deadbeef".to_string(),
                 size: 5,
+                extra: serde_json::Map::new(),
             },
             acquired_at: chrono::Utc::now() - chrono::Duration::days(10),
             expires_at: chrono::Utc::now() - chrono::Duration::days(9),

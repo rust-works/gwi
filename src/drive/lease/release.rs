@@ -230,6 +230,7 @@ mod tests {
             path: std::path::PathBuf::from("/tmp/backup.bin"),
             sha256: "deadbeef".to_string(),
             size: 4,
+            extra: serde_json::Map::new(),
         }
     }
 

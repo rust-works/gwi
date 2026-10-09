@@ -48,6 +48,9 @@ pub enum LeaseBackup {
         sha256: String,
         /// Size of the backed-up bytes.
         size: u64,
+        /// Unknown backup metadata, preserved through imports and ledger rewrites.
+        #[serde(flatten)]
+        extra: serde_json::Map<String, serde_json::Value>,
     },
     /// A native document (Sheet/Doc/Slide), copied Drive-side via
     /// `files.copy` into the account's configured backup folder
@@ -56,6 +59,9 @@ pub enum LeaseBackup {
     DriveCopy {
         /// The copy's own Drive file id.
         file_id: String,
+        /// Unknown backup metadata, preserved through imports and ledger rewrites.
+        #[serde(flatten)]
+        extra: serde_json::Map<String, serde_json::Value>,
     },
 }
 
@@ -69,12 +75,14 @@ impl LeaseBackup {
     /// apart, as it once risked doing when each held an independent copy.
     pub(crate) fn audit_fields(&self) -> (Option<String>, Option<String>, Option<u64>) {
         match self {
-            Self::Bytes { path, sha256, size } => (
+            Self::Bytes {
+                path, sha256, size, ..
+            } => (
                 Some(path.display().to_string()),
                 Some(sha256.clone()),
                 Some(*size),
             ),
-            Self::DriveCopy { file_id } => (Some(file_id.clone()), None, None),
+            Self::DriveCopy { file_id, .. } => (Some(file_id.clone()), None, None),
         }
     }
 }
@@ -157,12 +165,12 @@ pub(crate) struct LeaseRecord {
     /// The ledger is rewritten whole on each change and `gwi import` copies
     /// rows through this type, so without this a field added by a newer
     /// omni-dev — or by a later gwi, read by an older one after a downgrade —
-    /// would be silently dropped the next time the row was saved. Only
-    /// top-level row fields are kept: a field inside `backup` is still
-    /// dropped. serde_json's `preserve_order` and `arbitrary_precision`
-    /// features retain the relative order of unknown keys (including nested
-    /// objects) and number precision. Known fields are written in declaration
-    /// order before unknown fields; whitespace is not preserved.
+    /// would be silently dropped the next time the row was saved. Unknown
+    /// fields inside `backup` are kept by [`LeaseBackup`] too. serde_json's
+    /// `preserve_order` and `arbitrary_precision` features retain the relative
+    /// order of unknown keys (including nested objects) and number precision.
+    /// Known fields are written in declaration order before unknown fields;
+    /// whitespace is not preserved.
     #[serde(flatten)]
     pub(crate) extra: serde_json::Map<String, serde_json::Value>,
 }
@@ -774,6 +782,7 @@ mod tests {
                 path: PathBuf::from("/tmp/backup1"),
                 sha256: "abc123".to_string(),
                 size: 42,
+                extra: serde_json::Map::new(),
             },
             acquired_at: Utc::now(),
             expires_at: Utc::now() + ChronoDuration::minutes(30),
@@ -789,6 +798,7 @@ mod tests {
     fn lease_backup_drive_copy_round_trips_through_json() {
         let backup = LeaseBackup::DriveCopy {
             file_id: "copy-1".to_string(),
+            extra: serde_json::Map::new(),
         };
         let json = serde_json::to_string(&backup).unwrap();
         assert!(json.contains("\"kind\":\"drive_copy\""), "{json}");
@@ -1114,6 +1124,56 @@ mod tests {
     }
 
     #[test]
+    fn unknown_backup_fields_survive_load_save_and_every_mutation() {
+        let backups: Vec<serde_json::Value> = serde_json::from_str(include_str!(
+            "../../../tests/fixtures/lease-backups-unknown-fields.json"
+        ))
+        .unwrap();
+        for backup in backups {
+            let dir = tempfile::tempdir().unwrap();
+            let path = dir.path().join("lease-ledger.jsonl");
+            let mut row = row_with_unknown_fields("t1");
+            row["backup"] = backup.clone();
+            std::fs::write(&path, format!("{row}\n")).unwrap();
+
+            let ledger = LeaseLedger::load(&path).unwrap();
+            let extra = match &ledger.get("t1").unwrap().backup {
+                LeaseBackup::Bytes { extra, .. } | LeaseBackup::DriveCopy { extra, .. } => extra,
+            };
+            assert_eq!(extra.len(), 2, "known fields must not land in extra");
+            ledger.save(&path).unwrap();
+            let saved: serde_json::Value =
+                serde_json::from_str(std::fs::read_to_string(&path).unwrap().trim()).unwrap();
+            assert_eq!(saved, row);
+
+            let lock = LedgerLock::acquire(&path).unwrap();
+            LeaseLedger::mutate(&lock, &path, |ledger| {
+                ledger.record_write("t1", "9".into(), None);
+                ledger.mark_restored("t1", Utc::now(), Some(7));
+                ledger.release("t1", Utc::now(), Some("t2"));
+            })
+            .unwrap();
+            let saved: serde_json::Value =
+                serde_json::from_str(std::fs::read_to_string(&path).unwrap().trim()).unwrap();
+            assert_eq!(saved["backup"], backup);
+            assert_eq!(saved["version"], "9");
+            assert_eq!(saved["restored_sheet_id"], 7);
+            assert!(saved["released_at"].is_string());
+        }
+    }
+
+    #[test]
+    fn backups_without_unknown_fields_keep_their_wire_format() {
+        for backup in [
+            serde_json::json!({"kind": "bytes", "path": "file.bin", "sha256": "abc", "size": 42}),
+            serde_json::json!({"kind": "drive_copy", "file_id": "copy"}),
+        ] {
+            let parsed: LeaseBackup = serde_json::from_value(backup.clone()).unwrap();
+            assert_eq!(serde_json::to_value(parsed).unwrap(), backup);
+        }
+    }
+
+    #[test]
     fn unknown_fields_survive_a_load_and_a_save() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("lease-ledger.jsonl");
@@ -1137,9 +1197,11 @@ mod tests {
                 path: PathBuf::from("backup.bin"),
                 sha256: "abc".into(),
                 size: u64::MAX,
+                extra: serde_json::Map::new(),
             },
             LeaseBackup::DriveCopy {
                 file_id: "backup-copy".into(),
+                extra: serde_json::Map::new(),
             },
         ] {
             let dir = tempfile::tempdir().unwrap();

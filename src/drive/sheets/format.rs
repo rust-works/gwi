@@ -3617,6 +3617,7 @@ mod tests {
                 path: std::path::PathBuf::from("/tmp/test-backup"),
                 sha256: "deadbeef".to_string(),
                 size: 0,
+                extra: serde_json::Map::new(),
             },
             acquired_at: chrono::Utc::now() - chrono::Duration::hours(2),
             expires_at: chrono::Utc::now() - chrono::Duration::hours(1),

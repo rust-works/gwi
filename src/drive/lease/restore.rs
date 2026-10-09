@@ -445,7 +445,9 @@ async fn restore_inner(
     // free of network calls, only ever of *mutating* ones.
     let sheets_api = SheetsApi::new(sheets);
     let plan = match &backup_record.backup {
-        LeaseBackup::DriveCopy { file_id: copy_id } => {
+        LeaseBackup::DriveCopy {
+            file_id: copy_id, ..
+        } => {
             let previously_restored_sheet_id = backup_record.restored_sheet_id;
             match detect_sheet_restore(&sheets_api, copy_id, &file_id, previously_restored_sheet_id)
                 .await
@@ -1362,6 +1364,7 @@ mod tests {
             path,
             sha256,
             size: bytes.len() as u64,
+            extra: serde_json::Map::new(),
         }
     }
 
@@ -1450,6 +1453,7 @@ mod tests {
             "sheet-1",
             LeaseBackup::DriveCopy {
                 file_id: "copy-1".to_string(),
+                extra: serde_json::Map::new(),
             },
         );
         mount_spreadsheet("copy-1", &[(1, "Sheet1")])
@@ -1503,6 +1507,7 @@ mod tests {
             "doc-1",
             LeaseBackup::DriveCopy {
                 file_id: "copy-1".to_string(),
+                extra: serde_json::Map::new(),
             },
         );
         // The write-permission gate's own `files.get`, run before the
@@ -1544,6 +1549,7 @@ mod tests {
             "sheet-1",
             LeaseBackup::DriveCopy {
                 file_id: "copy-1".to_string(),
+                extra: serde_json::Map::new(),
             },
         );
         mount_spreadsheet(
@@ -1590,6 +1596,7 @@ mod tests {
             "sheet-1",
             LeaseBackup::DriveCopy {
                 file_id: "copy-1".to_string(),
+                extra: serde_json::Map::new(),
             },
         );
 
@@ -1710,6 +1717,7 @@ mod tests {
             "sheet-1",
             LeaseBackup::DriveCopy {
                 file_id: "copy-1".to_string(),
+                extra: serde_json::Map::new(),
             },
         );
 
@@ -1845,6 +1853,7 @@ mod tests {
             "sheet-1",
             LeaseBackup::DriveCopy {
                 file_id: "copy-1".to_string(),
+                extra: serde_json::Map::new(),
             },
         );
         LeaseLedger::mutate_locked(&test_opts.ledger_path, |ledger| {
@@ -1925,6 +1934,7 @@ mod tests {
             "sheet-1",
             LeaseBackup::DriveCopy {
                 file_id: "copy-1".to_string(),
+                extra: serde_json::Map::new(),
             },
         );
         LeaseLedger::mutate_locked(&test_opts.ledger_path, |ledger| {
@@ -1984,6 +1994,7 @@ mod tests {
             "sheet-1",
             LeaseBackup::DriveCopy {
                 file_id: "copy-1".to_string(),
+                extra: serde_json::Map::new(),
             },
         );
         LeaseLedger::mutate_locked(&test_opts.ledger_path, |ledger| {
@@ -2065,6 +2076,7 @@ mod tests {
             "sheet-1",
             LeaseBackup::DriveCopy {
                 file_id: "copy-1".to_string(),
+                extra: serde_json::Map::new(),
             },
         );
         mount_spreadsheet("copy-1", &[(1, "Sheet1"), (2, "Deleted")])
@@ -2143,6 +2155,7 @@ mod tests {
             "sheet-1",
             LeaseBackup::DriveCopy {
                 file_id: "copy-1".to_string(),
+                extra: serde_json::Map::new(),
             },
         );
         mount_spreadsheet("copy-1", &[(1, "Sheet1"), (2, "Deleted")])
@@ -2218,6 +2231,7 @@ mod tests {
             "sheet-1",
             LeaseBackup::DriveCopy {
                 file_id: "copy-1".to_string(),
+                extra: serde_json::Map::new(),
             },
         );
         mount_spreadsheet("copy-1", &[(1, "Sheet1"), (2, "Deleted")])
@@ -2418,6 +2432,7 @@ mod tests {
             "sheet-1",
             LeaseBackup::DriveCopy {
                 file_id: "copy-1".to_string(),
+                extra: serde_json::Map::new(),
             },
         );
         mount_spreadsheet("copy-1", &[(1, "Sheet1"), (2, "Deleted")])
@@ -2511,6 +2526,7 @@ mod tests {
             "sheet-1",
             LeaseBackup::DriveCopy {
                 file_id: "copy-1".to_string(),
+                extra: serde_json::Map::new(),
             },
         );
         mount_spreadsheet("copy-1", &[(1, "Sheet1"), (2, "Deleted")])
@@ -3214,6 +3230,7 @@ mod tests {
             "sheet-1",
             LeaseBackup::DriveCopy {
                 file_id: "copy-1".to_string(),
+                extra: serde_json::Map::new(),
             },
         );
         mount_spreadsheet("copy-1", &[(1, "Sheet1"), (2, "Deleted")])
@@ -3289,6 +3306,7 @@ mod tests {
                 path: std::path::PathBuf::from("/tmp/other-backup"),
                 sha256: "deadbeef".to_string(),
                 size: 0,
+                extra: serde_json::Map::new(),
             },
             acquired_at: Utc::now(),
             expires_at: Utc::now() + ChronoDuration::minutes(30),
@@ -3581,6 +3599,7 @@ mod tests {
                 path: PathBuf::from("/does/not/need/to/exist"),
                 sha256: "deadbeef".to_string(),
                 size: oversized,
+                extra: serde_json::Map::new(),
             },
         );
         // No mocks at all: reaching any Drive call fails the test.
@@ -3859,6 +3878,7 @@ mod tests {
                 path: PathBuf::from("/tmp/backup"),
                 sha256: "deadbeef".to_string(),
                 size: 0,
+                extra: serde_json::Map::new(),
             },
             headless_waiver: false,
         }
@@ -3916,6 +3936,7 @@ mod tests {
                 path: PathBuf::from("/tmp/backup"),
                 sha256: "deadbeef".to_string(),
                 size: 0,
+                extra: serde_json::Map::new(),
             },
             headless_waiver,
         };
@@ -3932,6 +3953,7 @@ mod tests {
                 path: PathBuf::from("/tmp/backup"),
                 sha256: "deadbeef".to_string(),
                 size: 0,
+                extra: serde_json::Map::new(),
             },
             spreadsheet_id: "sheet-1".to_string(),
             sheet_id: 1,
@@ -3955,6 +3977,7 @@ mod tests {
             path: PathBuf::from("/tmp/backup"),
             sha256: "deadbeef".to_string(),
             size: 0,
+            extra: serde_json::Map::new(),
         };
         let cases: Vec<(RestoreResult, i32)> = vec![
             (

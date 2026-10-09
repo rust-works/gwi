@@ -32,8 +32,8 @@
 //!   file already exists, because taking a lock creates the file and the source must not
 //!   be touched). A dry run takes no lock and writes nothing.
 //! - **A field gwi does not know is copied too.** A row from a newer omni-dev keeps its
-//!   unknown top-level fields through the import and through every later rewrite of the
-//!   ledger (`LeaseRecord::extra`); a field inside `backup` is not kept.
+//!   unknown fields, including those inside `backup`, through the import and every later
+//!   rewrite of the ledger (`LeaseRecord::extra` and `LeaseBackup` flatten them).
 //! - No audit history is copied (ADR-0001 §3).
 //! - The report names tokens (identifiers, not credentials: ADR-0080 §2) and never a
 //!   backup path, hash or file id.
@@ -450,6 +450,49 @@ mod tests {
     }
 
     #[test]
+    fn unknown_backup_fields_survive_import_rewrite_and_conflict_resolution() {
+        let backups: Vec<serde_json::Value> = serde_json::from_str(include_str!(
+            "../../../tests/fixtures/lease-backups-unknown-fields.json"
+        ))
+        .unwrap();
+        for backup in backups {
+            let (_dir, source, target) = setup();
+            let mut row = serde_json::to_value(record("newer", 10)).unwrap();
+            row["backup"] = backup.clone();
+            std::fs::write(&source, format!("{row}\n")).unwrap();
+            import(&source, &target, false, false).0.unwrap();
+            let saved: serde_json::Value =
+                serde_json::from_str(std::fs::read_to_string(&target).unwrap().trim()).unwrap();
+            assert_eq!(saved, row);
+
+            let lock = LedgerLock::acquire(&target).unwrap();
+            LeaseLedger::mutate(&lock, &target, |ledger| {
+                ledger.record_write("newer", "4".into(), None);
+            })
+            .unwrap();
+            drop(lock);
+            let mut saved: serde_json::Value =
+                serde_json::from_str(std::fs::read_to_string(&target).unwrap().trim()).unwrap();
+            assert_eq!(saved["backup"], backup);
+            assert_eq!(saved["version"], "4");
+
+            // Keep every known field equal; only unknown backup metadata differs.
+            saved["backup"]["metadata"] = serde_json::json!({"changed": true});
+            std::fs::write(&source, format!("{saved}\n")).unwrap();
+            let before = std::fs::read(&target).unwrap();
+            let (result, report) = import(&source, &target, false, false);
+            assert!(result.is_err(), "{report}");
+            assert!(report.contains("conflict    lease newer"), "{report}");
+            assert_eq!(std::fs::read(&target).unwrap(), before);
+
+            import(&source, &target, false, true).0.unwrap();
+            let forced: serde_json::Value =
+                serde_json::from_str(std::fs::read_to_string(&target).unwrap().trim()).unwrap();
+            assert_eq!(forced, saved);
+        }
+    }
+
+    #[test]
     fn rows_differing_only_in_an_unknown_field_are_a_conflict() {
         let (_dir, source, target) = setup();
         let gwi_row = record("newer", 10);
@@ -751,6 +794,7 @@ mod tests {
             row.modified_time = Some("2026-10-09T00:00:00Z".into());
             row.backup = crate::drive::lease::ledger::LeaseBackup::DriveCopy {
                 file_id: "other-backup".into(),
+                extra: serde_json::Map::new(),
             };
             row.acquired_at -= ChronoDuration::minutes(1);
             row.expires_at += ChronoDuration::hours(1);

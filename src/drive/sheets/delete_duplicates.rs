@@ -833,6 +833,7 @@ mod tests {
                 duplicates_removed_count: Some(2),
                 backup: Some(Box::new(LeaseBackup::DriveCopy {
                     file_id: "copy-9".into(),
+                    extra: serde_json::Map::new(),
                 })),
             },
         };
@@ -964,6 +965,7 @@ mod tests {
     fn describe_lines_renders_applied_reply_unreadable_with_everything_removed_carries() {
         let backup = LeaseBackup::DriveCopy {
             file_id: "copy-9".into(),
+            extra: serde_json::Map::new(),
         };
         let outcome = DeleteDuplicatesOutcome {
             spreadsheet_id: "sheet-1".into(),
@@ -1563,6 +1565,7 @@ mod tests {
             "1",
             LeaseBackup::DriveCopy {
                 file_id: "copy-42".into(),
+                extra: serde_json::Map::new(),
             },
         );
         let mut opts = options(false);
@@ -1573,7 +1576,7 @@ mod tests {
             matches!(
                 &outcome.result,
                 DeleteDuplicatesResult::Removed { backup: Some(backup), .. }
-                    if **backup == LeaseBackup::DriveCopy { file_id: "copy-42".into() }
+                    if **backup == LeaseBackup::DriveCopy { file_id: "copy-42".into(), extra: serde_json::Map::new(), }
             ),
             "{outcome:?}"
         );

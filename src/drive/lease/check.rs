@@ -731,14 +731,14 @@ pub(crate) async fn conclude_native_leased_write<T, E>(
 /// restore the content directly.
 pub(crate) fn recovery_note(backup: Option<&LeaseBackup>, is_delete_sheet: bool) -> String {
     match backup {
-        Some(LeaseBackup::DriveCopy { file_id }) if is_delete_sheet => format!(
+        Some(LeaseBackup::DriveCopy { file_id, .. }) if is_delete_sheet => format!(
             "this cannot be undone through gwi — the lease this write required backed the \
              whole spreadsheet up when it was acquired (Drive copy {file_id}); run `gwi \
              drive lease restore <TOKEN>` — it restores a single deleted sheet automatically, or \
              otherwise locates the copy to restore from by hand in the Drive UI — or fall back \
              to Google Drive's own version history"
         ),
-        Some(LeaseBackup::DriveCopy { file_id }) => format!(
+        Some(LeaseBackup::DriveCopy { file_id, .. }) => format!(
             "this cannot be undone through gwi — the lease this write required backed the \
              whole spreadsheet up when it was acquired (Drive copy {file_id}); run `gwi \
              drive lease restore <TOKEN>` to locate it, restore from that copy in the Drive UI, \
@@ -785,6 +785,7 @@ mod tests {
                 path: std::path::PathBuf::from("/tmp/test-backup"),
                 sha256: "deadbeef".to_string(),
                 size: 0,
+                extra: serde_json::Map::new(),
             },
         );
     }
