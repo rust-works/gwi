@@ -207,9 +207,10 @@ mod tests {
         let env = MapEnv::new().with("GWI_AUDIT_LOG_FILE", "/tmp/gwi-test-audit.jsonl");
 
         // Without `--audit`, this resolves through `log_file_path` — some
-        // path other than the audit override (`GWI_LOG_FILE` is unset
-        // in `env`, so it falls to the state/data-dir default). With
-        // `--audit`, it must be exactly the override above.
+        // path other than the audit override (`GWI_LOG_FILE` is unset in
+        // `env`, so it falls to the default: the state/data-dir path in a
+        // release build, a scratch file in a test build). With `--audit`,
+        // it must be exactly the override above.
         assert_ne!(
             parse(&[]).resolve_path_with(&env).unwrap(),
             std::path::PathBuf::from("/tmp/gwi-test-audit.jsonl")

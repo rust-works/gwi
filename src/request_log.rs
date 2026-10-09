@@ -368,6 +368,9 @@ pub(crate) fn gwi_state_subpath(component: &str) -> Option<PathBuf> {
 
 /// Resolves the log file path: `GWI_LOG_FILE` override, else
 /// `state_dir` (falling back to `data_dir`) joined with `gwi/log.jsonl`.
+///
+/// In a test build the fallback is a scratch file instead (see
+/// `default_log_file_path`).
 pub fn log_file_path() -> Option<PathBuf> {
     log_file_path_with(&SystemEnv)
 }
@@ -390,7 +393,7 @@ pub fn log_file_path() -> Option<PathBuf> {
 pub(crate) fn log_file_path_with(env: &impl EnvSource) -> Option<PathBuf> {
     let path = non_empty_var(env, "GWI_LOG_FILE")
         .map(PathBuf::from)
-        .or_else(|| gwi_state_subpath(LOG_FILE_NAME))?;
+        .or_else(default_log_file_path)?;
     if resolves_to_audit_file_with(&path, env) {
         tracing::warn!(
             "request_log: GWI_LOG_FILE resolves to the audit log ({}); refusing to use it \
@@ -621,6 +624,46 @@ thread_local! {
         const { std::cell::RefCell::new(None) };
 }
 
+/// Where [`log_file_path`] lands when `GWI_LOG_FILE` is unset.
+#[cfg(not(test))]
+fn default_log_file_path() -> Option<PathBuf> {
+    gwi_state_subpath(LOG_FILE_NAME)
+}
+
+/// Test-build variant of the function above: `log.jsonl` in the same
+/// scratch directory as [`default_audit_file_path`], never the real
+/// machine's default.
+///
+/// Dozens of tests drive production code that records an HTTP or Drive
+/// mutation row (`record_http`, `record_drive_mutation`, …) without caring
+/// about the log. Without this fallback each of them appended to the
+/// developer's real `log.jsonl` — about 8,000 rows per `cargo test` run
+/// ([#61](https://github.com/rust-works/gwi/issues/61)). A test that wants
+/// to observe the log sets `GWI_LOG_FILE` or passes an explicit path, both
+/// of which are honoured before this fallback.
+#[cfg(test)]
+fn default_log_file_path() -> Option<PathBuf> {
+    Some(test_scratch_dir().join(LOG_FILE_NAME))
+}
+
+/// One scratch directory for the whole test binary's process lifetime,
+/// holding the fallback request log and audit log. The `tempdir` is
+/// deliberately never cleaned up (`mem::forget`) — a `cargo test` process
+/// is short-lived, and the alternative is writing to the machine's real
+/// state directory.
+#[cfg(test)]
+#[allow(clippy::expect_used)]
+fn test_scratch_dir() -> &'static Path {
+    use std::sync::OnceLock;
+    static DIR: OnceLock<PathBuf> = OnceLock::new();
+    DIR.get_or_init(|| {
+        let dir = tempfile::tempdir().expect("failed to create a scratch dir for test logs");
+        let path = dir.path().to_path_buf();
+        std::mem::forget(dir);
+        path
+    })
+}
+
 /// Where [`audit_file_path`] lands when `GWI_AUDIT_LOG_FILE` is unset.
 #[cfg(not(test))]
 fn default_audit_file_path() -> Option<PathBuf> {
@@ -642,24 +685,10 @@ fn default_audit_file_path() -> Option<PathBuf> {
 /// rely on this shared fallback, which many tests write into concurrently
 /// — and which is why a fail-closed intent write to it never fails
 /// (nothing ever makes it unwritable, unlike a test's own redirected
-/// path). The `tempdir` is deliberately never cleaned up (`mem::forget`)
-/// — a `cargo test` process is short-lived, and the alternative is the
-/// actual risk this function exists to close off.
+/// path). The scratch directory is [`test_scratch_dir`].
 #[cfg(test)]
-#[allow(clippy::expect_used)]
 fn default_audit_file_path() -> Option<PathBuf> {
-    use std::sync::OnceLock;
-    static PATH: OnceLock<PathBuf> = OnceLock::new();
-    Some(
-        PATH.get_or_init(|| {
-            let dir =
-                tempfile::tempdir().expect("failed to create a scratch dir for test audit logs");
-            let path = dir.path().join(AUDIT_FILE_NAME);
-            std::mem::forget(dir);
-            path
-        })
-        .clone(),
-    )
+    Some(test_scratch_dir().join(AUDIT_FILE_NAME))
 }
 
 /// Appends one record. Best effort: every error is swallowed (logged at
@@ -3043,6 +3072,43 @@ mod tests {
             audit_file_path().unwrap(),
             unrouted,
             "the ambient entry point with no thread-local route lands on the same scratch file"
+        );
+    }
+
+    #[test]
+    fn log_file_path_never_resolves_to_the_real_machine_default_when_unset() {
+        // Regression test for #61: with `GWI_LOG_FILE` unset, every test
+        // that reached `record_http`/`record_drive_mutation` appended to
+        // the developer's real `log.jsonl` (about 8,000 rows per run).
+        // The fallback must be a stable scratch path, distinct from the
+        // audit scratch file, and never the `state_dir`/`data_dir`-based
+        // default the non-test build resolves to.
+        let real_state_dir = dirs::state_dir().or_else(dirs::data_dir).unwrap();
+
+        let unset = MapEnv::new();
+        let resolved = log_file_path_with(&unset).unwrap();
+        assert_eq!(
+            resolved,
+            log_file_path_with(&unset).unwrap(),
+            "the fallback path must be stable across calls"
+        );
+        assert!(
+            !resolved.starts_with(&real_state_dir),
+            "the request-log fallback must not lie under the real state directory"
+        );
+        assert_ne!(
+            Some(resolved),
+            audit_file_path_with(&unset),
+            "the request log and the audit log must not share a scratch file"
+        );
+    }
+
+    #[test]
+    fn log_file_path_with_still_honors_the_env_override() {
+        let env = MapEnv::new().with("GWI_LOG_FILE", "/tmp/gwi-test-log.jsonl");
+        assert_eq!(
+            log_file_path_with(&env),
+            Some(PathBuf::from("/tmp/gwi-test-log.jsonl"))
         );
     }
 
