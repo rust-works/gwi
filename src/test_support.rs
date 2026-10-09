@@ -29,6 +29,13 @@ pub(crate) static HOME_ENV_MUTEX: std::sync::Mutex<()> = std::sync::Mutex::new((
 /// still runs those tests; `scripts/sandbox-test.sh` runs as root on Linux (a
 /// user namespace maps the caller to uid 0), so it skips them. A no-op off
 /// Unix, where nothing here is root-specific.
+///
+/// `python3 scripts/check_permission_tests.py` enforces this for literal
+/// `from_mode` calls without owner write permission in `src/` and `tests/`.
+/// Construct restrictive permissions in the guarded test and pass them to
+/// helpers; a helper cannot return early on behalf of its calling test.
+/// The required `Doc links` CI job runs the check. Computed modes and control
+/// flow still need review: keep this macro first in permission-denial tests.
 #[cfg(unix)]
 macro_rules! skip_as_root {
     () => {

@@ -637,13 +637,13 @@ mod tests {
     #[cfg(unix)]
     struct MakeDirReadOnlyThenRespond {
         dir: std::path::PathBuf,
+        permissions: std::fs::Permissions,
     }
 
     #[cfg(unix)]
     impl wiremock::Respond for MakeDirReadOnlyThenRespond {
         fn respond(&self, _req: &wiremock::Request) -> wiremock::ResponseTemplate {
-            use std::os::unix::fs::PermissionsExt;
-            std::fs::set_permissions(&self.dir, std::fs::Permissions::from_mode(0o500)).unwrap();
+            std::fs::set_permissions(&self.dir, self.permissions.clone()).unwrap();
             wiremock::ResponseTemplate::new(200).set_body_json(serde_json::json!({
                 "id": "file-1", "name": "file-1", "version": "2",
             }))
@@ -678,6 +678,7 @@ mod tests {
             .and(wiremock::matchers::path("/upload/drive/v3/files/file-1"))
             .respond_with(MakeDirReadOnlyThenRespond {
                 dir: ledger_dir.clone(),
+                permissions: std::fs::Permissions::from_mode(0o500),
             })
             .expect(1)
             .mount(&server)
