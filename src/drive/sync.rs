@@ -288,14 +288,25 @@ fn safe_path(dest: &Path, rel: &Path) -> Result<PathBuf> {
         "unsafe relative path"
     );
     let mut path = dest.to_path_buf();
-    for component in rel.components() {
+    let mut components = rel.components().peekable();
+    while let Some(component) = components.next() {
         path.push(component);
         match fs::symlink_metadata(&path) {
-            Ok(meta) => ensure!(
-                !meta.file_type().is_symlink(),
-                "refusing symlink: {}",
-                path.display()
-            ),
+            Ok(meta) => {
+                ensure!(
+                    !meta.file_type().is_symlink(),
+                    "refusing symlink: {}",
+                    path.display()
+                );
+                // Windows reports a child of a regular file as NotFound,
+                // rather than Unix's NotADirectory. Check ancestors explicitly
+                // so dry-run cannot offer to write beneath a blocking file.
+                ensure!(
+                    components.peek().is_none() || meta.is_dir(),
+                    "inspect {}: not a directory",
+                    path.display()
+                );
+            }
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => (),
             Err(e) => return Err(e).with_context(|| format!("inspect {}", path.display())),
         }
