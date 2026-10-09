@@ -271,33 +271,37 @@ mod tests {
 
     #[test]
     fn backup_dir_explicit_wins() {
-        let env = MapEnv::new().with(LEASE_BACKUP_DIR_ENV, "/from/env");
+        let dir = tempfile::tempdir().unwrap();
+        let explicit = dir.path().join("cli");
+        let env_path = dir.path().join("env");
+        let env = MapEnv::new().with(LEASE_BACKUP_DIR_ENV, env_path.to_str().unwrap());
         let mut s = settings();
-        s.backup_dir = Some(PathBuf::from("/from/settings"));
+        s.backup_dir = Some(dir.path().join("settings"));
         assert_eq!(
-            resolve_backup_dir(Some(PathBuf::from("/from/cli")), &env, &s).unwrap(),
-            PathBuf::from("/from/cli")
+            resolve_backup_dir(Some(explicit.clone()), &env, &s).unwrap(),
+            explicit
         );
     }
 
     #[test]
     fn backup_dir_env_beats_settings() {
-        let env = MapEnv::new().with(LEASE_BACKUP_DIR_ENV, "/from/env");
+        let dir = tempfile::tempdir().unwrap();
+        let env_path = dir.path().join("env");
+        let env = MapEnv::new().with(LEASE_BACKUP_DIR_ENV, env_path.to_str().unwrap());
         let mut s = settings();
-        s.backup_dir = Some(PathBuf::from("/from/settings"));
-        assert_eq!(
-            resolve_backup_dir(None, &env, &s).unwrap(),
-            PathBuf::from("/from/env")
-        );
+        s.backup_dir = Some(dir.path().join("settings"));
+        assert_eq!(resolve_backup_dir(None, &env, &s).unwrap(), env_path);
     }
 
     #[test]
     fn backup_dir_settings_beats_hardcoded_default() {
+        let dir = tempfile::tempdir().unwrap();
+        let settings_path = dir.path().join("settings");
         let mut s = settings();
-        s.backup_dir = Some(PathBuf::from("/from/settings"));
+        s.backup_dir = Some(settings_path.clone());
         assert_eq!(
             resolve_backup_dir(None, &MapEnv::new(), &s).unwrap(),
-            PathBuf::from("/from/settings")
+            settings_path
         );
     }
 

@@ -58,39 +58,6 @@ pub(crate) fn settings_path() -> Option<std::path::PathBuf> {
     SETTINGS_PATH.with(|slot| slot.borrow().clone())
 }
 
-#[cfg(test)]
-mod settings_path_tests {
-    use super::*;
-    use crate::utils::settings::Settings;
-
-    #[test]
-    fn settings_routes_load_independent_fixtures_and_restore_on_drop() {
-        let first = tempfile::tempdir().unwrap();
-        let second = tempfile::tempdir().unwrap();
-        let outer = SettingsPathGuard::take();
-        outer.redirect(first.path());
-        let path = Settings::get_settings_path().unwrap();
-        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-        std::fs::write(&path, r#"{"env":{"FIXTURE":"first"}}"#).unwrap();
-        assert_eq!(Settings::load().unwrap().env["FIXTURE"], "first");
-
-        {
-            let inner = SettingsPathGuard::take();
-            inner.redirect(second.path());
-            assert!(Settings::load().unwrap().env.is_empty());
-            assert_eq!(
-                Settings::get_settings_path().unwrap(),
-                second.path().join(".gwi/settings.json")
-            );
-            // A different test thread must never see this thread's route.
-            assert!(std::thread::spawn(settings_path).join().unwrap().is_none());
-        }
-        assert_eq!(Settings::load().unwrap().env["FIXTURE"], "first");
-        drop(outer);
-        assert!(settings_path().is_none());
-    }
-}
-
 /// Returns from the calling test when the process runs as root, which
 /// bypasses the file-permission checks (DAC) a test relies on: a `0o500`
 /// directory is still writable and a file root creates is root-owned. Put it
@@ -468,4 +435,37 @@ pub(crate) fn while_another_thread_exports(
             check();
         }
     });
+}
+
+#[cfg(test)]
+mod settings_path_tests {
+    use super::*;
+    use crate::utils::settings::Settings;
+
+    #[test]
+    fn settings_routes_load_independent_fixtures_and_restore_on_drop() {
+        let first = tempfile::tempdir().unwrap();
+        let second = tempfile::tempdir().unwrap();
+        let outer = SettingsPathGuard::take();
+        outer.redirect(first.path());
+        let path = Settings::get_settings_path().unwrap();
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, r#"{"env":{"FIXTURE":"first"}}"#).unwrap();
+        assert_eq!(Settings::load().unwrap().env["FIXTURE"], "first");
+
+        {
+            let inner = SettingsPathGuard::take();
+            inner.redirect(second.path());
+            assert!(Settings::load().unwrap().env.is_empty());
+            assert_eq!(
+                Settings::get_settings_path().unwrap(),
+                second.path().join(".gwi/settings.json")
+            );
+            // A different test thread must never see this thread's route.
+            assert!(std::thread::spawn(settings_path).join().unwrap().is_none());
+        }
+        assert_eq!(Settings::load().unwrap().env["FIXTURE"], "first");
+        drop(outer);
+        assert!(settings_path().is_none());
+    }
 }
