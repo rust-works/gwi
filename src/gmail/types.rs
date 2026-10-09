@@ -1,12 +1,10 @@
 //! Wire types for the Gmail v1 REST API.
 //!
 //! Field naming follows Gmail's camelCase JSON via per-field
-//! `#[serde(rename = "...")]` (matching the Jira precedent for a
-//! camelCase upstream API, not Datadog's snake_case-native one).
+//! `#[serde(rename = "...")]`.
 //! `Message::payload`/`raw` are the MIME-tree escape hatch: the per-part
 //! MIME structure is deeply recursive and heterogeneous, so it round-trips
-//! as raw `serde_json::Value` rather than being modelled — the same
-//! precedent as `Dashboard.widgets` in `src/datadog/types.rs`.
+//! as raw `serde_json::Value` rather than being modelled.
 
 use std::io::Write;
 
