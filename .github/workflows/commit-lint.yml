@@ -5,6 +5,9 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  # Check the combined tree on the queue's `gh-readonly-queue/main/...` branch.
+  # Branch filters are not supported on merge_group events.
+  merge_group:
 
 permissions:
   contents: read
@@ -32,6 +35,9 @@ jobs:
         with:
           command: lint
           strict: true
+          # Merge groups have no GITHUB_BASE_REF; use the queue's exact range.
+          # An empty input preserves the action's PR range and main-push skip.
+          commit-range: ${{ github.event_name == 'merge_group' && format('{0}..{1}', github.event.merge_group.base_sha, github.event.merge_group.head_sha) || '' }}
       # `.omni-dev/scopes.yaml` can drift from the tree without any commit message being
       # wrong: this fails on a tracked file under a root that no scope or `allow:` entry
       # covers, and on a `file_patterns` entry that matches nothing (#50). It reuses the
