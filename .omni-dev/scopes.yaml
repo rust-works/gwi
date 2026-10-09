@@ -43,6 +43,14 @@ scopes:
     description: "GitHub Actions workflow files"
     examples: ["workflows: add release workflow"]
     file_patterns: [".github/workflows/**"]
+  - name: "test"
+    description: "Integration tests, shared test helpers, fixtures and snapshots"
+    examples: ["test(test): add CLI regression coverage"]
+    file_patterns: ["tests/**"]
+  - name: "scripts"
+    description: "Development scripts, sandbox tooling and validation helpers"
+    examples: ["chore(scripts): improve sandbox test runner"]
+    file_patterns: ["scripts/**"]
 
 # Paths that legitimately belong to no scope.
 allow:
