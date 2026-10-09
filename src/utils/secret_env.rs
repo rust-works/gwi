@@ -326,7 +326,7 @@ impl fmt::Display for OctalMode {
 /// For the test `EnvGuard`s, which must snapshot, clear and restore them: a
 /// developer who exports one changes the outcome of any test that resolves
 /// credentials. Lives here because only this module may spell the
-/// companions (see `only_the_resolver_writers_and_scrub_name_command_companions`).
+/// companions (see `only_the_resolver_and_writers_name_command_companions`).
 #[cfg(test)]
 pub(crate) fn companion_vars() -> Vec<String> {
     SECRET_ENV_VARS
@@ -1541,17 +1541,16 @@ mod tests {
         assert!(!SECRET_ENV_VARS.contains(&"GMAIL_CLIENT_SECRET"));
     }
 
-    /// (d) Only the resolver, the settings writers and the `claude-cli` scrub
+    /// (d) Only the resolver and the settings writers
     /// know how a `_COMMAND` companion is spelled: everything else reaches a
     /// helper through [`secret_var`], so no call site can run one itself or
     /// skip the timeout, the cap, or the cache (ADR-0090).
     #[test]
-    fn only_the_resolver_writers_and_scrub_name_command_companions() {
-        const ALLOWED: [&str; 4] = [
+    fn only_the_resolver_and_writers_name_command_companions() {
+        const ALLOWED: [&str; 3] = [
             "utils/secret_env.rs",
             "utils/secret_env/command.rs",
             "utils/settings.rs",
-            "claude/ai/claude_cli.rs",
         ];
         let mut strays = Vec::new();
         for source in production_sources() {

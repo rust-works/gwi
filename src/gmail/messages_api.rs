@@ -1,14 +1,13 @@
 //! Gmail Messages API wrapper.
 //!
-//! `messages.list` uses **cursor pagination** (`nextPageToken`), like
-//! Datadog's v2 logs search — [`MessagesApi::search`] issues a single page,
+//! `messages.list` uses **cursor pagination** (`nextPageToken`).
+//! [`MessagesApi::search`] issues a single page,
 //! [`MessagesApi::search_all`] auto-paginates up to a caller-supplied limit
 //! (or [`HARD_CAP`] when the limit is `0`), and
 //! `MessagesApi::search_all_unbounded_streaming` auto-paginates with no cap at all
 //! for `gmail sync`'s full-listing pass (#1467). Gmail's list endpoint is
-//! GET-with-query-params (not POST-with-body like Datadog's logs search),
-//! so URL construction follows the free `build_*_url` pattern from
-//! `src/datadog/monitors_api.rs` instead.
+//! GET-with-query-params; the free `build_*_url` helpers in this module
+//! construct the request URLs.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
