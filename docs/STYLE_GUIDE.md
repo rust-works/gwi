@@ -51,7 +51,7 @@ A new convention needs to be added to this style guide.
 
 ### Guidance
 
-Assign the next sequential ID (currently next is `STYLE-0031`; IDs of removed rules are
+Assign the next sequential ID (currently next is `STYLE-0032`; IDs of removed rules are
 retired, not reused) and include:
 
 1. A **Tags** line immediately after the heading — a comma-separated list of category labels
@@ -1706,3 +1706,26 @@ subtly different readers. The grep guards in `secret_env.rs` fail the
 build when a new secret-shaped literal is unregistered, when a registered one is
 read through a plain accessor, or when a `<NAME>_FILE` would collide with an
 existing variable.
+
+---
+
+## STYLE-0031: ADR references in user-visible text
+
+**Tags:** `documentation`, `naming`
+
+### Situation
+
+Naming an Architecture Decision Record in CLI help, an error, or a prompt. This includes
+`///` comments that clap turns into help through `#[arg]` or `#[command]` attributes.
+
+### Guidance
+
+Use the bare, zero-padded identifier `ADR-NNNN` consistently, for example `see ADR-0066`
+or `see ADR-0069`. Do not print repository paths or Markdown links in terminal text.
+Keep Markdown links in ordinary rustdoc comments and documentation, where they resolve.
+
+### Motivation
+
+An installed binary has no repository `docs/` directory, and terminals do not render
+Markdown links. A consistent identifier keeps terminal text concise and matches the ADR
+titles and inventory used to look up the decision in the project's documentation.
