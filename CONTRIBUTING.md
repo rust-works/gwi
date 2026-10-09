@@ -110,12 +110,21 @@ python3 scripts/test_home_write_test.py -v
 
 ## Tests on Windows
 
-The `Windows Build` job builds the release binary and compiles the lib, bin and integration
-test targets with `cargo test --no-run`, with and without `--features mcp`. It does not run
-them, and it does not build doctests, so a Unix-only doctest is not caught. Many tests
-exercise Unix behaviour (file modes, symlinks, `flock`, `/bin/sh`) and are gated with
-`#[cfg(unix)]`; but because nothing runs on Windows, an ungated test that compiles there and
-would fail at run time is not caught either. What is compiled on Windows must still compile
-there, so gate Unix-only imports and helpers (`std::os::unix`, a macro defined under
-`cfg(unix)`) on the item that uses them, and keep the rest of a test running everywhere
-where it can.
+The `Windows Build` job builds the release binary with `--features mcp`, then runs
+`cargo test --verbose` and `cargo test --features mcp --verbose` on `windows-latest`.
+Both runs execute the lib, bin and integration tests and doctests. A test that fails to
+compile, link or run on Windows turns the job red.
+
+Tests that require Unix behaviour (file modes, Unix symlinks, `flock`, `/bin/sh`, or a
+particular Unix filesystem error) use `#[cfg(unix)]` with a comment explaining why.
+Gate Unix-only imports and helpers on the items that use them, and keep portable
+assertions running on every platform. Rust doc examples must also be portable or gate
+their Unix-specific code explicitly: a normal `cargo test` run checks them too.
+
+Windows home discovery uses the Known Folder API, which ignores `HOME`. The shared
+Gmail and Drive unit-test environment guards explicitly route settings into their
+temporary directories, restoring the previous route when dropped; this route is scoped
+to the test thread and is absent from production binaries. Subprocess tests that require
+`HOME` to relocate the real settings or state directories are Unix-only, with a comment
+explaining that limitation. Portable CLI subprocess tests and in-memory MCP protocol
+tests still run on Windows.
