@@ -36,6 +36,7 @@ fn lease_release_cmd(home: &std::path::Path, token: &str) -> std::process::Comma
     common::scrub_ambient_env(&mut cmd)
         .args(["drive", "lease", "release", token])
         .env("HOME", home);
+    common::pin_log_env(&mut cmd, home);
     cmd
 }
 

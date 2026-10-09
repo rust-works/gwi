@@ -122,11 +122,38 @@ fn gwi(home: &Path, args: &[&str]) -> Output {
     let mut command = Command::new(env!("CARGO_BIN_EXE_gwi"));
     common::scrub_ambient_env(&mut command)
         .args(args)
-        .env("HOME", home)
-        .env("GWI_LOG_FILE", home.join("log.jsonl"))
-        .env("GWI_AUDIT_LOG_FILE", home.join("audit.jsonl"))
-        .env("GWI_LOG_DISABLE", "1");
+        .env("HOME", home);
+    common::pin_log_env(&mut command, home);
     command.output().expect("failed to run the gwi binary")
+}
+
+#[test]
+fn pin_log_env_replaces_the_variables_a_developer_shell_exports() {
+    let home = tempfile::tempdir().unwrap();
+    let mut command = Command::new(env!("CARGO_BIN_EXE_gwi"));
+    command
+        .env("GWI_LOG_FILE", "exported-log.jsonl")
+        .env("GWI_AUDIT_LOG_FILE", "exported-audit.jsonl")
+        .env("GWI_LOG_DISABLE", "0");
+    common::pin_log_env(&mut command, home.path());
+    for (name, expected) in [
+        (
+            "GWI_LOG_FILE",
+            home.path().join("log.jsonl").into_os_string(),
+        ),
+        (
+            "GWI_AUDIT_LOG_FILE",
+            home.path().join("audit.jsonl").into_os_string(),
+        ),
+        ("GWI_LOG_DISABLE", std::ffi::OsString::from("1")),
+    ] {
+        let entry = command.get_envs().find(|(key, _)| *key == name);
+        assert_eq!(
+            entry,
+            Some((std::ffi::OsStr::new(name), Some(expected.as_os_str()))),
+            "{name}"
+        );
+    }
 }
 
 #[test]
