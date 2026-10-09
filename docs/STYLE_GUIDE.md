@@ -1635,11 +1635,12 @@ changes, and review the `--help`
 snapshots in [`tests/snapshots/`](../tests/snapshots/) with `cargo insta review`
 whenever the reverse-reference edits change CLI `--help` text.
 
-Only the tool-level floor of this checklist is enforced mechanically:
+The tool and top-level parameter description floors of this checklist are enforced mechanically:
 `list_tools_advertises_exactly_the_gmail_and_drive_tools` in
 [tests/mcp_test.rs](../tests/mcp_test.rs) fails if any advertised tool has an empty
-description. Nothing checks that every top-level parameter has a description (item 6's
-floor) or any of the prose-quality items, so those need review.
+description or any top-level parameter has a missing, non-string, empty or whitespace-only
+description (item 6's floor). Concrete examples and the other prose-quality items still
+need review.
 
 ### Motivation
 
