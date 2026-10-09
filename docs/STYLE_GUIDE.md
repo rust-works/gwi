@@ -36,6 +36,7 @@ which tags apply to the changes and search this file for those tags. Each rule h
 | Adding an MCP tool or param struct              | `api-design`, `module-organization`, `testing`, `documentation` |
 | Adding or modifying a docs/plan/ file           | `documentation`, `adrs`                                         |
 | Reading env vars, or testing env-dependent code | `testing`, `module-organization`                                |
+| Resolving a default writable state-directory path | `testing`, `module-organization`                              |
 | Reading a credential or other secret            | `module-organization`, `api-design`, `testing`                  |
 | Reviewing code for style compliance             | All tags relevant to the changed code                           |
 
@@ -1549,6 +1550,53 @@ tests that call `std::env::set_var` / `remove_var`:
 
 Everywhere else, do not call `std::env::set_var` / `remove_var` in a test.
 
+#### Default state-directory paths must be safe in tests
+
+New code that resolves a default writable runtime path through
+`request_log::gwi_state_subpath`, or directly through `dirs::state_dir()` /
+`dirs::data_dir()`, must provide either an injected path parameter that tests
+use or a `#[cfg(test)]` scratch fallback. This includes incidental writes
+from production code exercised by tests, even when the test does not inspect
+the file. Holding `EnvGuard` prevents environment races; it does not redirect
+writes away from the developer's state directory.
+
+Follow `default_audit_file_path` and `default_log_file_path` in
+[`src/request_log.rs`](../src/request_log.rs): the `#[cfg(not(test))]` variant
+resolves the production default, while the `#[cfg(test)]` variant returns a
+path in `test_scratch_dir`. Keep the scratch directory alive for every caller
+that may write to it. Tests that inspect file contents use their own injected
+temporary path rather than a fallback shared by parallel tests. Preserve
+explicit overrides; the audit log's `TEST_AUDIT_ROUTE` / `AuditLogGuard`
+pattern lets individual tests opt into their own output path.
+
+Add a regression test with overrides absent that proves the test default is
+outside the real state directory, not merely different from one filename.
+See `log_file_path_never_resolves_to_the_real_machine_default_when_unset` in
+the same file; also check stability across calls when the fallback is shared.
+For an injected path, exercise the writable flow with a temporary path and
+verify its output stays there. Follow the guard requirements above whenever
+the test relies on a `HOME`-derived value staying fixed across reads.
+
+Verify the suite with an **empty `HOME`** as well: build test binaries with
+the real `HOME` (`cargo test --lib --bins --tests --no-run --message-format=json`),
+then run the reported test executables directly with a fresh temporary `HOME`
+for each binary. Clear inherited `XDG_STATE_HOME`, `XDG_DATA_HOME`,
+`XDG_CONFIG_HOME` and `XDG_CACHE_HOME` for those subprocesses so they cannot
+route writes outside the probe. Set `INSTA_WORKSPACE_ROOT` to the checkout
+so snapshot discovery does not invoke Cargo through rustup under the empty
+`HOME`. After each run, `find "$probe_home" -mindepth 1` must print nothing,
+including when the binary fails; repeat with `--features mcp`. Cargo itself
+needs its normal home/toolchain configuration, so do not run the build step
+under the empty `HOME`. The CI guard and local runner are tracked in
+[#118](https://github.com/rust-works/gwi/issues/118).
+
+Integration tests use the normal library / CLI build, where `#[cfg(test)]`
+fallbacks do not apply. Inject paths or scope `HOME` and XDG directory
+overrides on the spawned `Command` to a temporary fixture. The empty-`HOME`
+probe covers both unit and integration binaries, but detects only entries
+remaining under the supplied home after execution, not transient writes or
+writes to unrelated absolute paths.
+
 ### Motivation
 
 The process environment is a single shared mutable global. Injecting the
@@ -1565,6 +1613,13 @@ the two `test_support` modules: the tests that mutate under the guard, and the
 product code that does (`propagate_profile_flag`, `ScopedEnvVar`), all count.
 Each new direct `set_var` adds to that bill, which is why a seam is the first
 choice.
+
+Default paths can turn otherwise isolated tests into real data writers. The
+audit log needed a scratch fallback first; the request log later appended
+about 8,000 rows per suite run to the developer's `log.jsonl`
+([#61](https://github.com/rust-works/gwi/issues/61),
+[PR #86](https://github.com/rust-works/gwi/pull/86)). A safe default plus the
+empty-`HOME` check prevents the same mistake in the next runtime state file.
 
 ## STYLE-0029: MCP tool & parameter description checklist
 
