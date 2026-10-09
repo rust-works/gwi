@@ -1,0 +1,33 @@
+name: Windows Log Replacement
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  merge_group:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  windows-log-replacement:
+    name: Windows Log Replacement
+    runs-on: windows-latest
+    steps:
+    - uses: actions/checkout@v7
+    - uses: dtolnay/rust-toolchain@stable
+    - uses: Swatinem/rust-cache@v2
+    # Execute the file identity and replacement tests, rather than only compile
+    # them. Keep this focused verification independent of full-suite Windows CI.
+    - run: 'cargo test --lib cli::log::stream::tests:: --verbose'
+    - run: cargo test --test log_follow_test --verbose
+    - run: 'cargo test --lib --features mcp cli::log::stream::tests:: --verbose'
+    - run: cargo test --test log_follow_test --features mcp --verbose

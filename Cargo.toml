@@ -30,6 +30,10 @@ name = "cli_test"
 path = "tests/cli_test.rs"
 
 [[test]]
+name = "log_follow_test"
+path = "tests/log_follow_test.rs"
+
+[[test]]
 name = "drive_lease_exit_code_test"
 path = "tests/drive_lease_exit_code_test.rs"
 
