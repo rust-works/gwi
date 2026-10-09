@@ -47,4 +47,4 @@ jobs:
       # the commit lint failed, so one push reports both problems instead of one per round.
       - name: Lint scopes.yaml against the tree
         if: ${{ !cancelled() }}
-        run: omni-dev config scopes lint --root src --root .github
+        run: omni-dev config scopes lint --root src --root .github --root tests --root scripts
