@@ -1,7 +1,7 @@
 //! `gwi log` — search and pretty-print the local invocation, HTTP and Drive-mutation log.
 //!
-//! Read-only and synchronous. Streams [`request_log::log_file_path`] line by
-//! line, applies the filter matrix, and renders each match as `oneline`,
+//! Read-only and synchronous. Streams [`request_log::log_file_path`] and optional
+//! numbered backups line by line, applies filters, and renders each match as `oneline`,
 //! `json` (byte-identical to the on-disk NDJSON), or `full`.
 
 mod format;
@@ -91,6 +91,10 @@ pub struct LogCommand {
     /// Show at most N (most recent) matching records.
     #[arg(short = 'n', long, value_name = "N")]
     limit: Option<usize>,
+    /// Include numbered request-log backups, oldest first, before the live log.
+    /// The limit applies across all files; follow then tails only the live log.
+    #[arg(long, conflicts_with = "audit")]
+    rotated: bool,
     /// Follow the log, printing new matching records as they are appended.
     #[arg(short = 'f', long)]
     follow: bool,
@@ -140,7 +144,14 @@ impl LogCommand {
             query: &self.query,
             id: self.id.as_deref(),
         })?;
-        stream::run(&path, &filter, self.output, self.limit, self.follow)
+        stream::run(
+            &path,
+            &filter,
+            self.output,
+            self.limit,
+            self.follow,
+            self.rotated,
+        )
     }
 
     /// Resolves which file this invocation reads: `audit.jsonl` when
@@ -195,6 +206,13 @@ mod tests {
         assert!(cmd.limit.is_none());
         assert!(!cmd.follow);
         assert!(!cmd.audit);
+        assert!(!cmd.rotated);
+    }
+
+    #[test]
+    fn rotated_flag_parses_and_conflicts_with_audit() {
+        assert!(parse(&["--rotated"]).rotated);
+        assert!(Wrapper::try_parse_from(["gwi", "log", "--rotated", "--audit"]).is_err());
     }
 
     #[test]
@@ -228,6 +246,7 @@ mod tests {
             &["--since", "1d"][..],
             &["--query", "status:5xx"],
             &["--audit"],
+            &["--rotated"],
         ] {
             let mut args = vec!["gwi", "log"];
             args.extend_from_slice(flag);

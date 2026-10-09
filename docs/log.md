@@ -287,6 +287,7 @@ filter given. A search flag placed before `prune` is refused rather than silentl
 | `-o, --output <oneline\|json\|full>` | `oneline` (the default), `json` (the stored line verbatim, so it composes with `jq`) or `full` (a labelled block per record). |
 | `-n, --limit <N>` | Show at most the N most recent matching records. |
 | `-f, --follow` | Tail the log, printing new matching records as they are appended. |
+| `--rotated` | Include numbered request-log backups oldest first, then the live file. `--limit` applies across all files; `--follow` then tails only the live file. Conflicts with `--audit`. |
 | `--audit` | Read `audit.jsonl` instead of `log.jsonl`. Every filter, the `--query` language and all three output formats apply unchanged; only the file differs. |
 
 A missing log file is not an error: nothing is printed. A line that does not parse as a
@@ -434,9 +435,14 @@ Rotation is **unix only** and **best effort**. When it is enabled, writers seria
 stable `log.jsonl.lock` file (created `0600`) for the check-rotate-append sequence, and a
 rotation failure falls back to appending without rotating rather than dropping the record. A
 set-but-invalid `GWI_LOG_MAX_SIZE` (or `0`) is ignored, logged at `tracing::debug`, and leaves
-rotation off. `gwi log` reads only the live `log.jsonl`, so a search does not see records
-that have been rotated into `log.jsonl.N`; read those files directly or with `GWI_LOG_FILE`
-pointed at one.
+rotation off. By default, `gwi log` reads only the live `log.jsonl`. Use `gwi log --rotated`
+to include existing numbered backups (`log.jsonl.N` through `.1`, then `log.jsonl`), oldest
+first. Numeric suffixes are ordered numerically; gaps are allowed. With `GWI_LOG_FILE`,
+backups are discovered beside that file using its name plus `.N`, regardless of the current
+`GWI_LOG_KEEP_FILES` setting. `--limit` keeps the most recent matching records across the
+whole backlog; `--follow` scans backups once and then tails only the live file. This is a
+best-effort scan rather than an atomic snapshot during concurrent rotation. `--rotated`
+cannot be combined with `--audit`: the audit log never rotates.
 
 ## Redaction posture
 
