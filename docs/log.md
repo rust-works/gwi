@@ -264,6 +264,13 @@ With no subcommand, `gwi log` searches the log and prints the records that match
 filter given. A search flag placed before `prune` is refused rather than silently ignored.
 `gwi log --help` lists every option.
 
+Like other CLI runs, `gwi log` appends its own `invocation` record to the request log
+**after** the command returns, unless `GWI_LOG_DISABLE=1`. The current read does not show
+its own record, but later reads include `inv cli log` rows. This also applies to reading
+with `--audit`: the invocation goes to the request log, not the audit log. Use
+`gwi log --query 'NOT cmd:log'` to exclude log-command records, or
+`GWI_LOG_DISABLE=1 gwi log` to read without adding one.
+
 ### Filters
 
 | Flag | Matches |
@@ -290,9 +297,12 @@ filter given. A search flag placed before `prune` is refused rather than silentl
 | `--rotated` | Include numbered request-log backups oldest first, then the live file. `--limit` applies across all files; `--follow` then tails only the live file. Conflicts with `--audit`. |
 | `--audit` | Read `audit.jsonl` instead of `log.jsonl`. Every filter, the `--query` language and all three output formats apply unchanged; only the file differs. |
 
-A missing log file is not an error: nothing is printed. A line that does not parse as a
-record (including a partly written trailing line) is skipped. Piping into something that
-closes early, such as `| head`, ends the scan cleanly when a write detects the closed pipe.
+A missing log file is an empty log: exit 0 with no output. With `--follow`, the reader
+waits for the file to appear and reads it from the beginning. Use `GWI_LOG_DISABLE=1` when
+checking this: otherwise the command can create the request log on exit (see above).
+A line that does not parse as a record (including a partly written trailing line) is skipped.
+Piping into something that closes early, such as `| head`, ends the scan cleanly when a
+write detects the closed pipe.
 
 On Unix, an idle `--follow` also checks for a closed output pipe every 250 ms and exits
 cleanly when the reader has gone. On Windows and other non-Unix platforms, closure is
@@ -319,12 +329,31 @@ polls cannot be detected by size alone.
 
 ### The `--query` language
 
-- **Structured terms** are `field:value`. The built-in fields, with their aliases, are
-  `kind`, `source`, `service`, `method`, `status`, `command` (`cmd`), `url`, `id`,
-  `invocation_id` (`inv`), `mcp_tool` (`tool`), `error` (`err`), `exit_code`
-  (`exit`), `duration_ms` (`duration`, `dur`), `elapsed_ms` (`elapsed`), `hostname` (`host`),
-  `system_user` (`user`), `cwd` and `auth_principal` (`principal`). A flag and its field are
-  the same matcher, so `--status 5xx` and `status:5xx` behave identically.
+Structured terms are `field:value`. Field names ignore ASCII case. The complete built-in
+field and alias list is:
+
+| Field | Aliases | Match rule |
+|---|---|---|
+| `kind`, `source`, `service`, `method` | — | Exact, case-insensitive. |
+| `status` | — | Kind-aware HTTP code or Drive-mutation status (below). |
+| `command` | `cmd` | Whole-segment path prefix, case-sensitive. |
+| `url` | — | Case-insensitive substring. |
+| `id` | — | Exact, case-sensitive match of either `id` or `invocation_id`. |
+| `invocation_id` | `inv` | Exact, case-sensitive match of `invocation_id` only. |
+| `mcp_tool` | `tool` | Exact, case-insensitive. |
+| `error` | `err` | Case-insensitive substring; an empty value or lower-case `true` tests for an error. |
+| `exit_code` | `exit` | Numeric comparison. |
+| `duration_ms` | `duration`, `dur` | Numeric comparison. |
+| `elapsed_ms` | `elapsed` | Numeric comparison. |
+| `hostname` | `host` | Case-insensitive substring. |
+| `system_user` | `user` | Case-insensitive substring. |
+| `cwd` | — | Case-insensitive substring. |
+| `auth_principal` | `principal` | Case-insensitive substring. |
+
+A flag and its field use the same matcher for valid values, so `--status 5xx` and
+`status:5xx` behave identically. `via_daemon` is no longer built in; it falls back to
+`context` and has no special boolean rule (see [Schema and compatibility](#schema-and-compatibility)).
+
 - **`status` is kind-aware.** For every kind but `drivemutation` it matches the HTTP
   `status_code` (a class or a comparison). A `drivemutation` record has no `status_code`; its
   domain status lives in `context`, so `status:` there matches it by exact, case-insensitive
@@ -364,6 +393,129 @@ gwi log --query 'elapsed:>1000'                          # requests slower than 
 gwi log --query 'kind:invocation exit_code:>0'           # failed runs
 gwi log --query 'kind:drivemutation status:blocked'      # writes the gate refused
 ```
+
+If the entire expression starts with `-`, attach it to the option with `=`:
+`gwi log --query=-method:GET`. Even shell-quoted `--query '-method:GET'` is read by clap
+as an option and exits 2. `gwi log --query 'NOT method:GET'` is equivalent and avoids that
+argument-parsing error. A minus inside a longer expression, as above, needs no `=`.
+
+### Diagnostics and edge-case transcripts
+
+These outputs were captured from the built binary using this one-record fixture in a
+scratch shell. Request logging is disabled so reading does not change the fixture:
+
+```bash
+scratch=$(mktemp -d)
+export GWI_LOG_FILE="$scratch/log.jsonl"
+export GWI_AUDIT_LOG_FILE="$scratch/audit.jsonl"
+export GWI_LOG_DISABLE=1
+cat > "$GWI_LOG_FILE" <<'EOF'
+{"id":"RecordABC","invocation_id":"RunABC","kind":"http","timestamp":"2020-01-01T00:00:00Z","service":"drive","method":"GET","status_code":200}
+EOF
+```
+
+**Unknown fields.** A typo warns on stderr after scanning the backlog; stdout is empty and
+exit status is 0. With multiple records, the count reads `any of the N records scanned`.
+A suggestion appears when a built-in name or observed context key is close enough.
+
+```text
+$ gwi log --query 'servce:drive'
+warning: query field `servce` is not a built-in field and is not a context key in the 1 record scanned, so `servce:drive` matches nothing. Did you mean `service`? To search for the text instead, quote it: "servce:drive"
+$ echo $?
+0
+```
+
+With `--follow`, the warning instead says `matches nothing so far`:
+
+```text
+$ gwi log --follow --query 'servce:drive'
+warning: query field `servce` is not a built-in field and is not a context key in the 1 record scanned, so `servce:drive` matches nothing so far. Did you mean `service`? To search for the text instead, quote it: "servce:drive"
+```
+
+The process keeps following until interrupted. No unknown-field warning is emitted when
+no record was scanned, including an empty or missing log. Currently the warning is only
+emitted after the initial backlog scan: an empty/missing backlog stays silent even when
+records arrive later ([#124](https://github.com/rust-works/gwi/issues/124)).
+
+**Startup errors.** Query parser failures exit 1 with empty stdout. Stderr names the
+expression and then prints the indented cause:
+
+```text
+$ gwi log --query '""'
+Error: invalid --query: ""
+  Caused by: empty quoted term in query
+$ gwi log --query '(method:GET'
+Error: invalid --query: (method:GET
+  Caused by: unbalanced parenthesis in query
+$ gwi log --query 'OR'
+Error: invalid --query: OR
+  Caused by: expected a term in query
+$ gwi log --query 'method:GET)'
+Error: invalid --query: method:GET)
+  Caused by: unexpected trailing tokens in query
+```
+
+Invalid status flags, duration units and regular expressions also exit 1 with empty
+stdout. These are filter errors, so they name the failing input rather than `--query`:
+
+```text
+$ gwi log --status 9xx
+Error: invalid status class: 9xx
+$ gwi log --since 2q
+Error: invalid duration unit: q (use s, m, h, d, or w)
+$ gwi log --grep '['
+Error: invalid --grep regex: [
+  Caused by: regex parse error:
+    [
+    ^
+error: unclosed character class
+```
+
+Currently `gwi log --query 'status:9xx'` instead exits 0 with no output; it is not a
+startup error ([#125](https://github.com/rust-works/gwi/issues/125)).
+
+**Leading minus.** The argument parser rejects the unattached form before the query
+parser runs (exit 2, empty stdout):
+
+```text
+$ gwi log --query '-method:GET'
+error: unexpected argument '-m' found
+
+Usage: gwi log [OPTIONS]
+       gwi log <COMMAND>
+
+For more information, try '--help'.
+```
+
+Both `gwi log --query=-method:GET` and `gwi log --query 'NOT method:GET'` exit 0 with no
+output against this GET-only fixture.
+
+**Missing file.** With the fixture removed and logging still disabled, this run emits
+nothing on stdout or stderr:
+
+```text
+$ rm "$GWI_LOG_FILE"
+$ gwi log
+$ echo $?
+0
+```
+
+`gwi log --follow -o json` remains running with no output until the file appears. Creating
+it with the fixture above makes follow print the stored line:
+
+```json
+{"id":"RecordABC","invocation_id":"RunABC","kind":"http","timestamp":"2020-01-01T00:00:00Z","service":"drive","method":"GET","status_code":200}
+```
+
+**The reader's own invocation.** Starting from an empty fixture, `gwi log` with
+`GWI_LOG_DISABLE` unset prints nothing and appends its invocation on exit. A subsequent
+read prints this captured row (timestamp and duration vary):
+
+```text
+15:30:53.367  inv   cli            log exit=0 0ms
+```
+
+`GWI_LOG_DISABLE=1 gwi log --query 'NOT cmd:log'` then prints nothing and adds no record.
 
 ### Examples
 
