@@ -291,11 +291,20 @@ filter given. A search flag placed before `prune` is refused rather than silentl
 
 A missing log file is not an error: nothing is printed. A line that does not parse as a
 record (including a partly written trailing line) is skipped. Piping into something that
-closes early, such as `| head`, ends the scan cleanly.
+closes early, such as `| head`, ends the scan cleanly when a write detects the closed pipe.
+
+On Unix, an idle `--follow` also checks for a closed output pipe every 250 ms and exits
+cleanly when the reader has gone. On Windows and other non-Unix platforms, closure is
+noticed only on the next write of a matching record. If no new matching record arrives,
+`--follow` can keep running indefinitely after its reader exits. This is an accepted
+platform limit ([#91](https://github.com/rust-works/gwi/issues/91)); interrupt the process
+explicitly when finished, or omit `--follow` for a one-shot search. `--limit` bounds the
+backlog output, not the lifetime of `--follow`.
 
 `--follow` keeps working across a `gwi log prune` or a rotation: it notices the log being
-replaced by its device and inode on unix, and only by its shrinking elsewhere, and restarts
-from the top of the new file.
+replaced by its device and inode on Unix or its volume serial number and file index on
+Windows, and restarts from the top of the new file. On other platforms, only shrinkage
+reveals a replacement.
 
 ### The `--query` language
 
