@@ -1,0 +1,24 @@
+name: Windows Test Probe
+
+on:
+  push:
+    branches: [issue-117-ci-windows-tests]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        features: [default, mcp]
+    steps:
+    - uses: actions/checkout@v7
+    - uses: dtolnay/rust-toolchain@stable
+    - uses: Swatinem/rust-cache@v2
+    - if: matrix.features == 'default'
+      run: cargo test --no-fail-fast --verbose
+    - if: matrix.features == 'mcp'
+      run: cargo test --features mcp --no-fail-fast --verbose
