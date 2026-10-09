@@ -385,7 +385,7 @@ pub fn log_file_path() -> Option<PathBuf> {
 /// (`try_record`/`append_with_rotation`) and `prune` reach the fail-closed
 /// audit sink, since none of those consumers get a chance to guard against
 /// it themselves once a colliding path has already resolved
-/// ([#1747](https://github.com/rust-works/gwi/issues/1747), ADR-0080
+/// ([#1747](https://github.com/rust-works/omni-dev/issues/1747), ADR-0080
 /// §11). Centralizing the refusal here — rather than relying on each
 /// consumer's own check, as `prune` and `append_with_rotation` still do for
 /// defense in depth against a caller that bypasses this resolver — means
@@ -738,7 +738,7 @@ fn try_record(entry: &LogRecord) -> anyhow::Result<()> {
 /// otherwise let best-effort records land in the fail-closed sink — no
 /// longer needs a check here: [`log_file_path`] itself now refuses to
 /// resolve a path that aliases [`audit_file_path`]
-/// ([#1747](https://github.com/rust-works/gwi/issues/1747), ADR-0080
+/// ([#1747](https://github.com/rust-works/omni-dev/issues/1747), ADR-0080
 /// §11), so no request-log path this function could be handed ever collides
 /// with `path` in the first place.
 ///
