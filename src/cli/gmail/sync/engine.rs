@@ -1298,6 +1298,12 @@ fn canonicalize_best_effort(path: &Path) -> PathBuf {
 mod tests {
     use super::*;
 
+    // A failure backstop for observing intermediate state under CPU contention,
+    // not an assertion about how quickly fetching should run. Keep it below
+    // the default 120s HTTP read timeout and the mocks' 3600s response delay so
+    // slow requests remain in flight while we observe the fast batch.
+    const FETCH_OBSERVATION_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
+
     /// A schedule with no pending ids, so nothing is ever deferred.
     fn no_schedule() -> RetrySchedule {
         RetrySchedule::new(&[], Utc::now(), false)
@@ -4292,7 +4298,7 @@ not-really-a-pdf\r\n\
         };
 
         let schedule = no_schedule();
-        tokio::time::timeout(std::time::Duration::from_secs(10), async {
+        tokio::time::timeout(FETCH_OBSERVATION_TIMEOUT, async {
             tokio::select! {
                 _ = fetch_and_archive_messages(
                     &client, &mut manifest, &ids, &limiter, &opts, &schedule, &mut report, None,
@@ -4306,7 +4312,7 @@ not-really-a-pdf\r\n\
             }
         })
         .await
-        .expect("manifest was never checkpointed for the fast batch within 10s");
+        .expect("manifest was never checkpointed for the fast batch before the failure backstop");
 
         let on_disk = Manifest::load(&manifest_path(&output_dir)).unwrap();
         for id in &fast_ids {
@@ -4798,7 +4804,7 @@ not-really-a-pdf\r\n\
         };
 
         let schedule = no_schedule();
-        tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        tokio::time::timeout(FETCH_OBSERVATION_TIMEOUT, async {
             tokio::select! {
                 _ = fetch_and_archive_messages(
                     &client, &mut manifest, &ids, &limiter, &opts, &schedule, &mut report, None,
@@ -4812,7 +4818,7 @@ not-really-a-pdf\r\n\
             }
         })
         .await
-        .expect("the single admitted fetch was never observed within 5s");
+        .expect("the single admitted fetch was never observed before the failure backstop");
     }
 
     // A closed `Semaphore` can't happen through any code path today (nothing
