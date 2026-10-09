@@ -15,8 +15,9 @@
 //!
 //! `--follow` also notices the log being replaced (`gwi log prune`, rotation):
 //! by the file's identity (device and inode on unix; volume serial number and file
-//! index on Windows), and on any other platform only by its shrinking. It skips
-//! the contents present at detection and follows subsequent appends; replacement
+//! index on Windows), and on any other platform only by its shrinking. On unix,
+//! the previous file stays open between polls so its inode cannot be reused by
+//! multiple replacements. It skips the contents present at detection and follows subsequent appends; replacement
 //! never replays a backlog, so `--limit` applies only to the initial scan.
 
 use std::collections::VecDeque;
@@ -106,12 +107,16 @@ fn fd_hung_up(fd: std::os::fd::BorrowedFd<'_>) -> bool {
 }
 
 /// Where `--follow` has got to in the file it is tailing.
-#[derive(Clone, Copy, Debug)]
+#[derive(Debug, Default)]
 struct Tail {
     /// Byte offset just past the last complete line read.
     pos: u64,
     /// Identity of the file `pos` refers to, when known.
     id: FileId,
+    /// Pins the Unix inode until a fresh file has been opened and read, preventing
+    /// two replacements between polls from reusing the saved identity.
+    #[cfg(unix)]
+    file: Option<File>,
 }
 
 /// How the backlog scan ended.
@@ -211,7 +216,7 @@ fn scan_files<W: Write>(
     sink: &mut BacklogSink<'_, W>,
     mut reader_gone: impl FnMut() -> bool,
 ) -> Result<Option<Tail>> {
-    let mut tail = Tail { pos: 0, id: None };
+    let mut tail = Tail::default();
     let mut scanned = false;
     for current in backlog_paths(path, rotated)? {
         let file = match File::open(&current) {
@@ -235,6 +240,10 @@ fn scan_files<W: Write>(
                 warn_skipped(&current, skipped);
             }
             Backlog::ReaderGone => return Ok(None),
+        }
+        #[cfg(unix)]
+        if live && follow {
+            tail.file = Some(reader.into_inner());
         }
         scanned = true;
     }
@@ -480,7 +489,7 @@ fn drain_appended<W: Write>(
     }
     tail.id = id.or(tail.id);
     if len > tail.pos {
-        let mut reader = BufReader::new(file);
+        let mut reader = BufReader::new(&file);
         reader.seek(SeekFrom::Start(tail.pos))?;
         let mut buf = Vec::new();
         let mut line = String::new();
@@ -499,6 +508,12 @@ fn drain_appended<W: Write>(
                 Line::Blank | Line::Filtered => {}
             }
         }
+    }
+    // Keep the old inode pinned until the new handle has been read, including
+    // idle polls. An absent path above leaves the previous handle alive.
+    #[cfg(unix)]
+    {
+        tail.file = Some(file);
     }
     Ok(())
 }
@@ -992,7 +1007,12 @@ mod tests {
         .unwrap() else {
             panic!("the scan should complete");
         };
-        let mut tail = Tail { pos, id };
+        let mut tail = Tail {
+            pos,
+            id,
+            #[cfg(unix)]
+            file: None,
+        };
 
         // The writer has not finished: the follow loop prints nothing yet.
         let mut out = Vec::new();
@@ -1576,7 +1596,7 @@ mod tests {
         let path = dir.path().join("log.jsonl");
         std::fs::write(&path, sample_lines()).unwrap();
         let mut out = PipeWriter::failing_with(io::ErrorKind::BrokenPipe, 0);
-        let tail = Tail { pos: 0, id: None };
+        let tail = Tail::default();
 
         let err = follow_loop(&path, &empty_filter(), Format::Json, tail, &mut out, || {
             false
@@ -1618,7 +1638,7 @@ mod tests {
         // A directory where the log should be: opening it succeeds but reading fails.
         let path = dir.path().join("log.jsonl");
         std::fs::create_dir(&path).unwrap();
-        let tail = Tail { pos: 0, id: None };
+        let tail = Tail::default();
         let mut out = Vec::new();
 
         let result = follow_loop(&path, &empty_filter(), Format::Json, tail, &mut out, || {
@@ -1655,7 +1675,7 @@ mod tests {
     }
 
     fn tail_at_start() -> Tail {
-        Tail { pos: 0, id: None }
+        Tail::default()
     }
 
     #[test]
@@ -1713,6 +1733,8 @@ mod tests {
         let mut kept = Tail {
             pos: 7,
             id: tail.id,
+            #[cfg(unix)]
+            file: None,
         };
         let mut out = Vec::new();
         drain_appended(&missing, &empty_filter(), Format::Json, &mut kept, &mut out).unwrap();
@@ -1749,6 +1771,8 @@ mod tests {
         let mut tail = Tail {
             pos: sample_lines().len() as u64,
             id: None,
+            #[cfg(unix)]
+            file: None,
         };
         let mut f = std::fs::OpenOptions::new()
             .append(true)
@@ -1831,6 +1855,97 @@ mod tests {
         assert_follows_next_append(&path, &mut tail);
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn follow_pins_the_inode_across_two_replacements_between_polls() {
+        use std::os::unix::fs::MetadataExt;
+
+        for after_backlog in [false, true] {
+            let dir = tempfile::tempdir().unwrap();
+            let path = dir.path().join("log.jsonl");
+            std::fs::write(&path, sample_lines()).unwrap();
+            let mut out = Vec::new();
+            let mut tail = if after_backlog {
+                let mut sink = BacklogSink {
+                    format: Format::Json,
+                    limit: Some(0),
+                    ring: VecDeque::new(),
+                    out: &mut out,
+                };
+                scan_files(&path, &empty_filter(), true, false, &mut sink, || false)
+                    .unwrap()
+                    .unwrap()
+            } else {
+                let mut tail = tail_at_start();
+                drain_appended(&path, &empty_filter(), Format::Json, &mut tail, &mut out).unwrap();
+                tail
+            };
+            let original_id = tail.id;
+            assert!(original_id.is_some());
+            assert_eq!(file_id(tail.file.as_ref().unwrap()), original_id);
+
+            out.clear();
+            if !after_backlog {
+                // An idle poll must retain a handle too, not just polls that read bytes.
+                drain_appended(&path, &empty_filter(), Format::Json, &mut tail, &mut out).unwrap();
+                assert!(out.is_empty());
+            }
+            replace_by_rename(&path, &sample_lines().replace("/x/", "/first/"));
+            let held = tail.file.as_ref().unwrap();
+            assert_eq!(file_id(held), original_id);
+            assert_eq!(held.metadata().unwrap().nlink(), 0);
+            // The unlinked inode is still allocated to `held`, so it cannot be
+            // reused for this second replacement. No poll occurs between renames.
+            let replacement = sample_lines().replace("/x/", "/second/").repeat(2);
+            replace_by_rename(&path, &replacement);
+            let final_id = file_id(&File::open(&path).unwrap());
+            assert_ne!(final_id, original_id);
+            assert!(replacement.len() as u64 > tail.pos);
+            drain_appended(&path, &empty_filter(), Format::Json, &mut tail, &mut out).unwrap();
+            assert!(out.is_empty(), "replacement contents must not replay");
+            assert_eq!(tail.pos, replacement.len() as u64);
+            assert_eq!(tail.id, final_id);
+            assert_eq!(file_id(tail.file.as_ref().unwrap()), final_id);
+            assert_follows_next_append(&path, &mut tail);
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn drain_appended_pins_the_unlinked_inode_while_the_path_is_absent() {
+        use std::os::unix::fs::MetadataExt;
+
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("log.jsonl");
+        std::fs::write(&path, sample_lines()).unwrap();
+        let mut tail = tail_at_start();
+        drain_appended(
+            &path,
+            &empty_filter(),
+            Format::Json,
+            &mut tail,
+            &mut Vec::new(),
+        )
+        .unwrap();
+        let original_id = tail.id;
+        let original_pos = tail.pos;
+        std::fs::remove_file(&path).unwrap();
+        let mut out = Vec::new();
+        drain_appended(&path, &empty_filter(), Format::Json, &mut tail, &mut out).unwrap();
+        assert!(out.is_empty());
+        assert_eq!(tail.pos, original_pos);
+        let held = tail.file.as_ref().unwrap();
+        assert_eq!(file_id(held), original_id);
+        assert_eq!(held.metadata().unwrap().nlink(), 0);
+
+        std::fs::write(&path, sample_lines().repeat(2)).unwrap();
+        drain_appended(&path, &empty_filter(), Format::Json, &mut tail, &mut out).unwrap();
+        assert!(out.is_empty());
+        assert_ne!(tail.id, original_id);
+        assert_eq!(tail.pos, sample_lines().len() as u64 * 2);
+        assert_follows_next_append(&path, &mut tail);
+    }
+
     fn assert_follows_next_append(path: &Path, tail: &mut Tail) {
         let mut file = std::fs::OpenOptions::new().append(true).open(path).unwrap();
         writeln!(file, "{GOOD}").unwrap();
@@ -1868,6 +1983,8 @@ mod tests {
                     let mut tail = Tail {
                         pos: 0,
                         id: file_id(&file),
+                        #[cfg(unix)]
+                        file: None,
                     };
                     let mut reader = BufReader::new(file);
                     // Prune retains the last two old records; rotation contains all-new IDs.
