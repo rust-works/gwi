@@ -36,6 +36,7 @@ use crate::mcp::drive_tools::account_param_doc;
 
 use super::error::tool_error;
 use super::output_file;
+use super::path_policy::PathPolicy;
 use super::server::GwiServer;
 use super::truncate::build_truncated_result;
 
@@ -74,6 +75,8 @@ pub struct DriveDocsReadParams {
     /// When set, writes the result (YAML) to this path and returns a short
     /// summary instead of the inline body — recommended for a large document
     /// that would exceed the response size limit.
+    /// Must be inside the operator's allowed directories (`mcp.allowed_paths`) and outside
+    /// credential locations.
     #[serde(default)]
     pub output_file: Option<String>,
     #[doc = account_param_doc!()]
@@ -137,7 +140,8 @@ impl GwiServer {
         // patchcov: coverage ignore reason="handler glue after create_client_for: the OAuth token endpoint is not overridable, so no in-process test can get a client to this line; the run_* function it calls is covered against wiremock"
         let docs = DocsClient::from_drive_client(&client).map_err(tool_error)?;
         let wrote_to_file = params.output_file.is_some();
-        let text = run_docs_read(&client, &docs, &params)
+        let policy = PathPolicy::load();
+        let text = run_docs_read(&policy, &client, &docs, &params)
             .await
             .map_err(tool_error)?;
         if wrote_to_file {
@@ -183,10 +187,12 @@ async fn run_docs_info(
 }
 
 async fn run_docs_read(
+    policy: &PathPolicy,
     drive: &DriveClient,
     docs: &DocsClient,
     params: &DriveDocsReadParams,
 ) -> Result<String> {
+    output_file::check_output_file(policy, params.output_file.as_deref())?;
     let suggestions = parse_suggestions_view(params.suggestions_view.as_deref())?;
     let opts = ReadOptions {
         document_id: params.document_id.clone(),
@@ -209,7 +215,7 @@ async fn run_docs_read(
     };
     let yaml = yaml_result(&outcome)?;
     match params.output_file.as_deref() {
-        Some(path) => output_file::write_to_file_yaml(path, &yaml, "yaml"),
+        Some(path) => output_file::write_to_file_yaml(policy, path, &yaml, "yaml"),
         None => Ok(yaml),
     }
 }
@@ -243,6 +249,10 @@ mod tests {
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
     use super::*;
+
+    fn policy() -> PathPolicy {
+        PathPolicy::for_tests()
+    }
     use crate::drive::auth::{DriveCredentials, DriveGrantedScopes};
     use crate::drive::docs::client::DOCS_API_URL;
     use crate::drive::test_support::EnvGuard;
@@ -418,7 +428,7 @@ mod tests {
             .mount(&server)
             .await;
 
-        let yaml = run_docs_read(&drive, &docs, &read_params(None))
+        let yaml = run_docs_read(&policy(), &drive, &docs, &read_params(None))
             .await
             .unwrap();
         assert!(yaml.contains("rev-1"), "{yaml}");
@@ -442,7 +452,9 @@ mod tests {
 
         let mut params = read_params(None);
         params.suggestions_view = Some("accepted".to_string());
-        run_docs_read(&drive, &docs, &params).await.unwrap();
+        run_docs_read(&policy(), &drive, &docs, &params)
+            .await
+            .unwrap();
     }
 
     #[tokio::test]
@@ -474,7 +486,7 @@ mod tests {
             .mount(&server)
             .await;
 
-        let yaml = run_docs_read(&drive, &docs, &read_params(Some("t.1")))
+        let yaml = run_docs_read(&policy(), &drive, &docs, &read_params(Some("t.1")))
             .await
             .unwrap();
         assert!(yaml.contains("t.1"), "{yaml}");
@@ -499,7 +511,7 @@ mod tests {
             .mount(&server)
             .await;
 
-        let err = run_docs_read(&drive, &docs, &read_params(Some("missing")))
+        let err = run_docs_read(&policy(), &drive, &docs, &read_params(Some("missing")))
             .await
             .unwrap_err();
         assert!(err.to_string().contains("t.0"), "{err}");
@@ -513,7 +525,9 @@ mod tests {
         // rejected client-side, before any request is issued.
         let mut params = read_params(None);
         params.suggestions_view = Some("bogus".to_string());
-        let err = run_docs_read(&drive, &docs, &params).await.unwrap_err();
+        let err = run_docs_read(&policy(), &drive, &docs, &params)
+            .await
+            .unwrap_err();
         assert!(
             err.to_string().contains("unknown suggestions_view"),
             "{err}"
@@ -535,11 +549,50 @@ mod tests {
         let mut params = read_params(None);
         params.output_file = Some(out_path.to_str().unwrap().to_string());
 
-        let summary = run_docs_read(&drive, &docs, &params).await.unwrap();
+        let summary = run_docs_read(&policy(), &drive, &docs, &params)
+            .await
+            .unwrap();
         assert!(!summary.contains("Overview"), "{summary}");
         assert!(summary.contains("format: yaml"), "{summary}");
         let written = std::fs::read_to_string(&out_path).unwrap();
         assert!(written.contains("Overview"), "{written}");
+    }
+
+    #[tokio::test]
+    async fn run_docs_read_refuses_an_output_file_outside_the_policy() {
+        let server = MockServer::start().await;
+        let (drive, docs) = docs_and_drive_clients(&server).await;
+        Mock::given(method("GET"))
+            .and(path("/v1/documents/d1"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(document_body()))
+            .mount(&server)
+            .await;
+
+        let allowed = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        let out_path = outside.path().join("out.yaml");
+        let mut params = read_params(None);
+        params.output_file = Some(out_path.to_str().unwrap().to_string());
+
+        let err = run_docs_read(
+            &PathPolicy::allowing_only(allowed.path()),
+            &drive,
+            &docs,
+            &params,
+        )
+        .await
+        .unwrap_err();
+
+        assert!(err.to_string().contains("outside the allowed"), "{err}");
+        assert!(!out_path.exists());
+        // The refusal comes before the fetch, so no document was requested.
+        let requests = server.received_requests().await.unwrap();
+        assert!(
+            requests
+                .iter()
+                .all(|r| !r.url.path().contains("/documents/")),
+            "{requests:?}"
+        );
     }
 
     #[tokio::test]
@@ -561,7 +614,7 @@ mod tests {
             .mount(&server)
             .await;
 
-        let err = run_docs_read(&drive, &docs, &read_params(None))
+        let err = run_docs_read(&policy(), &drive, &docs, &read_params(None))
             .await
             .unwrap_err();
         assert!(err.to_string().contains("backend error"), "{err}");

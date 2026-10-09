@@ -11,7 +11,7 @@ use rmcp::{
 };
 use serde::{Deserialize, Serialize};
 
-use super::{error::tool_error, server::GwiServer};
+use super::{error::tool_error, path_policy::PathPolicy, server::GwiServer};
 use crate::cli::drive::{helpers, lease::LeaseFlags, sheets::values::ValuesFormat};
 use crate::drive::{
     client::DriveClient,
@@ -60,6 +60,8 @@ pub struct DriveDocsAppendParams {
     #[serde(default)]
     pub text: Option<String>,
     /// Local UTF-8 text file, mutually exclusive with text. Stdin (-) is unsupported.
+    /// Must be inside the operator's allowed directories (`mcp.allowed_paths`) and outside
+    /// credential locations.
     #[serde(default)]
     pub text_path: Option<String>,
     /// Preview without mutating or requiring a lease. Default false; preview first.
@@ -93,6 +95,8 @@ pub struct DriveSheetsWriteParams {
     #[serde(default)]
     pub values: Option<Vec<Vec<String>>>,
     /// Local UTF-8 CSV/TSV/JSON file; mutually exclusive with values. Stdin (-) is unsupported.
+    /// Must be inside the operator's allowed directories (`mcp.allowed_paths`) and outside
+    /// credential locations.
     #[serde(default)]
     pub values_path: Option<String>,
     /// File format: auto (default; infer extension), csv, tsv, json. Only applies to values_path.
@@ -220,7 +224,8 @@ impl GwiServer {
         let client = helpers::create_client_for(params.account.as_deref()).map_err(tool_error)?;
         // patchcov: coverage ignore reason="handler glue after create_client_for: the OAuth token endpoint is not overridable, so no in-process test can get a client to this line; the run_* function it calls is covered against wiremock"
         let input = params.clone();
-        let text = tokio::task::spawn_blocking(move || append_text(&input))
+        let policy = PathPolicy::load();
+        let text = tokio::task::spawn_blocking(move || append_text(&policy, &input))
             .await
             .context("Text input task failed")
             .map_err(tool_error)?
@@ -260,7 +265,9 @@ impl GwiServer {
     ) -> Result<CallToolResult, McpError> {
         let client = helpers::create_client_for(params.account.as_deref()).map_err(tool_error)?;
         // patchcov: coverage ignore reason="handler glue after create_client_for: the OAuth token endpoint is not overridable, so no in-process test can get a client to this line; the run_* function it calls is covered against wiremock"
+        let policy = PathPolicy::load();
         run_sheets_write(
+            &policy,
             &client,
             &SheetsClient::from_drive_client(&client).map_err(tool_error)?,
             &params,
@@ -291,7 +298,9 @@ impl GwiServer {
     ) -> Result<CallToolResult, McpError> {
         let client = helpers::create_client_for(params.account.as_deref()).map_err(tool_error)?;
         // patchcov: coverage ignore reason="handler glue after create_client_for: the OAuth token endpoint is not overridable, so no in-process test can get a client to this line; the run_* function it calls is covered against wiremock"
+        let policy = PathPolicy::load();
         run_sheets_write(
+            &policy,
             &client,
             &SheetsClient::from_drive_client(&client).map_err(tool_error)?,
             &params,
@@ -454,8 +463,9 @@ async fn run_docs_write(
     yaml_outcome(&outcome, docs_is_error(&outcome.result))
 }
 
-fn append_text(params: &DriveDocsAppendParams) -> Result<String> {
+fn append_text(policy: &PathPolicy, params: &DriveDocsAppendParams) -> Result<String> {
     super::content_input::require_bounded_content_input(
+        policy,
         params.text.as_deref(),
         params.text_path.as_deref(),
         "text",
@@ -485,7 +495,7 @@ fn parse_input(value: Option<&str>) -> Result<ValueInputOption> {
     }
 }
 
-fn sheets_values(params: &DriveSheetsWriteParams) -> Result<Vec<Vec<String>>> {
+fn sheets_values(policy: &PathPolicy, params: &DriveSheetsWriteParams) -> Result<Vec<Vec<String>>> {
     let format = parse_values_format(params.values_format.as_deref())?;
     match (&params.values, &params.values_path) {
         (Some(_), Some(_)) => anyhow::bail!("Provide either values or values_path, not both"),
@@ -502,6 +512,7 @@ fn sheets_values(params: &DriveSheetsWriteParams) -> Result<Vec<Vec<String>>> {
                 "values_path must be a file; stdin is unsupported"
             );
             let content = super::content_input::require_bounded_content_input(
+                policy,
                 None,
                 Some(path),
                 "values",
@@ -514,6 +525,7 @@ fn sheets_values(params: &DriveSheetsWriteParams) -> Result<Vec<Vec<String>>> {
 }
 
 async fn run_sheets_write(
+    policy: &PathPolicy,
     drive: &DriveClient,
     sheets: &SheetsClient,
     params: &DriveSheetsWriteParams,
@@ -521,7 +533,8 @@ async fn run_sheets_write(
 ) -> Result<CallToolResult> {
     let dry_run = params.dry_run.unwrap_or(false);
     let input = params.clone();
-    let values = tokio::task::spawn_blocking(move || sheets_values(&input))
+    let policy = policy.clone();
+    let values = tokio::task::spawn_blocking(move || sheets_values(&policy, &input))
         .await
         .context("Values input task failed")??;
     let opts = sheets_write::WriteOptions {
@@ -605,6 +618,10 @@ async fn run_lease_acquire(
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use super::*;
+
+    fn policy() -> PathPolicy {
+        PathPolicy::for_tests()
+    }
     use crate::drive::lease::authenticate::AuthOutcome;
     use crate::drive::test_support::{
         client_with_bootstrapped_token, seed_lease, EnvGuard, FakeAuthenticator,
@@ -777,7 +794,7 @@ mod tests {
                 } else if verb == "clear" {
                     run_sheets_clear(&drive, &sheets, &params(json!({"spreadsheet_id":"target", "range":"A1:B2", "dry_run":stage == 0,"lease":token,"account":"work"}))).await.unwrap()
                 } else {
-                    run_sheets_write(&drive, &sheets, &params(json!({"spreadsheet_id":"target","range":"A1:B2","values":[["a","b"]],"dry_run":stage == 0,"lease":token,"account":"work"})), if verb == "write" { sheets_write::WriteVerb::Write } else { sheets_write::WriteVerb::Append }).await.unwrap()
+                    run_sheets_write(&policy(), &drive, &sheets, &params(json!({"spreadsheet_id":"target","range":"A1:B2","values":[["a","b"]],"dry_run":stage == 0,"lease":token,"account":"work"})), if verb == "write" { sheets_write::WriteVerb::Write } else { sheets_write::WriteVerb::Append }).await.unwrap()
                 };
                 let yaml = decoded(&result);
                 let expected = match (stage, verb) {
@@ -922,7 +939,7 @@ mod tests {
                 let p: DriveSheetsWriteParams = params(
                     json!({"spreadsheet_id":"target","values_path":p,"values_format":format}),
                 );
-                assert_eq!(sheets_values(&p).unwrap(), vec![vec!["a", "b"]]);
+                assert_eq!(sheets_values(&policy(), &p).unwrap(), vec![vec!["a", "b"]]);
             }
         }
         for value in [
@@ -933,7 +950,7 @@ mod tests {
         ] {
             let mut value = value;
             value["spreadsheet_id"] = json!("target");
-            assert!(sheets_values(&params(value)).is_err());
+            assert!(sheets_values(&policy(), &params(value)).is_err());
         }
         for value in [
             json!({}),
@@ -942,14 +959,15 @@ mod tests {
         ] {
             let mut value = value;
             value["document_id"] = json!("target");
-            assert!(append_text(&params(value)).is_err());
+            assert!(append_text(&policy(), &params(value)).is_err());
         }
         let text_path = dir.path().join("text.txt");
         std::fs::write(&text_path, "hello").unwrap();
         assert_eq!(
-            append_text(&params(
-                json!({"document_id":"target","text_path":text_path})
-            ))
+            append_text(
+                &policy(),
+                &params(json!({"document_id":"target","text_path":text_path}))
+            )
             .unwrap(),
             "hello"
         );
@@ -1332,18 +1350,51 @@ mod tests {
             .unwrap()
             .set_len(crate::drive::files_api::MAX_UPLOAD_BYTES + 1)
             .unwrap();
-        assert!(
-            append_text(&params(json!({"document_id":"target","text_path":path})))
-                .unwrap_err()
-                .to_string()
-                .contains("cap")
-        );
-        assert!(sheets_values(&params(
-            json!({"spreadsheet_id":"target","values_path":path})
-        ))
+        assert!(append_text(
+            &policy(),
+            &params(json!({"document_id":"target","text_path":path}))
+        )
         .unwrap_err()
         .to_string()
         .contains("cap"));
+        assert!(sheets_values(
+            &policy(),
+            &params(json!({"spreadsheet_id":"target","values_path":path}))
+        )
+        .unwrap_err()
+        .to_string()
+        .contains("cap"));
+    }
+
+    #[test]
+    fn path_sources_outside_the_policy_are_refused_before_they_are_read() {
+        let allowed = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        let secret = outside.path().join("id_rsa");
+        std::fs::write(&secret, "private key").unwrap();
+        let strict = PathPolicy::allowing_only(allowed.path());
+
+        let err = append_text(
+            &strict,
+            &params(json!({"document_id":"target","text_path":secret})),
+        )
+        .unwrap_err();
+        assert!(err.to_string().contains("outside the allowed"), "{err}");
+        let err = sheets_values(
+            &strict,
+            &params(json!({"spreadsheet_id":"target","values_path":secret})),
+        )
+        .unwrap_err();
+        assert!(err.to_string().contains("outside the allowed"), "{err}");
+    }
+
+    #[test]
+    fn no_path_policy_can_be_supplied_by_a_tool_caller() {
+        // The write tools reject unknown fields, so a caller cannot widen the allowed set.
+        let doc = json!({"document_id":"target","text":"x","allowed_paths":["/"]});
+        assert!(serde_json::from_value::<DriveDocsAppendParams>(doc).is_err());
+        let sheet = json!({"spreadsheet_id":"target","values":[["a"]],"allowed_paths":["/"]});
+        assert!(serde_json::from_value::<DriveSheetsWriteParams>(sheet).is_err());
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]

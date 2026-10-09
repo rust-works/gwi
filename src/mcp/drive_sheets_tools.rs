@@ -30,6 +30,7 @@ use crate::mcp::drive_tools::account_param_doc;
 
 use super::error::tool_error;
 use super::output_file;
+use super::path_policy::PathPolicy;
 use super::server::GwiServer;
 use super::truncate::build_truncated_result;
 
@@ -69,6 +70,8 @@ pub struct DriveSheetsReadParams {
     /// When set, writes the result (YAML) to this path and returns a short
     /// summary instead of the inline body — recommended for a whole-workbook
     /// read that would exceed the response size limit.
+    /// Must be inside the operator's allowed directories (`mcp.allowed_paths`) and outside
+    /// credential locations.
     #[serde(default)]
     pub output_file: Option<String>,
     #[doc = account_param_doc!()]
@@ -128,7 +131,8 @@ impl GwiServer {
         // patchcov: coverage ignore reason="handler glue after create_client_for: the OAuth token endpoint is not overridable, so no in-process test can get a client to this line; the run_* function it calls is covered against wiremock"
         let sheets = SheetsClient::from_drive_client(&client).map_err(tool_error)?;
         let wrote_to_file = params.output_file.is_some();
-        let text = run_sheets_read(&sheets, &params)
+        let policy = PathPolicy::load();
+        let text = run_sheets_read(&policy, &sheets, &params)
             .await
             .map_err(tool_error)?;
         if wrote_to_file {
@@ -154,7 +158,12 @@ async fn run_sheets_info(client: &SheetsClient, params: &DriveSheetsInfoParams) 
     yaml_result(&spreadsheet)
 }
 
-async fn run_sheets_read(client: &SheetsClient, params: &DriveSheetsReadParams) -> Result<String> {
+async fn run_sheets_read(
+    policy: &PathPolicy,
+    client: &SheetsClient,
+    params: &DriveSheetsReadParams,
+) -> Result<String> {
+    output_file::check_output_file(policy, params.output_file.as_deref())?;
     let render = parse_render_option(params.render.as_deref())?;
     let opts = ReadOptions {
         spreadsheet_id: params.spreadsheet_id.clone(),
@@ -165,7 +174,7 @@ async fn run_sheets_read(client: &SheetsClient, params: &DriveSheetsReadParams) 
     let outcome = read(&SheetsApi::new(client), &opts).await?;
     let yaml = yaml_result(&outcome)?;
     match params.output_file.as_deref() {
-        Some(path) => output_file::write_to_file_yaml(path, &yaml, "yaml"),
+        Some(path) => output_file::write_to_file_yaml(policy, path, &yaml, "yaml"),
         None => Ok(yaml),
     }
 }
@@ -194,6 +203,10 @@ mod tests {
     use rmcp::handler::server::wrapper::Parameters;
 
     use super::*;
+
+    fn policy() -> PathPolicy {
+        PathPolicy::for_tests()
+    }
     use crate::drive::auth::{DriveCredentials, DriveGrantedScopes};
     use crate::drive::client::DriveClient;
     use crate::drive::sheets::client::SHEETS_API_URL;
@@ -346,7 +359,7 @@ mod tests {
             .mount(&server)
             .await;
 
-        let yaml = run_sheets_read(&client, &read_params(Some("A1:B2"), None))
+        let yaml = run_sheets_read(&policy(), &client, &read_params(Some("A1:B2"), None))
             .await
             .unwrap();
         assert!(yaml.contains('a'), "{yaml}");
@@ -379,7 +392,7 @@ mod tests {
             .mount(&server)
             .await;
 
-        let yaml = run_sheets_read(&client, &read_params(None, None))
+        let yaml = run_sheets_read(&policy(), &client, &read_params(None, None))
             .await
             .unwrap();
         assert!(yaml.contains("spreadsheet_title: Book"), "{yaml}");
@@ -394,7 +407,9 @@ mod tests {
         // client-side, before any request is issued.
         let mut params = read_params(Some("A1"), None);
         params.render = Some("bogus".to_string());
-        let err = run_sheets_read(&client, &params).await.unwrap_err();
+        let err = run_sheets_read(&policy(), &client, &params)
+            .await
+            .unwrap_err();
         assert!(err.to_string().contains("unknown render"), "{err}");
     }
 
@@ -418,7 +433,7 @@ mod tests {
         let mut params = read_params(Some("A1"), None);
         params.output_file = Some(path.to_str().unwrap().to_string());
 
-        let summary = run_sheets_read(&client, &params).await.unwrap();
+        let summary = run_sheets_read(&policy(), &client, &params).await.unwrap();
         assert!(!summary.contains("only-in-file"), "{summary}");
         assert!(summary.contains("format: yaml"), "{summary}");
         let written = std::fs::read_to_string(&path).unwrap();

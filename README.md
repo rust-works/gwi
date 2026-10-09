@@ -107,6 +107,36 @@ Two optional defaults come from the `mcp` block of `~/.gwi/settings.json`: `log_
 tracing directive; `RUST_LOG` wins) and `max_response_bytes` (the cap before a response is
 truncated, default 100 KB, `0` for no limit). `gwi import` copies both from omni-dev.
 
+### Local paths the tools may use
+
+Two kinds of tool parameter name a local path: the `text_path` and `values_path` sources of
+the Drive write tools (read, then written into a Doc or Sheet) and `output_file` on the read
+tools (written to disk). Both are chosen by the assistant, so `gwi-mcp` checks them before
+touching the file, after following symlinks and collapsing `..`:
+
+- A path must be inside an allowed directory. By default that is the server's working
+  directory and the system temp directory; a working directory that is `/`, the home
+  directory or above it is not allowed by default. The `mcp.allowed_paths` list in
+  `settings.json` (absolute or `~/` entries) replaces that default, and `[]` allows nothing:
+
+  ```json
+  { "mcp": { "allowed_paths": ["~/work/exports", "/tmp"] } }
+  ```
+
+- Credential locations are refused whatever the list says: gwi's and omni-dev's own
+  configuration (`~/.gwi`, `~/.omni-dev`, `~/.config/gwi`, a `.gwi/` under the working
+  directory) and state directory (the lease ledger and `audit.jsonl`); credential stores
+  (`~/.ssh`, `~/.gnupg`, `~/.aws`, `~/.kube`, `~/.docker`, `~/.netrc`, `~/.git-credentials`,
+  `~/.npmrc`, `~/.pypirc`, `~/.config/gcloud`, `~/.config/gh`, `~/Library/Keychains`); shell
+  startup files and `~/.gitconfig`; and shell history.
+- A refused path fails the call with an error that names the setting, before any API
+  request is made. If `settings.json` cannot be parsed, or an `allowed_paths` entry is not
+  absolute, every path is refused and the error says why. No tool parameter can change the
+  policy, and the `gwi` CLI is not restricted.
+
+omni-dev's tools accept any readable or writable path; see
+[ADR-0002](docs/adrs/adr-0002.md) for why gwi does not.
+
 ## Planned scope
 
 - `gwi gmail`: search, read, threads, drafts, labels, attachments, sync and insert *(available from source)*

@@ -50,7 +50,8 @@ use crate::gmail::threads_api::{ThreadFormat, ThreadsApi};
 use crate::utils::settings::Settings;
 
 use super::error::tool_error;
-use super::output_file::write_to_file_yaml;
+use super::output_file::{check_output_file, write_to_file_yaml};
+use super::path_policy::PathPolicy;
 use super::server::GwiServer;
 use super::truncate::build_truncated_result;
 
@@ -115,6 +116,8 @@ pub struct GmailMessageReadParams {
     /// short YAML summary (path/bytes/format) instead of the inline body —
     /// use for large messages/attachments that would blow past the context
     /// window.
+    /// Must be inside the operator's allowed directories (`mcp.allowed_paths`) and outside
+    /// credential locations.
     #[serde(default)]
     pub output_file: Option<String>,
     #[doc = account_param_doc!()]
@@ -175,6 +178,8 @@ pub struct GmailDraftShowParams {
     /// a short YAML summary (path/bytes/format) instead of the inline body.
     /// Even with `format: raw` the file is the YAML envelope, not a decoded
     /// `.eml`.
+    /// Must be inside the operator's allowed directories (`mcp.allowed_paths`) and outside
+    /// credential locations.
     #[serde(default)]
     pub output_file: Option<String>,
     #[doc = account_param_doc!()]
@@ -251,9 +256,12 @@ impl GwiServer {
     ) -> Result<CallToolResult, McpError> {
         let client = create_client_for(params.account.as_deref()).map_err(tool_error)?;
         let wrote_to_file = params.output_file.is_some();
-        let text = run_message_read(&client, &params)
+        // patchcov: coverage ignore reason="handler glue after create_client_for: the OAuth token endpoint is not overridable, so no in-process test can get a client to this line; the run_* function it calls is covered against wiremock"
+        let policy = PathPolicy::load();
+        let text = run_message_read(&policy, &client, &params)
             .await
             .map_err(tool_error)?;
+        // patchcov: coverage end
         if wrote_to_file {
             Ok(CallToolResult::success(vec![Content::text(text)]))
         } else {
@@ -358,7 +366,12 @@ impl GwiServer {
     ) -> Result<CallToolResult, McpError> {
         let client = create_client_for(params.account.as_deref()).map_err(tool_error)?;
         let wrote_to_file = params.output_file.is_some();
-        let text = run_draft_show(&client, &params).await.map_err(tool_error)?;
+        // patchcov: coverage ignore reason="handler glue after create_client_for: the OAuth token endpoint is not overridable, so no in-process test can get a client to this line; the run_* function it calls is covered against wiremock"
+        let policy = PathPolicy::load();
+        let text = run_draft_show(&policy, &client, &params)
+            .await
+            .map_err(tool_error)?;
+        // patchcov: coverage end
         if wrote_to_file {
             Ok(CallToolResult::success(vec![Content::text(text)]))
         } else {
@@ -409,14 +422,19 @@ async fn run_search(client: &GmailClient, params: &GmailSearchParams) -> Result<
     }
 }
 
-async fn run_message_read(client: &GmailClient, params: &GmailMessageReadParams) -> Result<String> {
+async fn run_message_read(
+    policy: &PathPolicy,
+    client: &GmailClient,
+    params: &GmailMessageReadParams,
+) -> Result<String> {
+    check_output_file(policy, params.output_file.as_deref())?;
     let format = parse_message_format(params.format.as_deref())?;
     let message = MessagesApi::new(client)
         .get(&params.message_id, format, &[])
         .await?;
     let yaml = yaml_result(&message)?;
     match params.output_file.as_deref() {
-        Some(path) => write_to_file_yaml(path, &yaml, message_format_label(format)),
+        Some(path) => write_to_file_yaml(policy, path, &yaml, message_format_label(format)),
         None => Ok(yaml),
     }
 }
@@ -446,12 +464,17 @@ async fn run_draft_list(client: &GmailClient, params: &GmailDraftListParams) -> 
     yaml_result(&summaries)
 }
 
-async fn run_draft_show(client: &GmailClient, params: &GmailDraftShowParams) -> Result<String> {
+async fn run_draft_show(
+    policy: &PathPolicy,
+    client: &GmailClient,
+    params: &GmailDraftShowParams,
+) -> Result<String> {
+    check_output_file(policy, params.output_file.as_deref())?;
     let format = parse_message_format(params.format.as_deref())?;
     let draft = DraftsApi::new(client).get(&params.draft_id, format).await?;
     let yaml = yaml_result(&draft)?;
     match params.output_file.as_deref() {
-        Some(path) => write_to_file_yaml(path, &yaml, message_format_label(format)),
+        Some(path) => write_to_file_yaml(policy, path, &yaml, message_format_label(format)),
         None => Ok(yaml),
     }
 }
@@ -493,6 +516,10 @@ mod tests {
     use rmcp::handler::server::wrapper::Parameters;
 
     use super::*;
+
+    fn policy() -> PathPolicy {
+        PathPolicy::for_tests()
+    }
     use crate::gmail::auth::{GmailCredentials, GmailScope};
     use crate::gmail::test_support::EnvGuard;
     use crate::utils::secret::Secret;
@@ -785,6 +812,7 @@ mod tests {
             .await;
 
         let yaml = run_message_read(
+            &policy(),
             &client,
             &GmailMessageReadParams {
                 message_id: "m1".to_string(),
@@ -813,6 +841,7 @@ mod tests {
         let temp_dir = tempfile::tempdir().unwrap();
         let path = temp_dir.path().join("message.yaml");
         let summary_yaml = run_message_read(
+            &policy(),
             &client,
             &GmailMessageReadParams {
                 message_id: "m1".to_string(),
@@ -830,11 +859,44 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn run_message_read_refuses_an_output_file_outside_the_policy() {
+        let server = wiremock::MockServer::start().await;
+        let client = client_with_bootstrapped_token(&server).await;
+        wiremock::Mock::given(wiremock::matchers::method("GET"))
+            .and(wiremock::matchers::path("/gmail/v1/users/me/messages/m1"))
+            .respond_with(
+                wiremock::ResponseTemplate::new(200).set_body_json(serde_json::json!({"id": "m1"})),
+            )
+            .mount(&server)
+            .await;
+
+        let allowed = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        let path = outside.path().join("message.yaml");
+        let err = run_message_read(
+            &PathPolicy::allowing_only(allowed.path()),
+            &client,
+            &GmailMessageReadParams {
+                message_id: "m1".to_string(),
+                format: None,
+                output_file: Some(path.to_str().unwrap().to_string()),
+                account: None,
+            },
+        )
+        .await
+        .unwrap_err();
+
+        assert!(err.to_string().contains("outside the allowed"), "{err}");
+        assert!(!path.exists());
+    }
+
+    #[tokio::test]
     async fn run_message_read_rejects_invalid_format() {
         let server = wiremock::MockServer::start().await;
         let client = client_with_bootstrapped_token(&server).await;
 
         let err = run_message_read(
+            &policy(),
             &client,
             &GmailMessageReadParams {
                 message_id: "m1".to_string(),
@@ -1022,9 +1084,13 @@ mod tests {
                 .mount(&server)
                 .await;
 
-            let yaml = run_draft_show(&client, &draft_show_params("r1", Some(format), None))
-                .await
-                .unwrap();
+            let yaml = run_draft_show(
+                &policy(),
+                &client,
+                &draft_show_params("r1", Some(format), None),
+            )
+            .await
+            .unwrap();
             assert!(yaml.contains("id: r1"), "{format}: {yaml}");
             assert!(yaml.contains("message:"), "{format}: {yaml}");
             assert!(yaml.contains("id: m1"), "{format}: {yaml}");
@@ -1046,7 +1112,7 @@ mod tests {
             .mount(&server)
             .await;
 
-        let yaml = run_draft_show(&client, &draft_show_params("r1", None, None))
+        let yaml = run_draft_show(&policy(), &client, &draft_show_params("r1", None, None))
             .await
             .unwrap();
         assert!(yaml.contains("id: r1"), "{yaml}");
@@ -1068,6 +1134,7 @@ mod tests {
         let temp_dir = tempfile::tempdir().unwrap();
         let path = temp_dir.path().join("draft.yaml");
         let summary_yaml = run_draft_show(
+            &policy(),
             &client,
             &draft_show_params("r1", Some("raw"), Some(path.to_str().unwrap().to_string())),
         )
@@ -1085,9 +1152,13 @@ mod tests {
         let server = wiremock::MockServer::start().await;
         let client = client_with_bootstrapped_token(&server).await;
 
-        let err = run_draft_show(&client, &draft_show_params("r1", Some("bogus"), None))
-            .await
-            .unwrap_err();
+        let err = run_draft_show(
+            &policy(),
+            &client,
+            &draft_show_params("r1", Some("bogus"), None),
+        )
+        .await
+        .unwrap_err();
         assert!(err.to_string().contains("format"), "{err:#}");
     }
 
@@ -1101,7 +1172,7 @@ mod tests {
             .mount(&server)
             .await;
 
-        let err = run_draft_show(&client, &draft_show_params("nope", None, None))
+        let err = run_draft_show(&policy(), &client, &draft_show_params("nope", None, None))
             .await
             .unwrap_err();
         let message = format!("{err:#}");
