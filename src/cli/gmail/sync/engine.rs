@@ -1369,8 +1369,32 @@ mod tests {
 
     #[tokio::test]
     async fn sync_test_client_outlives_hostile_ambient_read_timeout() {
-        let _guard = crate::gmail::test_support::EnvGuard::take();
-        let _timeout = crate::utils::env::ScopedEnvVar::set("GWI_HTTP_READ_TIMEOUT_SECS", "1");
+        // Scope the hostile export to a child: ordinary client tests do not
+        // take EnvGuard when resolving HTTP timeouts, so an in-process export
+        // would introduce the very race this sweep is intended to remove.
+        const CHILD: &str = "GWI_TEST_SYNC_TIMEOUT_CHILD";
+        if std::env::var(CHILD).as_deref() != Ok("1") {
+            let full_name = concat!(
+                module_path!(),
+                "::sync_test_client_outlives_hostile_ambient_read_timeout"
+            );
+            let test_name = full_name.split_once("::").unwrap().1;
+            let output = std::process::Command::new(std::env::current_exe().unwrap())
+                .arg("--exact")
+                .arg(test_name)
+                .env(CHILD, "1")
+                .env("GWI_HTTP_READ_TIMEOUT_SECS", "1")
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success()
+                    && String::from_utf8_lossy(&output.stdout).contains(test_name),
+                "{}\n{}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+            return;
+        }
         let server = wiremock::MockServer::start().await;
         let client = client_with_bootstrapped_token(&server).await;
         wiremock::Mock::given(wiremock::matchers::method("GET"))
