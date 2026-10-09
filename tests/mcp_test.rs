@@ -1,8 +1,8 @@
 //! Integration tests for the MCP server.
 //!
-//! Most tests run `GwiServer` on one end of an in-memory duplex transport with a
-//! generic rmcp client on the other, and exercise the protocol end to end. One test
-//! spawns the real `gwi-mcp` binary and talks to it over stdio, which is how an
+//! Some tests run `GwiServer` on one end of an in-memory duplex transport with a
+//! generic rmcp client on the other, and exercise the protocol end to end. Other tests
+//! spawn the real `gwi-mcp` binary and talk to it over stdio, which is how an
 //! assistant actually uses it.
 //!
 //! None of them reaches the network or a browser. The spawned binary runs with a
@@ -250,7 +250,10 @@ async fn list_tools_includes_gmail_draft_tools() -> Result<()> {
 
 #[tokio::test]
 async fn an_unknown_tool_is_a_protocol_error_not_a_panic() -> Result<()> {
-    let (client, server_handle) = spawn_server().await;
+    // Unknown tools are request-logged. Give the real server its own fixture
+    // HOME so this integration test cannot append to the host request log.
+    let home = tempfile::tempdir()?;
+    let (client, _child) = spawn_binary(home.path()).await?;
 
     let result = client
         .call_tool(CallToolRequestParams::new("gmail_send"))
@@ -258,7 +261,6 @@ async fn an_unknown_tool_is_a_protocol_error_not_a_panic() -> Result<()> {
 
     assert!(result.is_err(), "send is deliberately not a tool");
     client.cancel().await?;
-    let _ = server_handle.await;
     Ok(())
 }
 
@@ -266,7 +268,10 @@ async fn an_unknown_tool_is_a_protocol_error_not_a_panic() -> Result<()> {
 /// (omni-dev's `drive_write_tools_round_trip_and_reject_policy_parameters`).
 #[tokio::test]
 async fn drive_write_tools_round_trip_and_reject_policy_parameters() -> Result<()> {
-    let (client, server_handle) = spawn_server().await;
+    // Policy rejections write an audit record. Confine it to this fixture's HOME
+    // through the real server process, rather than the integration binary's HOME.
+    let home = tempfile::tempdir()?;
+    let (client, _child) = spawn_binary(home.path()).await?;
     let tools = client.list_tools(Option::default()).await?;
     for (name, arguments) in [
         (
@@ -332,7 +337,6 @@ async fn drive_write_tools_round_trip_and_reject_policy_parameters() -> Result<(
         );
     }
     client.cancel().await?;
-    let _ = server_handle.await;
     Ok(())
 }
 

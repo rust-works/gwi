@@ -79,6 +79,35 @@ This is a textual check for rustfmt-shaped functions, not a Rust parser. Compute
 and whether the guard executes before the permission change still need review. Run
 `python3 scripts/test_check_permission_tests.py -v` to verify the scanner itself.
 
+## Checking that tests leave HOME empty
+
+Run the same empty-HOME guard as CI's Linux `Empty HOME Test` job:
+
+```bash
+python3 scripts/home-write-test.py
+```
+
+The script supports Linux and macOS and needs Python 3 and Cargo. It builds the lib, bin
+unit tests and integration tests with the normal environment, then runs the executables
+reported by Cargo directly, each with a fresh temporary `HOME`. It covers both default and
+`mcp` features. Cargo itself keeps the real `HOME`/`CARGO_HOME` so rustup and dependency
+fetching still work. `INSTA_WORKSPACE_ROOT` points at this checkout so snapshot tests do
+not invoke Cargo through rustup from the empty HOME. The test processes have inherited `XDG_CONFIG_HOME`, `XDG_DATA_HOME`,
+`XDG_STATE_HOME` and `XDG_CACHE_HOME` removed so default Unix paths resolve under that HOME.
+
+A failed test or any entry left under HOME (including hidden files, empty directories and
+symlinks) fails the command; the script reports the binary and leftover top-level entries
+and cleans up afterward. It does not detect transient writes that tests remove, writes to
+unrelated absolute paths, or writes under a HOME that a test explicitly substitutes for its
+own fixture. Doctests are excluded: Cargo's no-run JSON artifacts do not expose their
+executables. Application path resolution is unchanged.
+
+The guard's own regression tests include deliberately writing fake test binaries:
+
+```bash
+python3 scripts/test_home_write_test.py -v
+```
+
 ## Tests on Windows
 
 The `Windows Build` job builds the release binary and compiles the lib, bin and integration
