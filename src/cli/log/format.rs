@@ -31,7 +31,6 @@ fn source_str(source: Option<Source>) -> &'static str {
     match source {
         Some(Source::Cli) => "cli",
         Some(Source::Mcp) => "mcp",
-        Some(Source::Daemon) => "daemon",
         Some(Source::Unknown) | None => "-",
     }
 }
@@ -50,14 +49,11 @@ fn oneline(rec: &LogRecord) -> String {
                 .elapsed_ms
                 .map_or_else(String::new, |ms| format!("{ms}ms"));
             let url = rec.url.as_deref().unwrap_or("");
-            let daemon = if rec.via_daemon { " [daemon]" } else { "" };
             let err = rec
                 .error
                 .as_deref()
                 .map_or_else(String::new, |e| format!("  error={e}"));
-            format!(
-                "{time}  http  {service:<14} {method:<6} {status:<4} {elapsed:>7}  {url}{daemon}{err}"
-            )
+            format!("{time}  http  {service:<14} {method:<6} {status:<4} {elapsed:>7}  {url}{err}")
         }
         RecordKind::DriveMutation => {
             let source = source_str(rec.source);
@@ -278,17 +274,20 @@ mod tests {
     }
 
     #[test]
-    fn oneline_http_flags_daemon_and_handles_unknown_kind() {
-        let rec = LogRecord {
-            kind: RecordKind::Http,
-            timestamp: "2026-06-22T12:00:00.000Z".to_string(),
-            service: Some("drive".to_string()),
-            method: Some("POST".to_string()),
-            status_code: Some(200),
-            via_daemon: true,
-            ..LogRecord::default()
-        };
-        assert!(render(&rec, "", Format::Oneline).contains("[daemon]"));
+    fn legacy_daemon_http_renders_without_badge() {
+        let raw = r#"{"kind":"http","timestamp":"2026-06-22T12:00:00.000Z",
+            "service":"drive","method":"POST","status_code":200,
+            "source":"daemon","via_daemon":true,"daemon_session_id":"legacy"}"#;
+        let rec: LogRecord = serde_json::from_str(raw).unwrap();
+        let line = render(&rec, raw, Format::Oneline);
+        assert!(line.contains("POST"));
+        assert!(line.contains("200"));
+        assert!(!line.contains("[daemon]"));
+        assert_eq!(render(&rec, raw, Format::Json), raw);
+        let full = render(&rec, raw, Format::Full);
+        assert!(full.contains("\"source\": \"unknown\""));
+        assert!(!full.contains("via_daemon"));
+        assert!(!full.contains("daemon_session_id"));
 
         // An unknown (future) kind falls through the invocation arm without panic.
         let unknown = LogRecord {
@@ -319,15 +318,15 @@ mod tests {
     }
 
     #[test]
-    fn oneline_renders_daemon_and_absent_source() {
-        let daemon = LogRecord {
+    fn oneline_renders_unknown_and_absent_source() {
+        let unknown = LogRecord {
             kind: RecordKind::Invocation,
             timestamp: "2026-06-22T12:00:00.000Z".to_string(),
-            source: Some(Source::Daemon),
-            command: vec!["daemon".to_string(), "run".to_string()],
+            source: Some(Source::Unknown),
+            command: vec!["gmail".to_string(), "search".to_string()],
             ..LogRecord::default()
         };
-        assert!(render(&daemon, "", Format::Oneline).contains("daemon"));
+        assert!(render(&unknown, "", Format::Oneline).contains(" - "));
 
         // A record with no source renders the "-" placeholder.
         let none = LogRecord {

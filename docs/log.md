@@ -310,7 +310,7 @@ reveals a replacement.
 
 - **Structured terms** are `field:value`. The built-in fields, with their aliases, are
   `kind`, `source`, `service`, `method`, `status`, `command` (`cmd`), `url`, `id`,
-  `invocation_id` (`inv`), `mcp_tool` (`tool`), `via_daemon`, `error` (`err`), `exit_code`
+  `invocation_id` (`inv`), `mcp_tool` (`tool`), `error` (`err`), `exit_code`
   (`exit`), `duration_ms` (`duration`, `dur`), `elapsed_ms` (`elapsed`), `hostname` (`host`),
   `system_user` (`user`), `cwd` and `auth_principal` (`principal`). A flag and its field are
   the same matcher, so `--status 5xx` and `status:5xx` behave identically.
@@ -330,7 +330,6 @@ reveals a replacement.
   case-insensitive substring. `service`, `method`, `kind`, `source` and `mcp_tool` match
   exactly, ignoring case. `command` is a prefix of the whole path, on whole segments, so
   a Drive record is `command:"drive sheets-write"` and not `command:sheets-write`.
-  `via_daemon` is true only for `1`, `true` or `yes`.
 - **Context fields.** Any other field name falls back to the record's `context` map
   (case-insensitive substring), so `file_id:<id>`, `decided_by_folder_id:<id>`,
   `verdict:acquired` and `lease_id:<token>` all work. A fallback cannot tell a typo from a
@@ -504,5 +503,8 @@ is sorting by time.
 | `context` | http, drivemutation, audit | The free-form key/value map described above. |
 | `error` | all | The top-level error chain, the per-request error, or the failure of a mutation or audit event. |
 
-`via_daemon` and `daemon_session_id` are part of the schema and are readable with
-`--query via_daemon:true`, but gwi has no daemon, so they are never set.
+Legacy records with `via_daemon` or `daemon_session_id` still parse; those fields are
+ignored, and a `source` of `daemon` reads as `unknown`. `via_daemon` is no longer a
+built-in query field; like other unrecognized names, it queries the `context` map and
+warns when no scanned record has that key. Raw `-o json` output preserves the original
+line, including unknown fields; `-o full` shows the recognized schema only.
