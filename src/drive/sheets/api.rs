@@ -72,7 +72,8 @@ pub(in crate::drive) fn applied_reply_unreadable_line(
 /// **Not optional.** An unmasked `spreadsheets.get` embeds every cell of
 /// every sheet in the response, so on a large workbook the difference
 /// between sending this and not is an out-of-memory failure rather than a
-/// slower request. We only ever need the tab list.
+/// slower request. This mask requests workbook settings and sheet properties,
+/// without cell data or feature-specific lists.
 ///
 /// `properties.locale,timeZone,autoRecalc,iterativeCalculationSettings`
 /// (issue #1836's `update-workbook-properties`) ride along on the base mask
@@ -85,6 +86,10 @@ pub(in crate::drive) fn applied_reply_unreadable_line(
 /// `structure.rs`'s `structure()` has exactly one `get_spreadsheet` call
 /// site shared by all fifteen `StructureVerb`s, so branching it per verb
 /// would be new complexity for no real savings.
+///
+/// The specialized masks below select metadata for their own callers; they
+/// are not supersets of this mask. In particular, they request only the
+/// workbook title from `properties`, omitting these four workbook settings.
 pub const SPREADSHEET_FIELDS: &str = "spreadsheetId,\
     properties(title,locale,timeZone,autoRecalc,iterativeCalculationSettings),\
     sheets.properties(sheetId,title,index,hidden,rightToLeft,gridProperties(rowCount,columnCount,frozenRowCount,frozenColumnCount,hideGridlines))";
@@ -93,9 +98,12 @@ pub const SPREADSHEET_FIELDS: &str = "spreadsheetId,\
 ///
 /// Used by issue #1643's `list-protections`/`update-protection`/
 /// `unprotect-range`, which must resolve an *existing* protection before
-/// they can act on it. A superset of [`SPREADSHEET_FIELDS`], kept separate
-/// so every other caller — `sheets info`, `structure.rs`, `format.rs`,
-/// `validation.rs` — never pays for data it doesn't use.
+/// they can act on it. Includes the spreadsheet id/title and the same sheet
+/// properties as [`SPREADSHEET_FIELDS`], but intentionally omits workbook
+/// locale, time zone, auto-recalc and iterative calculation settings: these
+/// callers do not use them. Kept separate so other callers — `sheets info`,
+/// `structure.rs`, `format.rs`, `validation.rs` — do not fetch protections
+/// they do not use.
 pub const SPREADSHEET_FIELDS_WITH_PROTECTIONS: &str = "spreadsheetId,properties.title,\
     sheets.properties(sheetId,title,index,hidden,rightToLeft,gridProperties(rowCount,columnCount,frozenRowCount,frozenColumnCount,hideGridlines)),\
     sheets.protectedRanges(protectedRangeId,range,description,warningOnly,editors.users)";
@@ -104,9 +112,11 @@ pub const SPREADSHEET_FIELDS_WITH_PROTECTIONS: &str = "spreadsheetId,properties.
 ///
 /// Used by issue #1794's `set-basic-filter`/
 /// `list-filter-views`/`update-filter-view`/`delete-filter-view`, which must
-/// resolve an *existing* filter view before they can act on one. A
-/// superset of [`SPREADSHEET_FIELDS`], kept separate for the same reason
-/// [`SPREADSHEET_FIELDS_WITH_PROTECTIONS`] is.
+/// resolve an *existing* filter view before they can act on one. Includes
+/// the spreadsheet id/title and the same sheet properties as
+/// [`SPREADSHEET_FIELDS`], but intentionally omits the workbook settings
+/// those callers do not use (locale, time zone, auto-recalc and iterative
+/// calculation). Kept separate so other callers do not fetch filters.
 pub const SPREADSHEET_FIELDS_WITH_FILTER_VIEWS: &str = "spreadsheetId,properties.title,\
     sheets.properties(sheetId,title,index,hidden,rightToLeft,gridProperties(rowCount,columnCount,frozenRowCount,frozenColumnCount,hideGridlines)),\
     sheets.basicFilter(range,sortSpecs,criteria),\
@@ -119,8 +129,10 @@ pub const SPREADSHEET_FIELDS_WITH_FILTER_VIEWS: &str = "spreadsheetId,properties
 /// `list-conditional-formats`, all four of which share one fetch — see
 /// [`SheetsApi::get_spreadsheet_with_conditional_formats`]'s doc comment for
 /// why `add` uses the same wider mask as the other three despite not
-/// strictly needing it. A superset of [`SPREADSHEET_FIELDS`], kept separate
-/// for the same reason [`SPREADSHEET_FIELDS_WITH_PROTECTIONS`] is.
+/// strictly needing it. Includes the spreadsheet id/title and the same sheet
+/// properties as [`SPREADSHEET_FIELDS`], but intentionally omits the workbook
+/// settings those callers do not use (locale, time zone, auto-recalc and
+/// iterative calculation). Kept separate so other callers do not fetch rules.
 pub const SPREADSHEET_FIELDS_WITH_CONDITIONAL_FORMATS: &str = "spreadsheetId,properties.title,\
     sheets.properties(sheetId,title,index,hidden,rightToLeft,gridProperties(rowCount,columnCount,frozenRowCount,frozenColumnCount,hideGridlines)),\
     sheets.conditionalFormats(ranges,booleanRule,gradientRule)";
@@ -129,10 +141,11 @@ pub const SPREADSHEET_FIELDS_WITH_CONDITIONAL_FORMATS: &str = "spreadsheetId,pro
 ///
 /// Used by issue #1796's `list-named-ranges`/`update-named-range`/
 /// `delete-named-range`, which must resolve an *existing* named range by
-/// name before they can act on one. A superset of [`SPREADSHEET_FIELDS`],
-/// kept separate for the same reason as
-/// [`SPREADSHEET_FIELDS_WITH_PROTECTIONS`]: every other caller never pays
-/// for data it doesn't use. Named ranges are workbook-scoped, so
+/// name before they can act on one. Includes the spreadsheet id/title and
+/// the same sheet properties as [`SPREADSHEET_FIELDS`], but intentionally
+/// omits the workbook settings those callers do not use (locale, time zone,
+/// auto-recalc and iterative calculation). Kept separate so other callers
+/// do not fetch named ranges. Named ranges are workbook-scoped, so
 /// `namedRanges` sits at the top level, not nested under `sheets` the way
 /// `protectedRanges` is.
 pub const SPREADSHEET_FIELDS_WITH_NAMED_RANGES: &str = "spreadsheetId,properties.title,\
@@ -150,9 +163,11 @@ pub const SPREADSHEET_FIELDS_WITH_NAMED_RANGES: &str = "spreadsheetId,properties
 /// file narrows to the specific sub-fields each verb reads, but
 /// `update-chart` must merge onto the chart's *entire* existing spec (see
 /// [`crate::drive::sheets::types::UpdateChartSpecRequest`]'s doc comment),
-/// so nothing here can be safely left out. A superset of
-/// [`SPREADSHEET_FIELDS`], kept separate for the same reason
-/// [`SPREADSHEET_FIELDS_WITH_PROTECTIONS`] is.
+/// so no part of that spec can be safely left out. Includes the spreadsheet
+/// id/title and the same sheet properties as [`SPREADSHEET_FIELDS`], but
+/// intentionally omits the workbook settings those callers do not use
+/// (locale, time zone, auto-recalc and iterative calculation). Kept separate
+/// so other callers do not fetch charts and slicers.
 pub const SPREADSHEET_FIELDS_WITH_EMBEDDED_OBJECTS: &str = "spreadsheetId,properties.title,\
     sheets.properties(sheetId,title,index,hidden,rightToLeft,gridProperties(rowCount,columnCount,frozenRowCount,frozenColumnCount,hideGridlines)),\
     sheets.charts,sheets.slicers";
@@ -164,9 +179,11 @@ pub const SPREADSHEET_FIELDS_WITH_EMBEDDED_OBJECTS: &str = "spreadsheetId,proper
 /// no index or list endpoint for pivot tables the way there is for
 /// protected ranges or filter views. Requesting `pivotTable` alone (no
 /// `formattedValue`) keeps the response to one `{}` per populated cell that
-/// has no pivot, same order of cost as `sheets read`. A superset of
-/// [`SPREADSHEET_FIELDS`], kept separate for the same reason
-/// [`SPREADSHEET_FIELDS_WITH_PROTECTIONS`] is.
+/// has no pivot, same order of cost as `sheets read`. Includes the spreadsheet
+/// id/title and the same sheet properties as [`SPREADSHEET_FIELDS`], but
+/// intentionally omits the workbook settings that caller does not use
+/// (locale, time zone, auto-recalc and iterative calculation). Kept separate
+/// so other callers do not scan cell data for pivot tables.
 pub const SPREADSHEET_FIELDS_WITH_PIVOT_TABLES: &str = "spreadsheetId,properties.title,\
     sheets.properties(sheetId,title,index,hidden,rightToLeft,gridProperties(rowCount,columnCount,frozenRowCount,frozenColumnCount,hideGridlines)),\
     sheets.data(startRow,startColumn,rowData.values(pivotTable))";
@@ -179,6 +196,11 @@ pub const SPREADSHEET_FIELDS_WITH_PIVOT_TABLES: &str = "spreadsheetId,properties
 /// Paired with a `ranges=` query parameter scoping the response to that one
 /// cell (see [`SheetsApi::get_cell_pivot`]), so this mask alone would still
 /// return every sheet's grid data without it.
+///
+/// Includes the spreadsheet id/title and the same sheet properties as
+/// [`SPREADSHEET_FIELDS`], but intentionally omits the workbook settings
+/// these callers do not use (locale, time zone, auto-recalc and iterative
+/// calculation).
 pub const CELL_PIVOT_FIELDS: &str = "spreadsheetId,properties.title,\
     sheets.properties(sheetId,title,index,hidden,rightToLeft,gridProperties(rowCount,columnCount,frozenRowCount,frozenColumnCount,hideGridlines)),\
     sheets.data(startRow,startColumn,rowData.values(pivotTable,formattedValue))";
@@ -190,6 +212,11 @@ pub const CELL_PIVOT_FIELDS: &str = "spreadsheetId,properties.title,\
 /// `ranges=` query parameter scoping the response to the caller's range
 /// (see [`SheetsApi::get_cell_formats`]), so this mask alone would still
 /// return every sheet's grid data without it.
+///
+/// Includes the spreadsheet id/title and the same sheet properties as
+/// [`SPREADSHEET_FIELDS`], but intentionally omits the workbook settings
+/// this caller does not use (locale, time zone, auto-recalc and iterative
+/// calculation).
 ///
 /// Covers background color, text format (bold/italic/strikethrough/
 /// underline/color), number format, horizontal alignment, the four cell
@@ -214,9 +241,11 @@ pub const CELL_FORMAT_FIELDS: &str = "spreadsheetId,properties.title,\
 ///
 /// Used by issue #1832's `add-banding`/`update-banding`/`delete-banding`/
 /// `list-bandings`, which must resolve an *existing* banded range by id
-/// before three of the four can act on one. A superset of
-/// [`SPREADSHEET_FIELDS`], kept separate for the same reason
-/// [`SPREADSHEET_FIELDS_WITH_PROTECTIONS`] is.
+/// before three of the four can act on one. Includes the spreadsheet id/title
+/// and the same sheet properties as [`SPREADSHEET_FIELDS`], but intentionally
+/// omits the workbook settings those callers do not use (locale, time zone,
+/// auto-recalc and iterative calculation). Kept separate so other callers
+/// do not fetch banded ranges.
 pub const SPREADSHEET_FIELDS_WITH_BANDING: &str = "spreadsheetId,properties.title,\
     sheets.properties(sheetId,title,index,hidden,rightToLeft,gridProperties(rowCount,columnCount,frozenRowCount,frozenColumnCount,hideGridlines)),\
     sheets.bandedRanges(bandedRangeId,range,rowProperties,columnProperties)";
@@ -226,8 +255,12 @@ pub const SPREADSHEET_FIELDS_WITH_BANDING: &str = "spreadsheetId,properties.titl
 /// Used by issue #1833's `add-dimension-group`/`update-dimension-group`/
 /// `delete-dimension-group`/`list-dimension-groups`, which must resolve an
 /// *existing* group by its `(range, depth)` before three of the four can
-/// act on one. A superset of [`SPREADSHEET_FIELDS`], kept separate for
-/// the same reason [`SPREADSHEET_FIELDS_WITH_BANDING`] is.
+/// act on one. Includes the spreadsheet id/title, sheet id/title/index/hidden
+/// and grid row/column counts for span validation. Unlike [`SPREADSHEET_FIELDS`],
+/// intentionally omits `rightToLeft`, frozen row/column counts and
+/// `hideGridlines`, as well as workbook locale, time zone, auto-recalc and
+/// iterative calculation settings: these callers do not read them. Kept
+/// separate so other callers do not fetch dimension groups.
 pub const SPREADSHEET_FIELDS_WITH_DIMENSION_GROUPS: &str = "spreadsheetId,properties.title,\
     sheets.properties(sheetId,title,index,hidden,gridProperties(rowCount,columnCount)),\
     sheets.rowGroups(range,depth,collapsed),sheets.columnGroups(range,depth,collapsed)";
@@ -1042,7 +1075,7 @@ mod tests {
         assert!(fields.contains("sheets.properties"));
         assert!(fields.contains("title"));
         // issue #1835: frozen rows/columns/hidden-gridlines/rightToLeft ride
-        // the same `sheets.properties` sub-mask every constant shares.
+        // the base sheet-properties selection (dimension groups omit them).
         assert!(fields.contains("frozenRowCount"));
     }
 
@@ -1058,8 +1091,8 @@ mod tests {
         assert!(fields.contains("sheets.conditionalFormats"));
         assert!(fields.contains("booleanRule"));
         assert!(fields.contains("gradientRule"));
-        // issue #1835: every SPREADSHEET_FIELDS* constant carries the same
-        // sheets.properties sub-mask, so this one must too.
+        // issue #1835: this feature mask retains the base sheet-properties
+        // selection, including frozen row counts.
         assert!(fields.contains("frozenRowCount"));
     }
 
@@ -1106,8 +1139,8 @@ mod tests {
             .expect("fields mask must always be sent");
         assert!(fields.contains("sheets.charts"));
         assert!(fields.contains("sheets.slicers"));
-        // issue #1835: every SPREADSHEET_FIELDS* constant carries the same
-        // sheets.properties sub-mask, so this one must too.
+        // issue #1835: this feature mask retains the base sheet-properties
+        // selection, including frozen row counts.
         assert!(fields.contains("frozenRowCount"));
     }
 
@@ -1123,8 +1156,8 @@ mod tests {
         assert!(fields.contains("sheets.data"));
         assert!(fields.contains("pivotTable"));
         assert!(!fields.contains("formattedValue"));
-        // issue #1835: every SPREADSHEET_FIELDS* constant carries the same
-        // sheets.properties sub-mask, so this one must too.
+        // issue #1835: this feature mask retains the base sheet-properties
+        // selection, including frozen row counts.
         assert!(fields.contains("frozenRowCount"));
     }
 
@@ -1190,8 +1223,8 @@ mod tests {
             .expect("fields mask must always be sent");
         assert!(fields.contains("pivotTable"));
         assert!(fields.contains("formattedValue"));
-        // issue #1835: CELL_PIVOT_FIELDS carries the same sheets.properties
-        // sub-mask every other SPREADSHEET_FIELDS* constant does.
+        // issue #1835: CELL_PIVOT_FIELDS retains the base sheet-properties
+        // selection, including frozen row counts.
         assert!(fields.contains("frozenRowCount"));
     }
 
