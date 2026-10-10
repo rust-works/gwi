@@ -7,7 +7,8 @@
 //!
 //! None of them reaches the network or a browser. The spawned binary runs with a
 //! cleared environment and an empty `HOME`, and only calls tools that fail or
-//! answer before any API request is made.
+//! answer before any API request is made. Instrumented runs preserve only LLVM's
+//! explicit profile destination from the parent environment.
 
 #![cfg(feature = "mcp")]
 #![allow(clippy::unwrap_used, clippy::expect_used)]
@@ -15,6 +16,8 @@
 #[cfg(unix)]
 use std::{process::Stdio, time::Duration};
 
+#[cfg(unix)]
+use anyhow::Context;
 use anyhow::Result;
 use rmcp::{
     model::{CallToolRequestParams, CallToolResult, ContentBlock},
@@ -255,14 +258,15 @@ async fn an_unknown_tool_is_a_protocol_error_not_a_panic() -> Result<()> {
     // Unknown tools are request-logged. Give the real server its own fixture
     // HOME so this integration test cannot append to the host request log.
     let home = tempfile::tempdir()?;
-    let (client, _child) = spawn_binary(home.path()).await?;
+    let (client, child) = spawn_binary(home.path()).await?;
 
     let result = client
         .call_tool(CallToolRequestParams::new("gmail_send"))
         .await;
 
-    assert!(result.is_err(), "send is deliberately not a tool");
-    client.cancel().await?;
+    let error = result.expect_err("send is deliberately not a tool");
+    assert!(error.to_string().contains("tool not found"), "{error}");
+    shutdown_binary(client, child).await?;
     Ok(())
 }
 
@@ -275,7 +279,7 @@ async fn drive_write_tools_round_trip_and_reject_policy_parameters() -> Result<(
     // Policy rejections write an audit record. Confine it to this fixture's HOME
     // through the real server process, rather than the integration binary's HOME.
     let home = tempfile::tempdir()?;
-    let (client, _child) = spawn_binary(home.path()).await?;
+    let (client, child) = spawn_binary(home.path()).await?;
     let tools = client.list_tools(Option::default()).await?;
     for (name, arguments) in [
         (
@@ -340,7 +344,7 @@ async fn drive_write_tools_round_trip_and_reject_policy_parameters() -> Result<(
             "{name}: {message}"
         );
     }
-    client.cancel().await?;
+    shutdown_binary(client, child).await?;
     Ok(())
 }
 
@@ -349,7 +353,18 @@ async fn drive_write_tools_round_trip_and_reject_policy_parameters() -> Result<(
 // isolate its settings from the user's real profile there.
 #[cfg(unix)]
 async fn spawn_binary(home: &std::path::Path) -> Result<(Client, tokio::process::Child)> {
-    let mut child = tokio::process::Command::new(env!("CARGO_BIN_EXE_gwi-mcp"))
+    let profile = std::env::var_os("LLVM_PROFILE_FILE");
+    spawn_binary_with_profile(home, profile.as_deref()).await
+}
+
+// Keep coverage output explicit without inheriting credentials or API endpoints.
+#[cfg(unix)]
+async fn spawn_binary_with_profile(
+    home: &std::path::Path,
+    profile: Option<&std::ffi::OsStr>,
+) -> Result<(Client, tokio::process::Child)> {
+    let mut command = tokio::process::Command::new(env!("CARGO_BIN_EXE_gwi-mcp"));
+    command
         .env_clear()
         .env("PATH", "/usr/bin:/bin")
         .env("HOME", home)
@@ -358,8 +373,12 @@ async fn spawn_binary(home: &std::path::Path) -> Result<(Client, tokio::process:
         .kill_on_drop(true)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()?;
+        .stderr(Stdio::null());
+    if let Some(profile) = profile {
+        // LLVM's process/module placeholders keep concurrent children distinct.
+        command.env("LLVM_PROFILE_FILE", profile);
+    }
+    let mut child = command.spawn()?;
     let stdin = child.stdin.take().expect("stdin");
     let stdout = child.stdout.take().expect("stdout");
     let client =
@@ -375,7 +394,7 @@ async fn spawn_binary(home: &std::path::Path) -> Result<(Client, tokio::process:
 #[tokio::test]
 async fn the_binary_serves_the_tools_over_stdio() -> Result<()> {
     let home = tempfile::tempdir()?;
-    let (client, _child) = spawn_binary(home.path()).await?;
+    let (client, child) = spawn_binary(home.path()).await?;
     let call = |name: &'static str, args: serde_json::Value| {
         let client = &client;
         async move {
@@ -444,6 +463,40 @@ async fn the_binary_serves_the_tools_over_stdio() -> Result<()> {
         assert!(failed, "{name} should fail with a credentials error");
     }
 
-    client.cancel().await?;
+    shutdown_binary(client, child).await?;
+    Ok(())
+}
+
+/// Close stdin and wait for a normal exit so LLVM can flush the child's profile.
+#[cfg(unix)]
+async fn shutdown_binary(client: Client, mut child: tokio::process::Child) -> Result<()> {
+    let status = tokio::time::timeout(Duration::from_secs(20), async {
+        client.cancel().await?;
+        Ok::<_, anyhow::Error>(child.wait().await?)
+    })
+    .await
+    .context("gwi-mcp did not shut down within 20 seconds")??;
+    assert!(status.success(), "gwi-mcp exited with {status}");
+    Ok(())
+}
+
+/// The instrumented server must flush into the supplied fixture before cleanup.
+// Requires an instrumented binary and HOME-based isolation; Windows ignores HOME.
+#[cfg(unix)]
+#[tokio::test]
+async fn the_binary_flushes_its_coverage_profile_on_shutdown() -> Result<()> {
+    if std::env::var_os("CARGO_LLVM_COV").is_none() {
+        return Ok(());
+    }
+    let home = tempfile::tempdir()?;
+    let profiles = tempfile::tempdir()?;
+    let profile = profiles.path().join("child.profraw");
+    let (client, child) = spawn_binary_with_profile(home.path(), Some(profile.as_os_str())).await?;
+    let result = client
+        .call_tool(CallToolRequestParams::new("gmail_send"))
+        .await;
+    assert!(result.is_err(), "send is deliberately not a tool");
+    shutdown_binary(client, child).await?;
+    assert!(std::fs::metadata(profile)?.len() > 0, "empty LLVM profile");
     Ok(())
 }
