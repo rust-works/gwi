@@ -406,13 +406,13 @@ fn warn_unmatched_terms(filter: &Filter, following: bool) {
 /// count. Invalid UTF-8 is replaced rather than failing the read, so one corrupt
 /// line cannot abort the scan; such a line is then reported by [`parse_line`] as
 /// [`Line::Malformed`] if it no longer parses, as any other malformed line is.
+#[cfg(test)]
 fn read_line_lossy<R: BufRead>(
     reader: &mut R,
     buf: &mut Vec<u8>,
     line: &mut String,
 ) -> io::Result<usize> {
-    // The follow drain retains its line-based probe cadence. Share acquisition
-    // semantics while leaving its existing EOF/partial-line behavior intact.
+    // Noninterruptible adapter for acquisition semantics tests.
     let mut until_probe = LINE_PROBE_BYTES;
     read_line_lossy_interruptible(reader, buf, line, &mut until_probe, &mut || false)
         .map(|n| n.unwrap_or(0)) // a never-true predicate cannot return None
@@ -620,7 +620,8 @@ enum Drain {
 /// Returns the count and bounded positions of unparseable complete lines on
 /// completion, or reader gone.
 /// Checks `reader_gone` before reading and every [`HANGUP_PROBE_LINES`] lines,
-/// counting blank, malformed and filtered lines alike.
+/// counting blank, malformed and filtered lines alike. Acquisition also probes
+/// every [`LINE_PROBE_BYTES`] consumed bytes, across and within records.
 /// A trailing partial line (no newline yet) is left for the next call.
 fn drain_appended<W: Write>(
     path: &Path,
@@ -656,35 +657,9 @@ fn drain_appended<W: Write>(
     if len > tail.pos {
         let mut reader = BufReader::new(&file);
         reader.seek(SeekFrom::Start(tail.pos))?;
-        let mut buf = Vec::new();
-        let mut line = String::new();
-        let mut until_probe = 0;
-        loop {
-            if until_probe == 0 {
-                if reader_gone() {
-                    return Ok(Drain::ReaderGone);
-                }
-                until_probe = HANGUP_PROBE_LINES;
-            }
-            until_probe -= 1;
-            let n = read_line_lossy(&mut reader, &mut buf, &mut line)?;
-            if n == 0 || !line.ends_with('\n') {
-                break; // EOF or partial trailing line — wait for more
-            }
-            tail.pos += n as u64;
-            tail.lines += 1;
-            let parsed = parse_line(&line, filter, format);
-            if matches!(parsed, Line::Match(_) | Line::Filtered) {
-                warn_unmatched_terms(filter, true);
-            }
-            match parsed {
-                Line::Malformed => skipped.record(tail.lines),
-                Line::Match(rendered) => {
-                    writeln!(out, "{rendered}")?;
-                    out.flush()?;
-                }
-                Line::Blank | Line::Filtered => {}
-            }
+        match drain_records(&mut reader, filter, format, tail, out, &mut reader_gone)? {
+            Drain::ReaderGone => return Ok(Drain::ReaderGone),
+            Drain::Complete { skipped: summary } => skipped = summary,
         }
     }
     if tail.pos != previous_pos || replaced || rewritten {
@@ -695,6 +670,60 @@ fn drain_appended<W: Write>(
     #[cfg(unix)]
     {
         tail.file = Some(file);
+    }
+    Ok(Drain::Complete { skipped })
+}
+
+/// Drains complete appended records, carrying the byte probe budget across lines.
+/// An abandoned acquisition leaves the cursor and physical-line count unchanged.
+fn drain_records<R: BufRead, W: Write>(
+    reader: &mut R,
+    filter: &Filter,
+    format: Format,
+    tail: &mut Tail,
+    out: &mut W,
+    reader_gone: &mut impl FnMut() -> bool,
+) -> Result<Drain> {
+    let mut skipped = SkippedLines::default();
+    let mut buf = Vec::new();
+    let mut line = String::new();
+    let mut until_probe = 0;
+    let mut bytes_until_probe = LINE_PROBE_BYTES;
+    loop {
+        if until_probe == 0 {
+            if reader_gone() {
+                return Ok(Drain::ReaderGone);
+            }
+            until_probe = HANGUP_PROBE_LINES;
+        }
+        until_probe -= 1;
+        let Some(n) = read_line_lossy_interruptible(
+            reader,
+            &mut buf,
+            &mut line,
+            &mut bytes_until_probe,
+            reader_gone,
+        )?
+        else {
+            return Ok(Drain::ReaderGone);
+        };
+        if n == 0 || !line.ends_with('\n') {
+            break; // EOF or partial trailing line — wait for more
+        }
+        tail.pos += n as u64;
+        tail.lines += 1;
+        let parsed = parse_line(&line, filter, format);
+        if matches!(parsed, Line::Match(_) | Line::Filtered) {
+            warn_unmatched_terms(filter, true);
+        }
+        match parsed {
+            Line::Malformed => skipped.record(tail.lines),
+            Line::Match(rendered) => {
+                writeln!(out, "{rendered}")?;
+                out.flush()?;
+            }
+            Line::Blank | Line::Filtered => {}
+        }
     }
     Ok(Drain::Complete { skipped })
 }
@@ -2177,6 +2206,180 @@ mod tests {
         .unwrap();
         assert_eq!(probes, 3);
         assert!(out.is_empty());
+    }
+
+    #[test]
+    fn drain_byte_probe_stops_oversized_acquisition_before_advancing_tail() {
+        // Include a newline exactly at the budget boundary: it must be abandoned
+        // before decoding/parsing and must not count as a consumed complete line.
+        for input in [
+            "x".repeat(LINE_PROBE_BYTES * 4),
+            format!("{}\n", "x".repeat(LINE_PROBE_BYTES * 4)),
+            format!("{}\n", "x".repeat(LINE_PROBE_BYTES - 1)),
+        ] {
+            for capacity in [31, input.len() * 2] {
+                let mut reader = BufReader::with_capacity(capacity, Cursor::new(&input));
+                let mut tail = tail_at_start();
+                tail.pos = 17;
+                tail.lines = 3;
+                let mut out = Vec::new();
+                let mut probes = 0;
+                let result = drain_records(
+                    &mut reader,
+                    &empty_filter(),
+                    Format::Json,
+                    &mut tail,
+                    &mut out,
+                    &mut || {
+                        probes += 1;
+                        probes == 2
+                    },
+                )
+                .unwrap();
+                assert_eq!(result, Drain::ReaderGone);
+                assert_eq!(reader.stream_position().unwrap() as usize, LINE_PROBE_BYTES);
+                assert_eq!(probes, 2);
+                assert_eq!(tail.pos, 17);
+                assert_eq!(tail.lines, 3);
+                assert!(out.is_empty());
+            }
+        }
+    }
+
+    #[test]
+    fn drain_byte_budget_carries_across_filtered_blank_and_malformed_lines() {
+        let filter = Filter::build(FilterInput {
+            service: Some("drive"),
+            ..filter_input()
+        })
+        .unwrap();
+        let padding = " ".repeat(LINE_PROBE_BYTES / 8);
+        for line in [
+            format!("{GOOD}{padding}\n"),
+            format!("{padding}\n"),
+            format!("bad{padding}\n"),
+        ] {
+            let input = line.repeat(16);
+            for capacity in [31, input.len() * 2] {
+                let mut reader = BufReader::with_capacity(capacity, Cursor::new(&input));
+                let mut tail = tail_at_start();
+                let mut out = Vec::new();
+                let mut probes = 0;
+                let result = drain_records(
+                    &mut reader,
+                    &filter,
+                    Format::Json,
+                    &mut tail,
+                    &mut out,
+                    &mut || {
+                        probes += 1;
+                        probes == 2
+                    },
+                )
+                .unwrap();
+                assert_eq!(result, Drain::ReaderGone);
+                assert_eq!(probes, 2);
+                assert_eq!(reader.stream_position().unwrap() as usize, LINE_PROBE_BYTES);
+                let completed = LINE_PROBE_BYTES / line.len();
+                assert_eq!(tail.pos, (completed * line.len()) as u64);
+                assert_eq!(tail.lines, completed as u64);
+                assert!(out.is_empty());
+            }
+        }
+    }
+
+    #[test]
+    fn drain_live_oversized_records_preserve_lossy_utf8_and_pending_completion() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("log.jsonl");
+        let mut value: serde_json::Value = serde_json::from_str(GOOD).unwrap();
+        value["url"] = serde_json::Value::String(format!("/{}é", "x".repeat(LINE_PROBE_BYTES * 2)));
+        let raw = serde_json::to_string(&value).unwrap();
+        // Invalid UTF-8 inside the JSON string is replaced, while split valid
+        // UTF-8 and the rest of the oversized record remain intact.
+        let mut bytes = raw.into_bytes();
+        let i = bytes.iter().position(|&b| b == b'x').unwrap();
+        bytes[i] = 0xff;
+        let expected = format!("{}\n", String::from_utf8_lossy(&bytes));
+        std::fs::write(&path, &bytes).unwrap();
+        let mut tail = tail_at_start();
+        let mut out = Vec::new();
+        for _ in 0..2 {
+            drain_appended(
+                &path,
+                &empty_filter(),
+                Format::Json,
+                &mut tail,
+                &mut out,
+                || false,
+            )
+            .unwrap();
+            assert_eq!(tail.pos, 0);
+            assert_eq!(tail.lines, 0);
+            assert!(out.is_empty());
+        }
+        std::fs::OpenOptions::new()
+            .append(true)
+            .open(&path)
+            .unwrap()
+            .write_all(b"\n")
+            .unwrap();
+        drain_appended(
+            &path,
+            &empty_filter(),
+            Format::Json,
+            &mut tail,
+            &mut out,
+            || false,
+        )
+        .unwrap();
+        assert_eq!(out, expected.as_bytes());
+        assert_eq!(tail.pos, bytes.len() as u64 + 1);
+        assert_eq!(tail.lines, 1);
+        drain_appended(
+            &path,
+            &empty_filter(),
+            Format::Json,
+            &mut tail,
+            &mut out,
+            || false,
+        )
+        .unwrap();
+        assert_eq!(out, expected.as_bytes());
+    }
+
+    #[test]
+    fn follow_loop_exits_on_hangup_inside_oversized_acquisition() {
+        for terminated in [false, true] {
+            let dir = tempfile::tempdir().unwrap();
+            let path = dir.path().join("log.jsonl");
+            let input = format!(
+                "{}{}",
+                "x".repeat(LINE_PROBE_BYTES * 4),
+                if terminated { "\n" } else { "" }
+            );
+            std::fs::write(&path, input).unwrap();
+            let mut out = Vec::new();
+            let mut probes = 0;
+            follow_loop(
+                &path,
+                &empty_filter(),
+                Format::Json,
+                tail_at_start(),
+                &mut out,
+                || {
+                    probes += 1;
+                    assert!(
+                        probes <= 3,
+                        "follow polled again after acquisition detected hangup"
+                    );
+                    probes == 3
+                },
+            )
+            .unwrap();
+            assert_eq!(probes, 3);
+            assert!(out.is_empty());
+        }
     }
 
     #[test]
