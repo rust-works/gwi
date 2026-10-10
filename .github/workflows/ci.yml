@@ -55,6 +55,8 @@ jobs:
     - run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
     - run: scripts/sandbox-test.sh
 
+  # Required by the main merge queue ruleset (#179). Keep this exact context name
+  # and run it on both pull_request and merge_group events.
   home-write-test:
     name: Empty HOME Test
     runs-on: ubuntu-latest
