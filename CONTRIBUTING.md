@@ -108,6 +108,32 @@ The guard's own regression tests include deliberately writing fake test binaries
 python3 scripts/test_home_write_test.py -v
 ```
 
+## Testing with hostile ambient settings
+
+Run CI's Linux `Hostile Environment Test` locally on Linux or macOS:
+
+```bash
+python3 scripts/test_hostile_env_test.py -v
+python3 scripts/hostile-env-test.py
+```
+
+The runner builds the MCP-enabled library and every declared integration test target
+with the normal environment, then runs their Cargo-reported executables directly.
+Two sweeps apply valid inconvenient values and malformed values for request/audit
+logging (including rotation, bodies and headers), HTTP timeouts, secret-command
+limits and Drive lease policy. Each binary gets temporary request-log, audit-log
+and backup paths, cleaned up even when tests fail; the developer's exported paths
+are replaced only in the child environment. Application parsing behavior is unchanged.
+
+Missing executables, empty test selections and failed tests fail the command with
+case and binary diagnostics. Subsequent binaries and cases still run after a test
+failure. Each binary has a five-minute execution limit; the CI job has a fifteen-minute
+limit. Ignored tests retain their normal behavior, and doctests are excluded because
+Cargo's no-run artifact stream does not expose them. This checks outcomes under
+ambient settings; the separate empty-HOME guard checks leftover writes. The runner's
+regressions use deliberately ambient-dependent fake executables to prove failure
+propagation, environment separation and cleanup.
+
 ## Tests on Windows
 
 The `Windows Build` job builds the release binary with `--features mcp`, then runs
