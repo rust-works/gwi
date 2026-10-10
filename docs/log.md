@@ -391,7 +391,8 @@ A flag and its field use the same matcher for valid values, so `--status 5xx` an
   draws none. The exit code and stdout are unchanged.
   With `--follow`, field and status warnings are each emitted once, after the backlog
   if there is relevant evidence, or when the first relevant record is appended. A missing
-  or empty log stays quiet until then; status warnings wait for a `drivemutation` record.
+  or empty log stays quiet until then: unknown-field warnings wait for a parsed record,
+  while status warnings wait for a parsed `drivemutation` record.
   Warnings say “so far” and are not revised when a field or status appears later.
 - **Numeric fields** (`exit_code`, `duration_ms`, `elapsed_ms` and `status`) take a leading
   comparator: `>`, `>=`, `<`, `<=`, or a bare `=` or number for equality. A record without
@@ -458,10 +459,12 @@ $ gwi log --follow --query 'servce:drive'
 warning: query field `servce` is not a built-in field and is not a context key in the 1 record scanned, so `servce:drive` matches nothing so far. Did you mean `service`? To search for the text instead, quote it: "servce:drive"
 ```
 
-The process keeps following until interrupted. No unknown-field warning is emitted when
-no record was scanned, including an empty or missing log. Currently the warning is only
-emitted after the initial backlog scan: an empty/missing backlog stays silent even when
-records arrive later ([#124](https://github.com/rust-works/gwi/issues/124)).
+The process keeps following until interrupted. An unknown-field warning waits until at
+least one parsed record has been scanned. If the backlog is empty or missing, it stays
+quiet until a parsed record arrives, then warns once if the field is still unknown.
+Unseen Drive-mutation status warnings (`--status` or `status:`) instead wait for a parsed
+`drivemutation` record; an HTTP-only backlog does not trigger them. These warnings retain
+the “so far” wording and are not repeated or revised if the field or status appears later.
 
 **Startup errors.** Query parser failures exit 1 with empty stdout. Stderr names the
 expression and then prints the indented cause:
