@@ -141,6 +141,13 @@ The `Windows Build` job builds the release binary with `--features mcp`, then ru
 Both runs execute the lib, bin and integration tests and doctests. A test that fails to
 compile, link or run on Windows turns the job red.
 
+The separate `Windows Clippy` job runs `cargo clippy --all-targets -- -D warnings`
+and `cargo clippy --all-targets --features mcp -- -D warnings` on `windows-latest`
+for pull requests, merge-group events and pushes to `main`. This catches warnings
+in Windows-only code and tests. The existing Linux `Clippy` required-check name
+is preserved; `Windows Clippy` is initially non-required. Requiring the new context
+is a separate repository-ruleset decision.
+
 Tests that require Unix behaviour (file modes, Unix symlinks, `flock`, `/bin/sh`, or a
 particular Unix filesystem error) use `#[cfg(unix)]` with a comment explaining why.
 Gate Unix-only imports and helpers on the items that use them, and keep portable

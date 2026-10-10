@@ -114,6 +114,20 @@ jobs:
     - run: cargo clippy --all-targets -- -D warnings
     - run: cargo clippy --all-targets --features mcp -- -D warnings
 
+  # Separate job preserves the required Linux `Clippy` context. This new context
+  # is non-required; requiring it is a separate repository-ruleset decision (#200).
+  windows-clippy:
+    name: Windows Clippy
+    runs-on: windows-latest
+    steps:
+    - uses: actions/checkout@v7
+    - uses: dtolnay/rust-toolchain@stable
+      with:
+        components: clippy
+    - uses: Swatinem/rust-cache@v2
+    - run: cargo clippy --all-targets -- -D warnings
+    - run: cargo clippy --all-targets --features mcp -- -D warnings
+
   docs:
     name: Docs
     runs-on: ubuntu-latest
