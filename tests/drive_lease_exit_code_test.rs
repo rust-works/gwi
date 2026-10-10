@@ -33,10 +33,7 @@ fn hermetic_home() -> tempfile::TempDir {
 
 fn lease_release_cmd(home: &std::path::Path, token: &str) -> std::process::Command {
     let mut cmd = std::process::Command::new(env!("CARGO_BIN_EXE_gwi"));
-    common::scrub_ambient_env(&mut cmd)
-        .args(["drive", "lease", "release", token])
-        .env("HOME", home);
-    common::pin_log_env(&mut cmd, home);
+    common::isolate(&mut cmd, home).args(["drive", "lease", "release", token]);
     cmd
 }
 

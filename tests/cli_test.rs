@@ -120,10 +120,7 @@ fn help_has_no_bare_four_digit_issue_references() {
 /// Runs the real `gwi` binary hermetically in `home`.
 fn gwi(home: &Path, args: &[&str]) -> Output {
     let mut command = Command::new(env!("CARGO_BIN_EXE_gwi"));
-    common::scrub_ambient_env(&mut command)
-        .args(args)
-        .env("HOME", home);
-    common::pin_log_env(&mut command, home);
+    common::isolate(&mut command, home).args(args);
     command.output().expect("failed to run the gwi binary")
 }
 
@@ -165,6 +162,8 @@ fn scrub_ambient_env_removes_the_variables_a_developer_shell_exports() {
         .env("GWI_SECRET_COMMAND_TTL_SECS", "0")
         .env("GWI_DRIVE_LEASE_BIOMETRICS_ONLY", "1")
         .env("GWI_PROFILE", "exported")
+        .env("GWI_HOME", "exported-home")
+        .env("GWI_STATE_DIR", "exported-state")
         .env("DRIVE_API_URL", "http://127.0.0.1:1")
         .env("GMAIL_REFRESH_TOKEN_COMMAND", "echo exported");
     common::scrub_ambient_env(&mut command);
@@ -174,12 +173,61 @@ fn scrub_ambient_env_removes_the_variables_a_developer_shell_exports() {
         "GWI_SECRET_COMMAND_TTL_SECS",
         "GWI_DRIVE_LEASE_BIOMETRICS_ONLY",
         "GWI_PROFILE",
+        "GWI_HOME",
+        "GWI_STATE_DIR",
         "DRIVE_API_URL",
         "GMAIL_REFRESH_TOKEN_COMMAND",
     ] {
         let entry = command.get_envs().find(|(key, _)| *key == name);
         assert_eq!(entry, Some((std::ffi::OsStr::new(name), None)), "{name}");
     }
+}
+
+/// Production overrides must beat platform discovery, including a different HOME.
+#[test]
+fn application_directories_isolate_settings_and_default_state_paths() {
+    let fixture = tempfile::tempdir().unwrap();
+    let ambient = tempfile::tempdir().unwrap();
+    let home = fixture.path();
+    write_omni_dev_settings(home);
+    write_omni_dev_ledger(home);
+    let run = |args: &[&str]| {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_gwi"));
+        common::isolate(&mut command, home)
+            .env("HOME", ambient.path())
+            .env("USERPROFILE", ambient.path())
+            .env("APPDATA", ambient.path())
+            .env("LOCALAPPDATA", ambient.path())
+            // Exercise production defaults rather than the log-path overrides.
+            .env_remove("GWI_LOG_FILE")
+            .env_remove("GWI_AUDIT_LOG_FILE")
+            .env("GWI_LOG_DISABLE", "0")
+            .args(args)
+            .output()
+            .unwrap()
+    };
+    let imported = run(&["import"]);
+    assert!(imported.status.success(), "{imported:?}");
+    assert!(home.join(".gwi/settings.json").is_file());
+    let listed = run(&["gmail", "account", "list"]);
+    assert!(listed.status.success(), "{listed:?}");
+    assert!(String::from_utf8_lossy(&listed.stdout).contains("work"));
+    let state = home.join("state/gwi");
+    assert!(state.join("lease-ledger.jsonl").is_file());
+    assert!(state.join("log.jsonl").is_file());
+    // Import is not audited; releasing the imported lease writes a real audit event.
+    let released = run(&["drive", "lease", "release", "lease-live"]);
+    assert!(released.status.success(), "{released:?}");
+    assert!(state.join("audit.jsonl").is_file());
+    for args in [
+        &["log", "-o", "json"][..],
+        &["log", "--audit", "-o", "json"],
+    ] {
+        let output = run(args);
+        assert!(output.status.success(), "{output:?}");
+        assert!(!output.stdout.is_empty(), "{args:?}: {output:?}");
+    }
+    assert_eq!(std::fs::read_dir(ambient.path()).unwrap().count(), 0);
 }
 
 #[test]
@@ -208,8 +256,6 @@ fn binary_rejects_a_missing_or_unknown_command() {
     }
 }
 
-// Requires HOME-based settings isolation; Windows uses the Known Folder API.
-#[cfg(unix)]
 #[test]
 fn binary_reports_unconfigured_credentials_before_any_api_call() {
     let home = tempfile::tempdir().unwrap();
@@ -221,8 +267,6 @@ fn binary_reports_unconfigured_credentials_before_any_api_call() {
     assert!(stderr.contains("not configured"), "{stderr}");
 }
 
-// Requires HOME-based settings isolation; Windows uses the Known Folder API.
-#[cfg(unix)]
 #[test]
 fn binary_rejects_an_unknown_profile_before_dispatch() {
     let home = tempfile::tempdir().unwrap();
@@ -247,7 +291,6 @@ fn binary_rejects_an_unknown_profile_before_dispatch() {
 }
 
 /// A fixture settings file shaped like omni-dev's, holding one Gmail account.
-#[cfg(unix)]
 fn write_omni_dev_settings(home: &Path) {
     let dir = home.join(".omni-dev");
     std::fs::create_dir_all(&dir).unwrap();
@@ -261,8 +304,6 @@ fn write_omni_dev_settings(home: &Path) {
     .unwrap();
 }
 
-// Requires HOME-based settings/state discovery; Windows uses the Known Folder API.
-#[cfg(unix)]
 #[test]
 fn import_brings_an_omni_dev_account_across_without_touching_the_source() {
     let home = tempfile::tempdir().unwrap();
@@ -317,8 +358,6 @@ fn import_brings_an_omni_dev_account_across_without_touching_the_source() {
     }
 }
 
-// Requires HOME-based settings/state discovery; Windows uses the Known Folder API.
-#[cfg(unix)]
 #[test]
 fn import_fails_on_a_conflict_until_forced() {
     let home = tempfile::tempdir().unwrap();
@@ -345,8 +384,6 @@ fn import_fails_on_a_conflict_until_forced() {
         .contains("fixture-id"));
 }
 
-// Requires HOME-based settings/state discovery; Windows uses the Known Folder API.
-#[cfg(unix)]
 #[test]
 fn import_dry_run_exits_zero_on_a_settings_conflict() {
     let home = tempfile::tempdir().unwrap();
@@ -374,8 +411,6 @@ fn import_dry_run_exits_zero_on_a_settings_conflict() {
     assert_eq!(gwi(home.path(), &["import"]).status.code(), Some(1));
 }
 
-// Requires HOME-based settings/state discovery; Windows uses the Known Folder API.
-#[cfg(unix)]
 #[test]
 fn import_dry_run_exits_zero_on_a_ledger_conflict() {
     let home = tempfile::tempdir().unwrap();
@@ -413,18 +448,12 @@ fn import_dry_run_exits_zero_on_a_ledger_conflict() {
     assert_eq!(real.status.code(), Some(1));
 }
 
-/// Where `dirs` puts the state directory when `HOME` is `home`.
-#[cfg(unix)]
+/// State base pinned by the subprocess fixture on every platform.
 fn state_dir(home: &Path) -> std::path::PathBuf {
-    if cfg!(target_os = "macos") {
-        home.join("Library").join("Application Support")
-    } else {
-        home.join(".local").join("state")
-    }
+    home.join("state")
 }
 
 /// A fixture omni-dev lease ledger holding one live and one expired lease.
-#[cfg(unix)]
 fn write_omni_dev_ledger(home: &Path) -> std::path::PathBuf {
     let path = state_dir(home).join("omni-dev").join("lease-ledger.jsonl");
     std::fs::create_dir_all(path.parent().unwrap()).unwrap();
@@ -445,8 +474,6 @@ fn write_omni_dev_ledger(home: &Path) -> std::path::PathBuf {
     path
 }
 
-// Requires HOME-based settings/state discovery; Windows uses the Known Folder API.
-#[cfg(unix)]
 #[test]
 fn import_carries_the_lease_ledger_across_and_a_second_run_changes_nothing() {
     let home = tempfile::tempdir().unwrap();
@@ -484,8 +511,6 @@ fn import_carries_the_lease_ledger_across_and_a_second_run_changes_nothing() {
     assert_eq!(std::fs::read(&source).unwrap(), source_before);
 }
 
-// Requires HOME-based settings/state discovery; Windows uses the Known Folder API.
-#[cfg(unix)]
 #[test]
 fn import_after_a_source_write_without_release_reports_freshness_conflict() {
     let home = tempfile::tempdir().unwrap();
@@ -550,8 +575,6 @@ fn import_after_a_source_write_without_release_reports_freshness_conflict() {
     }
 }
 
-// Requires HOME-based settings/state discovery; Windows uses the Known Folder API.
-#[cfg(unix)]
 #[test]
 fn import_propagates_a_release_made_in_omni_dev_after_the_import() {
     let home = tempfile::tempdir().unwrap();
@@ -609,8 +632,6 @@ fn import_propagates_a_release_made_in_omni_dev_after_the_import() {
     assert_eq!(std::fs::read_to_string(&source).unwrap(), released);
 }
 
-// Requires HOME-based settings/state discovery; Windows uses the Known Folder API.
-#[cfg(unix)]
 #[test]
 fn import_reads_the_ledger_from_source_ledger_and_fails_on_a_ledger_conflict() {
     let home = tempfile::tempdir().unwrap();
@@ -652,8 +673,6 @@ fn import_reads_the_ledger_from_source_ledger_and_fails_on_a_ledger_conflict() {
     assert!(std::fs::read_to_string(&target).unwrap().contains("\"2\""));
 }
 
-// Requires HOME-based settings/state discovery; Windows uses the Known Folder API.
-#[cfg(unix)]
 #[test]
 fn import_without_a_source_file_says_how_to_find_one() {
     let home = tempfile::tempdir().unwrap();
@@ -690,7 +709,7 @@ fn log_warns_once_when_request_log_resolves_to_audit_log() {
     // A fresh process must emit its own warning rather than suppressing it globally.
     for _ in 0..2 {
         let mut command = Command::new(env!("CARGO_BIN_EXE_gwi"));
-        let output = common::scrub_ambient_env(&mut command)
+        let output = common::isolate(&mut command, home.path())
             .arg("log")
             .env("HOME", home.path())
             .env("GWI_LOG_FILE", &audit)
@@ -898,7 +917,7 @@ fn log_follow_recovers_appended_records_and_warns_on_stderr() {
     let path = home.path().join("log.jsonl");
     std::fs::write(&path, format!("{HTTP_LINE}\n{{partial")).unwrap();
     let mut command = Command::new(env!("CARGO_BIN_EXE_gwi"));
-    let mut child = common::scrub_ambient_env(&mut command)
+    let mut child = common::isolate(&mut command, home.path())
         .args(["log", "--follow", "-o", "json"])
         .env("HOME", home.path())
         .env("GWI_LOG_FILE", &path)
@@ -1158,7 +1177,7 @@ fn log_follow_exits_when_its_output_pipe_closes() {
     .unwrap();
 
     let mut child = Command::new(env!("CARGO_BIN_EXE_gwi"));
-    let mut child = common::scrub_ambient_env(&mut child)
+    let mut child = common::isolate(&mut child, home.path())
         .args(["log", "--follow", "-o", "json"])
         .env("HOME", home.path())
         .env("GWI_LOG_FILE", home.path().join("log.jsonl"))
@@ -1203,7 +1222,8 @@ fn log_follow_exits_when_its_output_pipe_closes_while_idle() {
     // Small enough for the pipe buffer, so no write fails, and nothing is appended.
     std::fs::write(home.path().join("log.jsonl"), format!("{HTTP_LINE}\n")).unwrap();
 
-    let mut child = Command::new(env!("CARGO_BIN_EXE_gwi"))
+    let mut command = Command::new(env!("CARGO_BIN_EXE_gwi"));
+    let mut child = common::isolate(&mut command, home.path())
         .args(["log", "--follow", "-o", "json"])
         .env("HOME", home.path())
         .env("GWI_LOG_FILE", home.path().join("log.jsonl"))
