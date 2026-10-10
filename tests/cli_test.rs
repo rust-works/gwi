@@ -487,6 +487,72 @@ fn import_carries_the_lease_ledger_across_and_a_second_run_changes_nothing() {
 // Requires HOME-based settings/state discovery; Windows uses the Known Folder API.
 #[cfg(unix)]
 #[test]
+fn import_after_a_source_write_without_release_reports_freshness_conflict() {
+    let home = tempfile::tempdir().unwrap();
+    write_omni_dev_settings(home.path());
+    let source = write_omni_dev_ledger(home.path());
+    assert!(gwi(home.path(), &["import"]).status.success());
+    let target = state_dir(home.path())
+        .join("gwi")
+        .join("lease-ledger.jsonl");
+    let before = std::fs::read(&target).unwrap();
+    let written = std::fs::read_to_string(&source)
+        .unwrap()
+        .lines()
+        .map(|line| {
+            let mut row: serde_json::Value = serde_json::from_str(line).unwrap();
+            if row["token"] == "lease-live" {
+                row["version"] = serde_json::json!("5");
+                row["modified_time"] = serde_json::json!("2026-10-09T00:00:00Z");
+            }
+            row.to_string()
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    std::fs::write(&source, &written).unwrap();
+
+    for dry_run in [false, true] {
+        let args = if dry_run {
+            vec!["import", "--dry-run"]
+        } else {
+            vec!["import"]
+        };
+        let output = gwi(home.path(), &args);
+        assert_eq!(
+            output.status.code(),
+            Some(i32::from(!dry_run)),
+            "{output:?}"
+        );
+        let report = String::from_utf8_lossy(&output.stdout);
+        assert!(report.contains("conflict    lease lease-live"), "{report}");
+        assert!(
+            report.contains("unreleased copies differ only in freshness"),
+            "{report}"
+        );
+        assert!(report.contains("omni-dev may have written"), "{report}");
+        assert!(
+            report.contains("--force replaces the entire row"),
+            "{report}"
+        );
+        assert!(report.contains("backup/restore metadata"), "{report}");
+        assert!(report.contains("may restore write authority"), "{report}");
+        assert!(report.contains("gwi drive lease release"), "{report}");
+        assert!(report.contains("gwi drive lease acquire"), "{report}");
+        assert!(
+            report.contains("0 added, 0 overwritten, 0 released, 1 unchanged, 1 conflict(s)"),
+            "{report}"
+        );
+        if !dry_run {
+            assert!(String::from_utf8_lossy(&output.stderr).contains("release the old lease"));
+        }
+        assert_eq!(std::fs::read(&target).unwrap(), before);
+        assert_eq!(std::fs::read_to_string(&source).unwrap(), written);
+    }
+}
+
+// Requires HOME-based settings/state discovery; Windows uses the Known Folder API.
+#[cfg(unix)]
+#[test]
 fn import_propagates_a_release_made_in_omni_dev_after_the_import() {
     let home = tempfile::tempdir().unwrap();
     write_omni_dev_settings(home.path());

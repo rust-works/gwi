@@ -1793,6 +1793,25 @@ file, and `--dry-run` shows the plan and writes nothing.
   A lease already released in gwi is left as it is when the file ID matches.
   Differences between two unreleased rows, or the same token naming different
   files, remain conflicts unless `--force` is given.
+- **Two unreleased copies with different freshness stay a conflict.** After importing
+  a live lease, writing under it in omni-dev updates that tool's `version` and
+  `modified_time`. Another import leaves gwi's entire row unchanged and exits `1`,
+  even when those are the only differences. A dry run reports the conflict but
+  exits `0`. Matching token, file ID and expiry do not justify refreshing it:
+  the write gate compares the stored version with Drive's current version, so
+  replacing it could make a stale token usable again. Import does not order versions
+  or check which copy is current against Drive.
+  When switching tools after a write, release the old lease in omni-dev and run
+  `gwi import` to propagate its release, or release gwi's copy with
+  `gwi drive lease release TOKEN`. Then use `gwi drive lease acquire FILE_ID` for a
+  fresh lease through the normal authorization flow. Releasing gwi's copy alone
+  does not release omni-dev's copy; stop using that old lease in the other tool.
+  If you deliberately use `--force` for a conflicting unreleased row, it replaces
+  the **entire row** from the source, including version, modified time, file binding,
+  expiry, backup/restore metadata and unknown fields. It may restore write authority
+  and may replace local backup metadata or copy stale freshness; it is not a
+  freshness validation or synchronization operation. The release rules above still
+  take precedence over force.
 - **The source is never modified.** Both ledgers' advisory locks are held while
   copying (omni-dev's only when its lock file already exists, since taking a lock
   creates one; if that file cannot be opened the import warns and reads the ledger
