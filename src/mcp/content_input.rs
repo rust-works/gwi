@@ -224,22 +224,24 @@ mod tests {
 
     #[test]
     fn bounded_input_refuses_dot_dot_traversal_out_of_the_allowed_directory() {
-        let allowed = tempfile::tempdir().unwrap();
-        let outside = tempfile::tempdir().unwrap();
-        let secret = outside.path().join("secret.txt");
+        let root = tempfile::tempdir().unwrap();
+        let allowed = root.path().join("allowed");
+        let outside = root.path().join("outside");
+        std::fs::create_dir_all(&allowed).unwrap();
+        std::fs::create_dir_all(&outside).unwrap();
+        let secret = outside.join("secret.txt");
         std::fs::write(&secret, "do not upload").unwrap();
-        let policy = PathPolicy::allowing_only(allowed.path());
-        // From the allowed directory up to the filesystem root and down to the secret.
-        let depth = allowed.path().components().count();
-        let traversal = format!(
-            "{}{}{}",
-            allowed.path().display(),
-            "/..".repeat(depth),
-            secret.display()
-        );
+        let policy = PathPolicy::allowing_only(&allowed);
+        let traversal = allowed.join("..").join("outside").join("secret.txt");
 
-        let err =
-            require_bounded_content_input(&policy, None, Some(&traversal), "text", 64).unwrap_err();
+        let err = require_bounded_content_input(
+            &policy,
+            None,
+            Some(traversal.to_str().unwrap()),
+            "text",
+            64,
+        )
+        .unwrap_err();
 
         assert!(err.to_string().contains("outside the allowed"), "{err}");
     }

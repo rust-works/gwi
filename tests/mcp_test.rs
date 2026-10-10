@@ -12,8 +12,8 @@
 #![cfg(feature = "mcp")]
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
-use std::process::Stdio;
-use std::time::Duration;
+#[cfg(unix)]
+use std::{process::Stdio, time::Duration};
 
 use anyhow::Result;
 use rmcp::{
@@ -248,6 +248,8 @@ async fn list_tools_includes_gmail_draft_tools() -> Result<()> {
     Ok(())
 }
 
+// Requires HOME-based settings isolation; Windows uses the Known Folder API.
+#[cfg(unix)]
 #[tokio::test]
 async fn an_unknown_tool_is_a_protocol_error_not_a_panic() -> Result<()> {
     // Unknown tools are request-logged. Give the real server its own fixture
@@ -266,6 +268,8 @@ async fn an_unknown_tool_is_a_protocol_error_not_a_panic() -> Result<()> {
 
 /// Schemas and dispatch reject policy overrides before credentials or consent
 /// (omni-dev's `drive_write_tools_round_trip_and_reject_policy_parameters`).
+// Requires HOME-based settings/state isolation; Windows uses the Known Folder API.
+#[cfg(unix)]
 #[tokio::test]
 async fn drive_write_tools_round_trip_and_reject_policy_parameters() -> Result<()> {
     // Policy rejections write an audit record. Confine it to this fixture's HOME
@@ -341,6 +345,9 @@ async fn drive_write_tools_round_trip_and_reject_policy_parameters() -> Result<(
 }
 
 /// Spawns the real `gwi-mcp` binary hermetically in an empty `HOME`.
+// Windows' Known Folder API ignores HOME; this subprocess fixture cannot
+// isolate its settings from the user's real profile there.
+#[cfg(unix)]
 async fn spawn_binary(home: &std::path::Path) -> Result<(Client, tokio::process::Child)> {
     let mut child = tokio::process::Command::new(env!("CARGO_BIN_EXE_gwi-mcp"))
         .env_clear()
@@ -363,6 +370,8 @@ async fn spawn_binary(home: &std::path::Path) -> Result<(Client, tokio::process:
 /// The real binary serves the same 23 tools over stdio, answers the one tool
 /// that needs no credentials, and reports the others as tool errors rather than
 /// protocol failures.
+// Requires HOME-based settings isolation; Windows uses the Known Folder API.
+#[cfg(unix)]
 #[tokio::test]
 async fn the_binary_serves_the_tools_over_stdio() -> Result<()> {
     let home = tempfile::tempdir()?;

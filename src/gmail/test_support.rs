@@ -28,6 +28,7 @@ static GMAIL_ENV_MUTEX: &Mutex<()> = &crate::test_support::HOME_ENV_MUTEX;
 pub(crate) struct EnvGuard {
     _lock: MutexGuard<'static, ()>,
     snapshot: Vec<(String, Option<String>)>,
+    settings_path: crate::test_support::SettingsPathGuard,
 }
 
 impl EnvGuard {
@@ -71,6 +72,7 @@ impl EnvGuard {
         Self {
             _lock: lock,
             snapshot,
+            settings_path: crate::test_support::SettingsPathGuard::take(),
         }
     }
 
@@ -88,6 +90,7 @@ impl EnvGuard {
             std::env::remove_var(key);
         }
         std::env::set_var("HOME", dir.path());
+        self.settings_path.redirect(dir.path());
         dir
     }
 }

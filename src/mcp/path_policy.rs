@@ -384,7 +384,7 @@ mod tests {
     /// A sandbox with a home, an allowed directory and an unrelated directory, so no
     /// test reads the process environment.
     struct Sandbox {
-        _root: tempfile::TempDir,
+        root: tempfile::TempDir,
         home: PathBuf,
         work: PathBuf,
         elsewhere: PathBuf,
@@ -400,7 +400,7 @@ mod tests {
                 work: base.join("work"),
                 elsewhere: base.join("elsewhere"),
                 state: base.join("state"),
-                _root: root,
+                root,
             };
             for dir in [
                 &sandbox.home,
@@ -483,13 +483,16 @@ mod tests {
         let sandbox = Sandbox::new();
         sandbox.file_in(&sandbox.elsewhere, "a.txt");
         let policy = sandbox.policy();
-        let traversal = format!("{}/../elsewhere/a.txt", sandbox.work.display());
+        // Use the original temp path: canonical Windows paths carry a verbatim
+        // prefix, which deliberately disables normalisation of `..`.
+        let traversal = sandbox.root.path().join("work/../elsewhere/a.txt");
+        let traversal = traversal.to_str().unwrap();
 
-        assert!(refusal(policy.check_read(&traversal)).contains("outside"));
-        assert!(refusal(policy.check_write(&traversal)).contains("outside"));
+        assert!(refusal(policy.check_read(traversal)).contains("outside"));
+        assert!(refusal(policy.check_write(traversal)).contains("outside"));
         // A new file through a traversal is resolved through its parent.
-        let new_file = format!("{}/../elsewhere/new.txt", sandbox.work.display());
-        assert!(refusal(policy.check_write(&new_file)).contains("outside"));
+        let new_file = sandbox.root.path().join("work/../elsewhere/new.txt");
+        assert!(refusal(policy.check_write(new_file.to_str().unwrap())).contains("outside"));
     }
 
     #[cfg(unix)]
@@ -961,6 +964,8 @@ mod tests {
         );
     }
 
+    // Pins Unix's NotADirectory error; Windows reports a child of a file as NotFound.
+    #[cfg(unix)]
     #[test]
     fn resolve_for_write_passes_on_an_error_that_is_not_a_missing_file() {
         let sandbox = Sandbox::new();

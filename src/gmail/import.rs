@@ -451,11 +451,15 @@ mod tests {
         // Ensure a real mtime gap regardless of filesystem timestamp
         // resolution.
         let now = std::time::SystemTime::now();
-        std::fs::File::open(&older)
+        std::fs::OpenOptions::new()
+            .write(true)
+            .open(&older)
             .unwrap()
             .set_modified(now - std::time::Duration::from_secs(60))
             .unwrap();
-        std::fs::File::open(&newer)
+        std::fs::OpenOptions::new()
+            .write(true)
+            .open(&newer)
             .unwrap()
             .set_modified(now)
             .unwrap();

@@ -79,11 +79,13 @@ fn names_are_portable_bounded_and_cannot_traverse() {
         "/evil",
         ".gwi-sync.json",
         "foo/.gwi-sync.json",
-        "a\\b",
         "a/../b",
     ] {
         assert!(validate_relative(Path::new(bad)).is_err(), "{bad}");
     }
+    // Backslash is a literal filename character on Unix and a native path
+    // separator on Windows, where nested manifest paths are valid.
+    assert_eq!(validate_relative(Path::new("a\\b")).is_ok(), cfg!(windows));
 }
 
 #[test]
@@ -733,11 +735,29 @@ fn export_extensions_cover_every_known_type_and_default_to_export() {
 }
 
 #[test]
-fn safe_path_reports_inspection_failures_other_than_not_found() {
+fn safe_path_rejects_a_regular_file_as_an_intermediate_directory() {
     let dir = tempfile::tempdir().unwrap();
     fs::write(dir.path().join("file"), "x").unwrap();
-    // A file used as a directory fails with ENOTDIR, which is not NotFound.
+    // A regular file must never be accepted as an intermediate directory,
+    // including on Windows where inspecting its child returns NotFound.
     let err = safe_path(dir.path(), Path::new("file/child")).unwrap_err();
+    assert!(err.to_string().contains("not a directory"), "{err:#}");
+}
+
+#[cfg(unix)]
+#[test]
+fn safe_path_reports_inspection_failures_other_than_not_found() {
+    use crate::test_support::skip_as_root;
+    use std::os::unix::fs::PermissionsExt;
+    skip_as_root!();
+    let dir = tempfile::tempdir().unwrap();
+    let locked = dir.path().join("locked");
+    fs::create_dir(&locked).unwrap();
+    fs::write(locked.join("child"), "x").unwrap();
+    fs::set_permissions(&locked, fs::Permissions::from_mode(0o000)).unwrap();
+    let result = safe_path(dir.path(), Path::new("locked/child"));
+    fs::set_permissions(&locked, fs::Permissions::from_mode(0o700)).unwrap();
+    let err = result.unwrap_err();
     assert!(err.to_string().starts_with("inspect "), "{err:#}");
 }
 

@@ -1250,11 +1250,15 @@ fn is_message_not_found(err: &anyhow::Error) -> bool {
 /// "source" is the network, not a local tree, so this guards a different
 /// thing: an obviously-wrong destination, not source/target overlap).
 fn guard_output_dir(output_dir: &Path) -> Result<()> {
-    let Some(home) = dirs::home_dir() else {
+    guard_output_dir_with_home(output_dir, dirs::home_dir().as_deref())
+}
+
+fn guard_output_dir_with_home(output_dir: &Path, home: Option<&Path>) -> Result<()> {
+    let Some(home) = home else {
         return Ok(());
     };
     let canon_output = canonicalize_best_effort(output_dir);
-    if canon_output == canonicalize_best_effort(&home) {
+    if canon_output == canonicalize_best_effort(home) {
         anyhow::bail!(
             "refusing to sync directly into your home directory ({}); use a dedicated \
              subdirectory",
@@ -4013,30 +4017,27 @@ not-really-a-pdf\r\n\
 
     #[test]
     fn guard_output_dir_rejects_home_directory_itself() {
-        let _guard = crate::gmail::test_support::EnvGuard::take();
         let home = tempfile::tempdir().unwrap();
-        std::env::set_var("HOME", home.path());
-        let err = guard_output_dir(home.path()).unwrap_err();
+        let err = guard_output_dir_with_home(home.path(), Some(home.path())).unwrap_err();
         assert!(err.to_string().contains("home directory"));
     }
 
     #[test]
     fn guard_output_dir_rejects_inside_omni_dev_settings_dir() {
-        let _guard = crate::gmail::test_support::EnvGuard::take();
         let home = tempfile::tempdir().unwrap();
-        std::env::set_var("HOME", home.path());
         let target = home.path().join(".gwi").join("mail-archive");
         std::fs::create_dir_all(&target).unwrap();
-        let err = guard_output_dir(&target).unwrap_err();
+        let err = guard_output_dir_with_home(&target, Some(home.path())).unwrap_err();
         assert!(err.to_string().contains("settings directory"));
     }
 
     #[test]
     fn guard_output_dir_accepts_an_ordinary_subdirectory() {
-        let _guard = crate::gmail::test_support::EnvGuard::take();
         let home = tempfile::tempdir().unwrap();
-        std::env::set_var("HOME", home.path());
-        assert!(guard_output_dir(&home.path().join("mail-archive")).is_ok());
+        assert!(
+            guard_output_dir_with_home(&home.path().join("mail-archive"), Some(home.path()))
+                .is_ok()
+        );
     }
 
     // ── corrupt manifest is a hard failure ──────────────────────────────

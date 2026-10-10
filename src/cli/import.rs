@@ -839,12 +839,13 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let source = dir.path().join(".omni-dev").join("settings.json");
         let inside = dir.path().join(".omni-dev").join("token");
+        let stable = dir.path().join("stable").join("token");
         write_json(
             &source,
             &json!({"gmail": {"accounts": {
                 "inside": {"refresh_token_file": inside.to_str().unwrap()},
                 "relative": {"client_secret_file": "secrets/client.json"},
-                "fine": {"refresh_token_file": "/etc/stable/token"}
+                "fine": {"refresh_token_file": stable.to_str().unwrap()}
             }}}),
         );
         let target = dir.path().join(".gwi").join("settings.json");

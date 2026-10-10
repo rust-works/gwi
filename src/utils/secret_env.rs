@@ -1802,6 +1802,8 @@ mod tests {
     /// with no write permission, so the temp file can't be created) is
     /// reported as [`SecretEnvError::Unwritable`] rather than partially
     /// applied.
+    // Relies on Unix directory mode bits; set_mode is a no-op on Windows.
+    #[cfg(unix)]
     #[test]
     fn write_secret_file_reports_an_io_error_from_an_unwritable_directory() {
         skip_as_root!();
