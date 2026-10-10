@@ -94,6 +94,53 @@ jobs:
     - run: cargo test --verbose
     - run: cargo test --features mcp --verbose
 
+  # Attribute debug builder frames and sweep actual thread budgets on Windows.
+  # Baseline and candidate share dependency artifacts, but compile their own source.
+  windows-cli-stack:
+    name: Windows CLI Stack
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+    - uses: actions/checkout@v7
+      with:
+        fetch-depth: 0
+    - uses: dtolnay/rust-toolchain@stable
+    - uses: Swatinem/rust-cache@v2
+    - name: Prepare baseline with the same probe
+      shell: pwsh
+      env:
+        STACK_BASE: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before }}
+      run: |
+        $baseline = "$HOME/wrk/work-trees/gwi/stack-before"
+        git worktree add --detach $baseline $env:STACK_BASE
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+        Copy-Item tests/cli_stack_test.rs "$baseline/tests/cli_stack_test.rs"
+        # Older bases do not declare this new test target (autotests is false).
+        if (-not (Select-String -Path "$baseline/Cargo.toml" -Pattern 'name = "cli_stack_test"' -Quiet)) {
+          Add-Content "$baseline/Cargo.toml" "`n[[test]]`nname = `"cli_stack_test`"`npath = `"tests/cli_stack_test.rs`""
+        }
+    - name: Measure baseline and candidate with both feature sets
+      shell: pwsh
+      run: |
+        python scripts/test_measure_cli_stack.py -v
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+        foreach ($phase in @("before", "after")) {
+          $checkout = if ($phase -eq "before") { "$HOME/wrk/work-trees/gwi/stack-before" } else { "$env:GITHUB_WORKSPACE" }
+          foreach ($features in @("default", "mcp")) {
+            $arguments = @("scripts/measure_cli_stack.py", "--checkout", $checkout, "--output", "$env:RUNNER_TEMP/cli-stack/$phase-$features")
+            if ($features -eq "mcp") { $arguments += "--mcp" }
+            python @arguments
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+        }
+    - uses: actions/upload-artifact@v7
+      if: always()
+      with:
+        name: windows-cli-stack
+        path: |
+          ${{ runner.temp }}/cli-stack/*/report.json
+          ${{ runner.temp }}/cli-stack/*/probe-*.log
+
   fmt:
     name: Rustfmt
     runs-on: ubuntu-latest

@@ -18,16 +18,27 @@ use gwi::Cli;
 
 /// Renders the long help of `cmd` and of every subcommand beneath it, depth first.
 fn render_all(cmd: &mut clap::Command, out: &mut String) {
+    render_all_help(cmd, out, true);
+}
+
+fn render_all_help(cmd: &mut clap::Command, out: &mut String, long: bool) {
     let heading = cmd
         .get_bin_name()
         .unwrap_or_else(|| cmd.get_name())
         .to_string();
     out.push_str(&format!("===== {heading} =====\n"));
-    out.push_str(&cmd.render_long_help().to_string());
+    out.push_str(
+        &if long {
+            cmd.render_long_help()
+        } else {
+            cmd.render_help()
+        }
+        .to_string(),
+    );
     out.push('\n');
     for sub in cmd.get_subcommands_mut() {
         if sub.get_name() != "help" {
-            render_all(sub, out);
+            render_all_help(sub, out, long);
         }
     }
 }
@@ -46,6 +57,15 @@ fn command_tree_fits_the_startup_stack() {
         .unwrap()
         .join()
         .unwrap();
+}
+
+#[test]
+fn short_help_all_golden() {
+    let mut root = Cli::command();
+    root.build();
+    let mut help = String::new();
+    render_all_help(&mut root, &mut help, false);
+    insta::assert_snapshot!("short_help_all_output", help);
 }
 
 #[test]

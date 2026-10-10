@@ -34,6 +34,10 @@ name = "cli_test"
 path = "tests/cli_test.rs"
 
 [[test]]
+name = "cli_stack_test"
+path = "tests/cli_stack_test.rs"
+
+[[test]]
 name = "log_follow_test"
 path = "tests/log_follow_test.rs"
 
