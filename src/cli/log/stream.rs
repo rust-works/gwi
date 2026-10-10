@@ -18,10 +18,13 @@
 //!
 //! `--follow` also notices the log being replaced (`gwi log prune`, rotation):
 //! by the file's identity (device and inode on unix; volume serial number and file
-//! index on Windows), and on any other platform only by its shrinking. On unix,
+//! index on Windows), and on all platforms by shrinkage or changed checkpoint
+//! bytes. On unix,
 //! the previous file stays open between polls so its inode cannot be reused by
 //! multiple replacements. It skips the contents present at detection and follows subsequent appends; replacement
 //! never replays a backlog, so `--limit` applies only to the initial scan.
+//! A checkpoint checks at most 256 bytes before the saved offset per poll.
+//! Rewrites preserving those bytes, or racing non-atomic reads, can escape detection.
 
 use std::collections::VecDeque;
 use std::ffi::OsStr;
@@ -39,6 +42,9 @@ use crate::request_log::LogRecord;
 
 /// Poll interval while following the log.
 const FOLLOW_POLL: Duration = Duration::from_millis(250);
+
+/// Maximum raw bytes checked immediately before the saved follow offset.
+const TAIL_CHECKPOINT_BYTES: usize = 256;
 
 /// Amortizes the hangup probe across this many scanned lines, including nonmatches.
 const HANGUP_PROBE_LINES: usize = 1024;
@@ -69,7 +75,7 @@ const LINE_PROBE_BYTES: usize = 256 * 1024;
 
 /// Identity of a file on disk, `(device, inode)` on unix and `(volume serial number,
 /// file index)` on Windows; `None` where the platform offers none, so only
-/// shrinkage reveals a replacement.
+/// shrinkage or changed checkpoint bytes reveal a replacement.
 type FileId = Option<(u64, u64)>;
 
 /// The identity of the open `file`; `None` if it cannot be read.
@@ -140,6 +146,8 @@ struct Tail {
     pos: u64,
     /// Number of newlines consumed before `pos` in this file.
     lines: u64,
+    /// Raw bytes immediately before `pos`, bounded by `TAIL_CHECKPOINT_BYTES`.
+    checkpoint: Vec<u8>,
     /// Identity of the file `pos` refers to, when known.
     id: FileId,
     /// Pins the Unix inode until a fresh file has been opened and read, preventing
@@ -274,6 +282,9 @@ fn scan_files<W: Write>(
                 if live {
                     tail.pos = pos;
                     tail.lines = lines;
+                    if follow {
+                        tail.checkpoint = read_checkpoint(reader.get_ref(), pos)?;
+                    }
                 }
                 warn_skipped(&current, &skipped);
             }
@@ -603,7 +614,8 @@ enum Drain {
 
 /// Reads and emits any complete lines appended past `tail.pos`, advancing the
 /// tail. Skips to the observed end if the file was replaced (its identity changed)
-/// or shrank (truncation); a no-op if the file is absent or has not grown.
+/// or shrank or changed its checkpoint (truncation/rewrite). An absent file or
+/// unchanged file with no complete appends produces no output.
 /// This also applies to replacement during the initial backlog scan.
 /// Returns the count and bounded positions of unparseable complete lines on
 /// completion, or reader gone.
@@ -629,7 +641,10 @@ fn drain_appended<W: Write>(
     // An identity that cannot be read says nothing about replacement: keep the saved
     // one, and do not take a first successful read after a failure for a change.
     let replaced = matches!((id, tail.id), (Some(now), Some(saved)) if now != saved);
-    if replaced || len < tail.pos {
+    let previous_pos = tail.pos;
+    let rewritten =
+        !tail.checkpoint.is_empty() && read_checkpoint(&file, tail.pos)? != tail.checkpoint;
+    if replaced || len < tail.pos || rewritten {
         // Prune retains records already seen, and identity cannot tell it apart
         // from rotation. Never replay replacement contents, including records
         // written before this poll; follow only subsequent appends.
@@ -672,6 +687,9 @@ fn drain_appended<W: Write>(
             }
         }
     }
+    if tail.pos != previous_pos || replaced || rewritten {
+        tail.checkpoint = read_checkpoint(&file, tail.pos)?;
+    }
     // Keep the old inode pinned until the new handle has been read, including
     // idle polls. An absent path above leaves the previous handle alive.
     #[cfg(unix)]
@@ -681,10 +699,22 @@ fn drain_appended<W: Write>(
     Ok(Drain::Complete { skipped })
 }
 
+/// Reads a bounded raw-byte checkpoint immediately before `pos` using portable
+/// seek/read operations. A concurrent shrink may return fewer bytes, which also
+/// differs from a saved checkpoint. File reads are not an atomic snapshot.
+fn read_checkpoint(mut file: &File, pos: u64) -> io::Result<Vec<u8>> {
+    let start = pos.saturating_sub(TAIL_CHECKPOINT_BYTES as u64);
+    file.seek(SeekFrom::Start(start))?;
+    let mut bytes = Vec::with_capacity((pos - start) as usize);
+    file.take(pos - start).read_to_end(&mut bytes)?;
+    Ok(bytes)
+}
+
 /// Counts physical line boundaries up to the observed replacement end, without
 /// parsing or replaying its records or buffering an arbitrarily large line.
 #[allow(clippy::naive_bytecount)] // Replacement-only scans do not warrant a bytecount dependency.
-fn count_newlines(file: &File, len: u64) -> io::Result<u64> {
+fn count_newlines(mut file: &File, len: u64) -> io::Result<u64> {
+    file.seek(SeekFrom::Start(0))?;
     let mut reader = BufReader::new(file.take(len));
     let mut lines = 0;
     loop {
@@ -1234,6 +1264,7 @@ mod tests {
             pos,
             lines,
             id,
+            checkpoint: Vec::new(),
             #[cfg(unix)]
             file: None,
         };
@@ -2723,6 +2754,7 @@ mod tests {
             pos: 7,
             lines: 0,
             id: tail.id,
+            checkpoint: Vec::new(),
             #[cfg(unix)]
             file: None,
         };
@@ -2770,6 +2802,7 @@ mod tests {
             pos: sample_lines().len() as u64,
             lines: 5,
             id: None,
+            checkpoint: Vec::new(),
             #[cfg(unix)]
             file: None,
         };
@@ -3030,6 +3063,177 @@ mod tests {
     }
 
     #[test]
+    fn follow_detects_same_inode_rewrites_at_equal_and_larger_lengths() {
+        for larger in [false, true] {
+            let dir = tempfile::tempdir().unwrap();
+            let path = dir.path().join("log.jsonl");
+            let initial = sample_lines();
+            std::fs::write(&path, &initial).unwrap();
+            let mut out = Vec::new();
+            let mut sink = BacklogSink {
+                format: Format::Json,
+                limit: None,
+                ring: VecDeque::new(),
+                out: &mut out,
+            };
+            let mut tail = scan_files(&path, &empty_filter(), true, false, &mut sink, || false)
+                .unwrap()
+                .unwrap();
+            assert_eq!(out, initial.as_bytes());
+            let id = tail.id;
+            let checkpoint = tail.checkpoint.clone();
+            let rewritten = initial
+                .replace("/x/", "/y/")
+                .repeat(if larger { 2 } else { 1 });
+            assert!(rewritten.len() as u64 >= tail.pos);
+            // fs::write truncates the existing inode and regrows it before one drain.
+            std::fs::write(&path, &rewritten).unwrap();
+            assert_eq!(file_id(&File::open(&path).unwrap()), id);
+            out.clear();
+            drain_appended(
+                &path,
+                &empty_filter(),
+                Format::Json,
+                &mut tail,
+                &mut out,
+                || false,
+            )
+            .unwrap();
+            assert!(out.is_empty(), "rewritten records must be skipped");
+            assert_eq!(tail.pos, rewritten.len() as u64);
+            assert_eq!(tail.lines, if larger { 10 } else { 5 });
+            assert_ne!(tail.checkpoint, checkpoint);
+            assert_follows_next_append(&path, &mut tail);
+            // Checkpoint refresh after an append must also detect a later rewrite.
+            let later = std::fs::read_to_string(&path)
+                .unwrap()
+                .replace("http", "xxxx");
+            std::fs::write(&path, &later).unwrap();
+            drain_appended(
+                &path,
+                &empty_filter(),
+                Format::Json,
+                &mut tail,
+                &mut out,
+                || false,
+            )
+            .unwrap();
+            assert!(out.is_empty());
+            assert_eq!(
+                tail.checkpoint,
+                read_checkpoint(&File::open(&path).unwrap(), tail.pos).unwrap()
+            );
+            assert_follows_next_append(&path, &mut tail);
+        }
+    }
+
+    #[test]
+    fn follow_checkpoint_preserves_partial_appends_and_idle_state() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("log.jsonl");
+        std::fs::write(&path, format!("{GOOD}\n")).unwrap();
+        let mut tail = Tail::default();
+        let mut out = Vec::new();
+        drain_appended(
+            &path,
+            &empty_filter(),
+            Format::Json,
+            &mut tail,
+            &mut out,
+            || false,
+        )
+        .unwrap();
+        let pos = tail.pos;
+        let checkpoint = tail.checkpoint.clone();
+        out.clear();
+        let mut file = std::fs::OpenOptions::new()
+            .append(true)
+            .open(&path)
+            .unwrap();
+        write!(file, "{GOOD}").unwrap();
+        for _ in 0..3 {
+            drain_appended(
+                &path,
+                &empty_filter(),
+                Format::Json,
+                &mut tail,
+                &mut out,
+                || false,
+            )
+            .unwrap();
+            assert!(out.is_empty());
+            assert_eq!(tail.pos, pos);
+            assert_eq!(tail.checkpoint, checkpoint);
+        }
+        writeln!(file).unwrap();
+        drain_appended(
+            &path,
+            &empty_filter(),
+            Format::Json,
+            &mut tail,
+            &mut out,
+            || false,
+        )
+        .unwrap();
+        assert_eq!(out, format!("{GOOD}\n").as_bytes());
+        assert_follows_next_append(&path, &mut tail);
+    }
+
+    #[test]
+    fn checkpoint_reads_only_bounded_raw_bytes_before_the_offset() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("log.jsonl");
+        let bytes = vec![0xff; TAIL_CHECKPOINT_BYTES * 4];
+        std::fs::write(&path, &bytes).unwrap();
+        let file = File::open(&path).unwrap();
+        assert!(read_checkpoint(&file, 0).unwrap().is_empty());
+        assert_eq!(read_checkpoint(&file, 7).unwrap(), bytes[..7]);
+        assert_eq!(
+            read_checkpoint(&file, bytes.len() as u64).unwrap(),
+            bytes[..TAIL_CHECKPOINT_BYTES]
+        );
+        // A concurrent shrink yields fewer bytes rather than an unexpected-EOF error.
+        std::fs::write(&path, []).unwrap();
+        assert!(read_checkpoint(&file, 7).unwrap().is_empty());
+    }
+
+    #[test]
+    fn unchanged_checkpoint_cannot_reveal_an_earlier_rewrite() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("log.jsonl");
+        let initial = sample_lines();
+        std::fs::write(&path, &initial).unwrap();
+        let mut tail = Tail::default();
+        let mut out = Vec::new();
+        drain_appended(
+            &path,
+            &empty_filter(),
+            Format::Json,
+            &mut tail,
+            &mut out,
+            || false,
+        )
+        .unwrap();
+        let checkpoint = tail.checkpoint.clone();
+        let rewritten = initial.replacen("/x/", "/y/", 1);
+        std::fs::write(&path, &rewritten).unwrap();
+        out.clear();
+        drain_appended(
+            &path,
+            &empty_filter(),
+            Format::Json,
+            &mut tail,
+            &mut out,
+            || false,
+        )
+        .unwrap();
+        assert!(out.is_empty());
+        assert_eq!(tail.pos, initial.len() as u64);
+        assert_eq!(tail.checkpoint, checkpoint);
+        assert_follows_next_append(&path, &mut tail);
+    }
+
+    #[test]
     fn drain_appended_reads_a_file_created_after_a_missing_log() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("log.jsonl");
@@ -3072,6 +3276,7 @@ mod tests {
                         pos: 0,
                         lines: 0,
                         id: file_id(&file),
+                        checkpoint: Vec::new(),
                         #[cfg(unix)]
                         file: None,
                     };
