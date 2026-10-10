@@ -66,6 +66,18 @@ def builder_paths(frames, calls):
     )[:10]
 
 
+def library_assemblies(cargo_output):
+    """Use hashed metadata paths; Cargo's stable libgwi.rlib has no sibling asm."""
+    return [
+        Path(filename).with_name(Path(filename).name.removeprefix("lib")).with_suffix(".s")
+        for line in cargo_output.splitlines()
+        if (row := json.loads(line)).get("reason") == "compiler-artifact"
+        and row.get("target", {}).get("name") == "gwi"
+        and "lib" in row["target"]["kind"]
+        for filename in row.get("filenames", []) if filename.endswith(".rmeta")
+    ]
+
+
 def measure(checkout, output, mcp):
     output.mkdir(parents=True, exist_ok=True)
     target = output.parent / "target"
@@ -79,12 +91,7 @@ def measure(checkout, output, mcp):
         ["cargo", "rustc", *common, "--lib", "--message-format=json", "--", "--emit=asm"],
         check=True, capture_output=True, text=True, encoding="utf-8", errors="replace",
     )
-    libraries = [Path(filename).with_name(Path(filename).name.removeprefix("lib")).with_suffix(".s")
-                 for line in compilation.stdout.splitlines()
-                 if (row := json.loads(line)).get("reason") == "compiler-artifact"
-                 and row.get("target", {}).get("name") == "gwi"
-                 and "lib" in row["target"]["kind"]
-                 for filename in row.get("filenames", []) if filename.endswith(".rlib")]
+    libraries = library_assemblies(compilation.stdout)
     if len(libraries) != 1 or not libraries[0].is_file():
         raise RuntimeError(f"expected one library assembly, got {libraries}")
     frames, calls = windows_frames(libraries[0].read_text(encoding="utf-8"))

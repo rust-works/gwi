@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """Regression tests for MSVC frame accounting used in CLI stack reports."""
 
+import json
+from pathlib import Path
 import unittest
 
-from measure_cli_stack import builder_paths, windows_frames
+from measure_cli_stack import builder_paths, library_assemblies, windows_frames
 
 
 class FrameTests(unittest.TestCase):
@@ -35,6 +37,21 @@ class FrameTests(unittest.TestCase):
         paths = builder_paths(frames, calls)
         self.assertEqual(paths[0]["bytes"], 4616)
         self.assertEqual(len(paths[0]["frames"]), 2)
+
+    def test_library_assembly_uses_hashed_metadata_artifact(self):
+        output = json.dumps({
+            "reason": "compiler-artifact",
+            "target": {"name": "gwi", "kind": ["lib"]},
+            "filenames": ["target/debug/libgwi.rlib",
+                          "target/debug/deps/libgwi-8f7effb47400b339.rmeta"],
+        })
+        self.assertEqual(library_assemblies(output), [
+            Path("target/debug/deps/gwi-8f7effb47400b339.s"),
+        ])
+        # Windows artifact names can omit the Unix library prefix.
+        self.assertEqual(library_assemblies(output.replace("libgwi", "gwi")), [
+            Path("target/debug/deps/gwi-8f7effb47400b339.s"),
+        ])
 
     def test_no_windows_unwind_frames(self):
         self.assertEqual(windows_frames("sub sp, sp, #4096"), ({}, {}))

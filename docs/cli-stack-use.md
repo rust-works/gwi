@@ -23,7 +23,8 @@ unchanged. Variants without complete explicit descriptions retain ordinary doc
 comments. Twenty-nine variants explicitly retain `long_about = None`: their
 inferred reset was necessary to clear a payload struct’s inherited long
 description. The unchanged long-help snapshot identified these variants; simply
-removing every inferred reset would change help output. This avoids a parser fork or changing the public enum structure.
+removing every inferred reset would change help output. This avoids a parser fork
+or changing the public enum structure.
 
 This is a targeted workaround for the pinned extractor, rather than a new clap
 option. A future derive version could expand macro-valued documentation itself;
