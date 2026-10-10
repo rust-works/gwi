@@ -11,7 +11,10 @@
 //! noticed only on the next matching write; an idle follow may run indefinitely
 //! until explicitly interrupted (accepted platform limit, #91). Backlog scans
 //! and appended drains probe before reading and every 1,024 lines on unix, even
-//! when a filter or `--limit` prevents writes.
+//! when a filter or `--limit` prevents writes. Backlog line acquisition also
+//! probes every 256 KiB consumed, before decoding or parsing an oversized line.
+//! Buffered prefetch, blocking I/O and parsing a completed line are outside
+//! this byte bound.
 //!
 //! `--follow` also notices the log being replaced (`gwi log prune`, rotation):
 //! by the file's identity (device and inode on unix; volume serial number and file
@@ -59,6 +62,10 @@ impl SkippedLines {
         }
     }
 }
+
+/// Maximum bytes consumed into line storage between acquisition probes.
+/// This is a probe budget, not a record-size limit; full records remain intact.
+const LINE_PROBE_BYTES: usize = 256 * 1024;
 
 /// Identity of a file on disk, `(device, inode)` on unix and `(volume serial number,
 /// file index)` on Windows; `None` where the platform offers none, so only
@@ -393,11 +400,62 @@ fn read_line_lossy<R: BufRead>(
     buf: &mut Vec<u8>,
     line: &mut String,
 ) -> io::Result<usize> {
+    // The follow drain retains its line-based probe cadence. Share acquisition
+    // semantics while leaving its existing EOF/partial-line behavior intact.
+    let mut until_probe = LINE_PROBE_BYTES;
+    read_line_lossy_interruptible(reader, buf, line, &mut until_probe, &mut || false)
+        .map(|n| n.unwrap_or(0)) // a never-true predicate cannot return None
+}
+
+/// Acquires a full line, probing after each byte budget, carried across calls.
+/// Returns `None` on hangup, `Some(0)` at EOF, or `Some(n)` for a full/partial
+/// line. Bounds consumption even when `fill_buf` exposes more than the budget.
+/// Probes at the boundary before decoding, including when it ends on a newline.
+/// A blocking `fill_buf`, buffered prefetch and completed-line parsing are not
+/// interruptible. Invalid UTF-8 is decoded only after full acquisition, preserving
+/// characters split across chunks. Retries interrupted reads like `read_until`.
+fn read_line_lossy_interruptible<R: BufRead>(
+    reader: &mut R,
+    buf: &mut Vec<u8>,
+    line: &mut String,
+    until_probe: &mut usize,
+    reader_gone: &mut impl FnMut() -> bool,
+) -> io::Result<Option<usize>> {
     buf.clear();
-    let n = reader.read_until(b'\n', buf)?;
     line.clear();
-    line.push_str(&String::from_utf8_lossy(buf));
-    Ok(n)
+    loop {
+        if *until_probe == 0 {
+            if reader_gone() {
+                return Ok(None);
+            }
+            *until_probe = LINE_PROBE_BYTES;
+        }
+        let available = match reader.fill_buf() {
+            Ok(available) => available,
+            Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
+            Err(e) => return Err(e),
+        };
+        let available = &available[..available.len().min(*until_probe)];
+        let n = available
+            .iter()
+            .position(|&b| b == b'\n')
+            .map_or(available.len(), |i| i + 1);
+        let complete = n > 0 && available[n - 1] == b'\n';
+        buf.extend_from_slice(&available[..n]);
+        reader.consume(n);
+        *until_probe -= n;
+        // Even a newline at the budget boundary must be probed before decoding.
+        if *until_probe == 0 {
+            if reader_gone() {
+                return Ok(None);
+            }
+            *until_probe = LINE_PROBE_BYTES;
+        }
+        if n == 0 || complete {
+            line.push_str(&String::from_utf8_lossy(buf));
+            return Ok(Some(buf.len()));
+        }
+    }
 }
 
 /// Reads every existing line, passing matches to the shared sink. With a limit,
@@ -409,7 +467,8 @@ fn read_line_lossy<R: BufRead>(
 /// nothing to complete it, so it renders or counts that line immediately.
 /// Stops at the first write to a closed pipe or when `reader_gone` reports hangup,
 /// checked before reading and every [`HANGUP_PROBE_LINES`] lines thereafter.
-/// The cadence counts every line, regardless of parsing or filtering.
+/// The cadence counts every line, regardless of parsing or filtering. Acquisition
+/// also probes every [`LINE_PROBE_BYTES`] bytes, across and within lines.
 fn scan_backlog<R: BufRead, W: Write>(
     reader: &mut R,
     filter: &Filter,
@@ -423,6 +482,7 @@ fn scan_backlog<R: BufRead, W: Write>(
     let mut buf = Vec::new();
     let mut line = String::new();
     let mut until_probe = 0;
+    let mut bytes_until_probe = LINE_PROBE_BYTES;
     loop {
         if until_probe == 0 {
             if reader_gone() {
@@ -431,7 +491,16 @@ fn scan_backlog<R: BufRead, W: Write>(
             until_probe = HANGUP_PROBE_LINES;
         }
         until_probe -= 1;
-        let n = read_line_lossy(reader, &mut buf, &mut line)?;
+        let Some(n) = read_line_lossy_interruptible(
+            reader,
+            &mut buf,
+            &mut line,
+            &mut bytes_until_probe,
+            &mut reader_gone,
+        )?
+        else {
+            return Ok(Backlog::ReaderGone);
+        };
         if n == 0 {
             break;
         }
@@ -2080,6 +2149,226 @@ mod tests {
     }
 
     #[test]
+    fn backlog_byte_probe_stops_inside_oversized_lines() {
+        for terminated in [false, true] {
+            let mut input = "x".repeat(LINE_PROBE_BYTES * 4);
+            if terminated {
+                input.push('\n');
+            }
+            for follow in [false, true] {
+                // Cursor exposes the entire input; BufReader exposes small chunks.
+                for capacity in [31, input.len()] {
+                    let mut reader = BufReader::with_capacity(capacity, Cursor::new(&input));
+                    let mut out = Vec::new();
+                    let mut probes = 0;
+                    let result = emit_backlog(
+                        &mut reader,
+                        &empty_filter(),
+                        Format::Json,
+                        Some(3),
+                        follow,
+                        &mut out,
+                        || {
+                            probes += 1;
+                            probes == 2
+                        },
+                    )
+                    .unwrap();
+                    assert_eq!(result, Backlog::ReaderGone);
+                    assert_eq!(reader.stream_position().unwrap() as usize, LINE_PROBE_BYTES);
+                    assert_eq!(probes, 2);
+                    assert!(out.is_empty());
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn byte_probe_carries_budget_across_lines_and_precedes_decoding() {
+        let input = format!("{}\n{}\n", "a".repeat(100), "b".repeat(LINE_PROBE_BYTES));
+        let mut reader = Cursor::new(input.as_bytes());
+        let mut buf = Vec::new();
+        let mut line = String::new();
+        let mut budget = LINE_PROBE_BYTES;
+        assert_eq!(
+            read_line_lossy_interruptible(
+                &mut reader,
+                &mut buf,
+                &mut line,
+                &mut budget,
+                &mut || false,
+            )
+            .unwrap(),
+            Some(101)
+        );
+        assert_eq!(budget, LINE_PROBE_BYTES - 101);
+        assert_eq!(
+            read_line_lossy_interruptible(
+                &mut reader,
+                &mut buf,
+                &mut line,
+                &mut budget,
+                &mut || true,
+            )
+            .unwrap(),
+            None
+        );
+        assert_eq!(reader.position() as usize, LINE_PROBE_BYTES);
+        assert_eq!(buf.len(), LINE_PROBE_BYTES - 101);
+        assert!(line.is_empty()); // the abandoned line was never decoded
+    }
+
+    #[test]
+    fn exhausted_byte_budget_probes_before_acquisition() {
+        for gone in [true, false] {
+            let mut reader = Cursor::new(b"ok\n");
+            let mut buf = Vec::new();
+            let mut line = String::new();
+            let mut budget = 0;
+            let mut probes = 0;
+            let result = read_line_lossy_interruptible(
+                &mut reader,
+                &mut buf,
+                &mut line,
+                &mut budget,
+                &mut || {
+                    probes += 1;
+                    gone
+                },
+            )
+            .unwrap();
+            assert_eq!(probes, 1);
+            if gone {
+                assert_eq!(result, None);
+                assert_eq!(reader.position(), 0);
+            } else {
+                assert_eq!(result, Some(3));
+                assert_eq!(line, "ok\n");
+                assert_eq!(budget, LINE_PROBE_BYTES - 3);
+            }
+        }
+    }
+
+    #[test]
+    fn byte_probe_checks_newline_boundary_before_decoding() {
+        let input = format!("{}\n", "x".repeat(LINE_PROBE_BYTES - 1));
+        let mut reader = Cursor::new(input);
+        let mut buf = Vec::new();
+        let mut line = String::new();
+        let mut budget = LINE_PROBE_BYTES;
+        let result = read_line_lossy_interruptible(
+            &mut reader,
+            &mut buf,
+            &mut line,
+            &mut budget,
+            &mut || true,
+        )
+        .unwrap();
+        assert_eq!(result, None);
+        assert!(line.is_empty());
+        assert_eq!(reader.position() as usize, LINE_PROBE_BYTES);
+    }
+
+    #[test]
+    fn oversized_valid_records_remain_intact_and_partial_follow_stays_pending() {
+        let mut value: serde_json::Value =
+            serde_json::from_str(sample_lines().lines().next().unwrap()).unwrap();
+        value["url"] = serde_json::Value::String(format!("/{}é", "x".repeat(LINE_PROBE_BYTES * 2)));
+        let raw = serde_json::to_string(&value).unwrap();
+        for terminated in [false, true] {
+            for follow in [false, true] {
+                let input = format!("{raw}{}", if terminated { "\n" } else { "" });
+                let mut reader = BufReader::with_capacity(7, Cursor::new(&input));
+                let mut out = Vec::new();
+                let mut probes = 0;
+                let result = emit_backlog(
+                    &mut reader,
+                    &empty_filter(),
+                    Format::Json,
+                    None,
+                    follow,
+                    &mut out,
+                    || {
+                        probes += 1;
+                        false
+                    },
+                )
+                .unwrap();
+                assert_eq!(
+                    result,
+                    Backlog::Complete {
+                        pos: if terminated { input.len() as u64 } else { 0 },
+                        lines: u64::from(terminated),
+                        skipped: SkippedLines::default(),
+                    }
+                );
+                if follow && !terminated {
+                    assert!(out.is_empty());
+                } else {
+                    assert_eq!(out, format!("{raw}\n").as_bytes());
+                }
+                assert_eq!(probes, 1 + input.len() / LINE_PROBE_BYTES);
+            }
+        }
+    }
+
+    #[test]
+    fn lossy_reader_preserves_utf8_split_at_byte_budget_and_replaces_invalid_bytes() {
+        let mut input = vec![b'x'; LINE_PROBE_BYTES - 1];
+        input.extend_from_slice("é".as_bytes());
+        input.extend_from_slice(b"\xff\n");
+        let mut reader = BufReader::with_capacity(7, Cursor::new(&input));
+        let mut buf = Vec::new();
+        let mut line = String::new();
+        assert_eq!(
+            read_line_lossy(&mut reader, &mut buf, &mut line).unwrap(),
+            input.len()
+        );
+        assert_eq!(line, String::from_utf8_lossy(&input));
+        assert!(line.ends_with("é�\n"));
+        assert_eq!(
+            read_line_lossy(&mut reader, &mut buf, &mut line).unwrap(),
+            0
+        );
+        assert!(line.is_empty());
+    }
+
+    /// Emits one read error, then serves bytes from a cursor.
+    struct ErrorOnce {
+        error: Option<io::ErrorKind>,
+        input: Cursor<Vec<u8>>,
+    }
+
+    impl io::Read for ErrorOnce {
+        fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+            if let Some(error) = self.error.take() {
+                return Err(io::Error::from(error));
+            }
+            self.input.read(buf)
+        }
+    }
+
+    #[test]
+    fn lossy_reader_retries_interrupted_reads_and_propagates_other_errors() {
+        for kind in [io::ErrorKind::Interrupted, io::ErrorKind::PermissionDenied] {
+            let mut reader = BufReader::new(ErrorOnce {
+                error: Some(kind),
+                input: Cursor::new(b"hello\n".to_vec()),
+            });
+            let mut buf = Vec::new();
+            let mut line = String::new();
+            let result = read_line_lossy(&mut reader, &mut buf, &mut line);
+            if kind == io::ErrorKind::Interrupted {
+                assert_eq!(result.unwrap(), 6);
+                assert_eq!(line, "hello\n");
+            } else {
+                assert_eq!(result.unwrap_err().kind(), kind);
+                assert!(line.is_empty());
+            }
+        }
+    }
+
+    #[test]
     fn backlog_probe_stops_scans_that_write_nothing() {
         let input = many_lines();
         let mut no_match = filter_input();
@@ -2188,7 +2477,10 @@ mod tests {
             }
         );
         assert_eq!(out, input.as_bytes());
-        assert_eq!(probes, input.lines().count() / HANGUP_PROBE_LINES + 1);
+        assert_eq!(
+            probes,
+            input.lines().count() / HANGUP_PROBE_LINES + 1 + input.len() / LINE_PROBE_BYTES
+        );
     }
 
     #[test]
