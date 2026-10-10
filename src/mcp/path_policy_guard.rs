@@ -3,9 +3,11 @@
 //! Covers fs reads/writes/copy/rename/removal, File open/create/create_new, and
 //! OpenOptions with std/tokio or imported fs/File spellings. Direct imports of
 //! guarded functions (including renamed, nested/grouped and glob imports) are
-//! rejected at the import. Module/type aliases, macros, and comments/strings are
-//! not resolved. Only tool files are scanned; policy helpers and trailing tests
-//! remain outside the production scan.
+//! rejected at the import, as are renamed std/tokio fs modules and File imports
+//! (flat, grouped/nested, and self-as forms). Unrenamed fs/File imports are allowed.
+//! Arbitrary type aliases, re-exports, indirect alias chains, macros, and
+//! comments/strings are not resolved. Only tool files are scanned; policy helpers
+//! and trailing tests remain outside the production scan.
 
 #![cfg(test)]
 
@@ -65,9 +67,9 @@ fn unchecked_params(file: &str, source: &str) -> Vec<String> {
         .collect()
 }
 
-// Expand conventional use trees without resolving aliases. Renamed function imports
-// are checked by their original path, so the local name cannot hide direct I/O.
-fn imported_paths(tree: &str, prefix: &str, paths: &mut Vec<String>) {
+// Expand conventional use trees, preserving whether each leaf is renamed. Check
+// original paths at the import rather than resolving subsequent local-name calls.
+fn imported_paths(tree: &str, prefix: &str, paths: &mut Vec<(String, bool)>) {
     let mut depth = 0;
     let mut start = 0;
     for (index, character) in tree.char_indices() {
@@ -97,8 +99,18 @@ fn imported_paths(tree: &str, prefix: &str, paths: &mut Vec<String>) {
             paths,
         );
     } else {
-        let original = tree.split_whitespace().take_while(|part| *part != "as");
-        paths.push(format!("{prefix}{}", original.collect::<String>()));
+        let mut parts = tree.split_whitespace();
+        let original = parts
+            .by_ref()
+            .take_while(|part| *part != "as")
+            .collect::<String>();
+        let renamed = parts.next().is_some();
+        let path = if original == "self" {
+            prefix.trim_end_matches("::").to_owned()
+        } else {
+            format!("{prefix}{original}")
+        };
+        paths.push((path, renamed));
     }
 }
 
@@ -119,13 +131,14 @@ fn direct_filesystem_calls(source: &str) -> Vec<String> {
         r"^(?:std|tokio)::fs::(?:write|read\w*|copy|rename|remove_file|remove_dir|remove_dir_all|\*)$",
     )
     .unwrap();
+    let renamed_filesystem = Regex::new(r"^(?:std|tokio)::fs(?:::File)?$").unwrap();
     for import in imports.captures_iter(source) {
         let mut paths = Vec::new();
         imported_paths(&import[1], "", &mut paths);
-        if paths
-            .iter()
-            .any(|path| forbidden.is_match(path.trim_start_matches("::")))
-        {
+        if paths.iter().any(|(path, renamed)| {
+            let path = path.trim_start_matches("::");
+            forbidden.is_match(path) || (*renamed && renamed_filesystem.is_match(path))
+        }) {
             found.push(import[0].to_owned());
         }
     }
@@ -288,6 +301,69 @@ fn imported_filesystem_functions_are_rejected() {
 }
 
 #[test]
+fn renamed_filesystem_modules_and_files_are_rejected() {
+    for namespace in ["std", "tokio"] {
+        for tree in [
+            format!("{namespace}::fs as disk"),
+            format!("{namespace}::fs::File as LocalFile"),
+            format!("{namespace}::fs::{{self as disk, File as LocalFile}}"),
+            format!("{namespace}::fs::{{File, self as disk}}"),
+            format!("{namespace}::fs::{{self, File as LocalFile}}"),
+            format!("{namespace}::{{path::Path, fs as disk}}"),
+            format!("{namespace}::{{path::Path, fs::{{self as disk, File as LocalFile,}}}}"),
+            format!("{{{namespace}::fs as disk, other::Thing}}"),
+            format!("{{{namespace}::fs::File as LocalFile, other::Thing}}"),
+            format!("::{namespace} :: fs as disk"),
+            format!("::{namespace} :: fs :: File as LocalFile"),
+            format!("{namespace} :: {{ fs :: {{ self\n as disk, File\n as LocalFile, }}, }}"),
+            format!("{namespace}::fs as fs"),
+            format!("{namespace}::fs::File as File"),
+        ] {
+            assert_filesystem_rejected(&format!("use {tree};"));
+        }
+        for source in [
+            format!("use {namespace}::fs as disk; disk::write(path, bytes);"),
+            format!("use {namespace}::fs::File as LocalFile; LocalFile::create(path).await;"),
+            format!("use {namespace}::fs::{{self as disk, File as LocalFile}}; disk::copy(source, output); LocalFile::open(path);"),
+        ] {
+            assert_filesystem_rejected(&source);
+        }
+    }
+}
+
+#[test]
+fn allowlisted_parameter_does_not_allow_aliased_filesystem_access() {
+    for namespace in ["std", "tokio"] {
+        for (import, call) in [
+            (
+                format!("{namespace}::fs as disk"),
+                "disk::write(params.output_file, bytes)",
+            ),
+            (
+                format!("{namespace}::fs::File as LocalFile"),
+                "LocalFile::create(params.output_file)",
+            ),
+            (
+                format!("{namespace}::fs::{{self as disk, File as LocalFile}}"),
+                "disk::copy(source, params.output_file)",
+            ),
+        ] {
+            let source = format!(
+                "use {import};
+                pub struct GmailMessageReadParams {{ pub output_file: Option<String> }}
+                fn execute(params: GmailMessageReadParams) {{ {call}; }}"
+            );
+            assert!(unchecked_params("gmail_tools.rs", &source).is_empty());
+            let errors = filesystem_policy_errors("gmail_tools.rs", &source);
+            assert_eq!(errors.len(), 1, "{source}");
+            assert!(errors[0].contains(&format!("use {import};")));
+            assert!(errors[0].contains("gmail_tools.rs"));
+            assert!(errors[0].contains("PathPolicy"));
+        }
+    }
+}
+
+#[test]
 fn allowlisted_parameter_does_not_allow_direct_filesystem_access() {
     let source = "pub struct GmailMessageReadParams { pub output_file: Option<String> }
         fn execute(params: GmailMessageReadParams) { std::fs::File::create(params.output_file); }";
@@ -299,6 +375,10 @@ fn allowlisted_parameter_does_not_allow_direct_filesystem_access() {
 fn module_and_unrelated_function_imports_are_permitted() {
     for source in [
         "use std::fs; use tokio::fs::File;",
+        "use tokio::{fs::{self, File},}; use ::std::fs::File;",
+        "use other::fs as disk; use other::fs::File as LocalFile;",
+        "use std::path as paths; use tokio::io as local_io;",
+        "use std::fs::{metadata as stat, canonicalize as resolve};",
         "use std::{fs::{self, File}, path::Path};",
         "use other::{read, write, copy, rename, remove_file};",
         "use std::fs::{metadata, canonicalize};",
@@ -316,10 +396,15 @@ fn test_fixture_io_is_excluded() {
         mod tests {
             pub struct Fixture { pub fixture_path: Option<String> }
             use std::fs::{read_to_string, copy};
+            use std::fs as disk;
+            use tokio::fs::{self as async_disk, File as LocalFile};
             fn fixture() {
                 std::fs::write(path, bytes);
                 tokio::fs::File::create(path);
                 std::fs::remove_file(path);
+                disk::write(path, bytes);
+                async_disk::copy(source, output);
+                LocalFile::create(path).await;
             }
         }";
     assert!(path_params(source).is_empty());
