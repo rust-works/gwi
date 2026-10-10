@@ -12,6 +12,7 @@ import tempfile
 import time
 
 ROOT = Path(__file__).resolve().parents[1]
+APP_DIR_KEYS = ("GWI_HOME", "GWI_STATE_DIR")
 LIST_TIMEOUT = 30
 TEST_TIMEOUT = 300
 TERMINATION_GRACE = 1
@@ -150,6 +151,9 @@ def run_binary(binary, case):
     try:
         with tempfile.TemporaryDirectory(prefix="gwi-hostile-env-") as scratch:
             env = os.environ.copy()
+            # Preserve platform defaults instead of inheriting an ambient installation.
+            for key in APP_DIR_KEYS:
+                env.pop(key, None)
             env.update(CASES[case])
             env.update({key: str(Path(scratch) / name) for key, name in PATHS.items()})
             env["INSTA_WORKSPACE_ROOT"] = str(ROOT)
