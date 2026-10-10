@@ -64,8 +64,8 @@ pub(crate) fn settings_path() -> Option<std::path::PathBuf> {
 /// first in any test that makes a path unwritable to force an I/O failure, with
 /// a comment saying what the test would otherwise pin. The ordinary `Test` job
 /// still runs those tests; `scripts/sandbox-test.sh` runs as root on Linux (a
-/// user namespace maps the caller to uid 0), so it skips them. A no-op off
-/// Unix, where nothing here is root-specific.
+/// user namespace maps the caller to uid 0), so it skips them. Available only
+/// on Unix, matching the permission-denial tests that use it.
 ///
 /// `python3 scripts/check_permission_tests.py` enforces this for literal
 /// `from_mode` calls without owner write permission in `src/` and `tests/`.
@@ -83,11 +83,7 @@ macro_rules! skip_as_root {
     };
 }
 
-#[cfg(not(unix))]
-macro_rules! skip_as_root {
-    () => {};
-}
-
+#[cfg(unix)]
 pub(crate) use skip_as_root;
 
 /// Redirects the audit log into an isolated tempdir for the life of one

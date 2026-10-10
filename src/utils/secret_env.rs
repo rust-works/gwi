@@ -740,6 +740,7 @@ mod tests {
     // Root creates root-owned files, which `check_unix_security` accepts up to `0644`, so
     // `SecretEnvError::LoosePermissions` is unreachable as root; the pure
     // `check_unix_security` tests keep the owner/mode rule covered under any uid.
+    #[cfg(unix)]
     use crate::test_support::skip_as_root;
 
     const NAME: &str = "GMAIL_REFRESH_TOKEN";
