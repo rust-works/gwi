@@ -170,3 +170,10 @@ MCP fixture uses Cargo's absolute executable path without a Unix-specific `PATH`
 Settings/profile/import scenarios and all three MCP stdio/rejection scenarios run
 on Windows; only tests of platform-specific filesystem or pipe behaviour remain
 gated as described above.
+
+## Investigating log-follow timeouts
+
+The opt-in [log-follow contention probe](docs/log-follow-probe.md) repeats the
+instrumented recovery test with default and MCP features, retaining phase diagnostics
+and bounded CPU/startup or CLI-harness workload evidence. It is separate from normal
+test runs and CI.
