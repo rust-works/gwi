@@ -64,9 +64,9 @@ fn stack_probe() {
 
 #[test]
 fn stack_budget() {
-    // Windows still needs a measured budget; keep the known-safe reserve until
-    // the before/after Windows sweep proves a smaller budget for the full tree.
-    let kib = if cfg!(windows) { 8192 } else { 1024 };
+    // Native Windows sweeps passed at 1 MiB with default and MCP features.
+    // Keep this independent of the executable’s larger main-thread reserve.
+    let kib = 1024;
     let output = std::process::Command::new(std::env::current_exe().unwrap())
         .env("GWI_TEST_STACK_KIB", kib.to_string())
         .args(["--ignored", "--exact", "stack_probe", "--nocapture"])
