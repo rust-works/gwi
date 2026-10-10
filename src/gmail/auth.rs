@@ -1670,14 +1670,60 @@ mod tests {
     // the whole reserve/connect/bind attempt on exactly that failure, so a
     // lost race just tries again with a fresh port instead of flaking.
 
+    const CONNECTOR_TIMEOUT: Duration = Duration::from_secs(5);
+
     async fn connect_and_send(port: u16, request_line: &[u8]) {
-        let mut stream = loop {
-            match tokio::net::TcpStream::connect(("127.0.0.1", port)).await {
-                Ok(stream) => break stream,
-                Err(_) => tokio::time::sleep(Duration::from_millis(2)).await,
-            }
-        };
-        stream.write_all(request_line).await.unwrap();
+        connect_and_send_with_timeout(port, request_line, CONNECTOR_TIMEOUT)
+            .await
+            .unwrap();
+    }
+
+    async fn connect_and_send_with_timeout(
+        port: u16,
+        request_line: &[u8],
+        timeout: Duration,
+    ) -> Result<()> {
+        let mut last_error = None;
+        tokio::time::timeout(timeout, async {
+            let mut stream = loop {
+                match tokio::net::TcpStream::connect(("127.0.0.1", port)).await {
+                    Ok(stream) => break stream,
+                    Err(err) => {
+                        last_error = Some(err);
+                        tokio::time::sleep(Duration::from_millis(2)).await;
+                    }
+                }
+            };
+            stream
+                .write_all(request_line)
+                .await
+                .context("Failed to send fixture callback request")
+        })
+        .await
+        .with_context(|| {
+            format!(
+                "OAuth fixture connector to 127.0.0.1:{port} timed out after {timeout:?}; last connection error: {last_error:?}"
+            )
+        })?
+    }
+
+    #[tokio::test]
+    async fn connect_and_send_times_out_when_no_listener_starts() {
+        let timeout = Duration::from_millis(50);
+        let err = tokio::time::timeout(
+            Duration::from_secs(2),
+            connect_and_send_with_timeout(0, b"GET / HTTP/1.1\r\n\r\n", timeout),
+        )
+        .await
+        .expect("connector must terminate within its fixture deadline")
+        .unwrap_err();
+        let diagnostic = err.to_string();
+        assert!(diagnostic.contains("127.0.0.1:0"), "{diagnostic}");
+        assert!(diagnostic.contains("50ms"), "{diagnostic}");
+        assert!(
+            diagnostic.contains("last connection error: Some("),
+            "{diagnostic}"
+        );
     }
 
     fn reserve_free_port() -> u16 {
@@ -1718,17 +1764,19 @@ mod tests {
         unreachable!("loop always returns on its last iteration")
     }
 
-    /// Awaits `connector` normally, unless `result` shows `login_to` lost
-    /// the callback-port race — in which case the connector, which will
-    /// never see a connection on the now-taken port, is aborted instead of
-    /// hung.
+    /// Joins every connector, cancelling unfinished work on any login error.
+    /// Completed connectors still propagate panics so callback assertions survive.
     async fn finish_connector(
         connector: tokio::task::JoinHandle<()>,
         result: &Result<GmailAuthStatus>,
     ) {
-        match result {
-            Err(err) if is_callback_bind_conflict(err) => connector.abort(),
-            _ => connector.await.unwrap(),
+        let abort = result.is_err() && !connector.is_finished();
+        if abort {
+            connector.abort();
+        }
+        match connector.await {
+            Err(err) if abort && err.is_cancelled() => {}
+            joined => joined.unwrap(),
         }
     }
 
@@ -1736,7 +1784,7 @@ mod tests {
     async fn login_to_refuses_before_the_browser_flow_when_the_token_is_command_fetched() {
         // `login_to` reads the process env; a stray `*_COMMAND` must not reach it.
         let env_guard = crate::gmail::test_support::EnvGuard::take();
-        let _env_home = env_guard.clear_credentials();
+        let env_home = env_guard.clear_credentials();
         let temp_dir = tempfile::TempDir::new().unwrap();
         let settings_path = temp_dir.path().join("settings.json");
         std::fs::write(
@@ -1749,11 +1797,17 @@ mod tests {
             callback_addr: IpAddr::V4(Ipv4Addr::LOCALHOST),
             callback_port: 0,
         };
+        let (tx, mut rx) = tokio::sync::oneshot::channel::<()>();
+        let port = browser.callback_port;
+        let connector = tokio::spawn(async move {
+            let _drop_signal = tx;
+            connect_and_send(port, b"GET / HTTP/1.1\r\n\r\n").await;
+        });
+        tokio::task::yield_now().await;
         // Manual launch would wait for a callback that never comes, so a
         // timeout means the refusal came too late.
-        let result = tokio::time::timeout(
-            Duration::from_secs(5),
-            login_to(
+        let result = tokio::time::timeout(Duration::from_secs(5), async {
+            let result = login_to(
                 &settings_path,
                 None,
                 "client-id",
@@ -1761,13 +1815,23 @@ mod tests {
                 GmailScope::ReadOnly,
                 &browser,
                 "http://127.0.0.1:1/token",
-            ),
-        )
+            )
+            .await;
+            finish_connector(connector, &result).await;
+            result
+        })
         .await
-        .expect("login must refuse before starting the browser flow");
+        .expect("login refusal and connector cleanup must finish promptly");
         let err = result.unwrap_err().to_string();
         assert!(err.contains("GMAIL_REFRESH_TOKEN_COMMAND"), "{err}");
         assert!(!err.contains("op read"), "{err}");
+        assert_eq!(
+            rx.try_recv(),
+            Err(tokio::sync::oneshot::error::TryRecvError::Closed)
+        );
+        drop(env_home);
+        drop(env_guard);
+        let _next_guard = crate::gmail::test_support::EnvGuard::take();
     }
 
     /// Shared body for the three `login_to_*` tests that drive a single
@@ -1870,9 +1934,10 @@ mod tests {
             .await
             .expect("finish_connector must not wait for an aborted connector");
 
-        assert!(
-            rx.try_recv().is_err(),
-            "connector must have been aborted, not run to completion"
+        assert_eq!(
+            rx.try_recv(),
+            Err(tokio::sync::oneshot::error::TryRecvError::Closed),
+            "connector resources must be dropped before cleanup returns"
         );
     }
 
