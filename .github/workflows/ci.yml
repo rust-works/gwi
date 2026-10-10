@@ -116,8 +116,8 @@ jobs:
     - run: cargo clippy --all-targets -- -D warnings
     - run: cargo clippy --all-targets --features mcp -- -D warnings
 
-  # Separate job preserves the required Linux `Clippy` context. This new context
-  # is non-required; requiring it is a separate repository-ruleset decision (#200).
+  # Separate job preserves the required Linux `Clippy` context. The main merge
+  # queue ruleset also requires this exact `Windows Clippy` context (#241).
   windows-clippy:
     name: Windows Clippy
     runs-on: windows-latest
