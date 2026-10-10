@@ -128,7 +128,14 @@ are replaced only in the child environment. Application parsing behavior is unch
 Missing executables, empty test selections and failed tests fail the command with
 case and binary diagnostics. Subsequent binaries and cases still run after a test
 failure. Each binary has a five-minute execution limit; the CI job has a fifteen-minute
-limit. Ignored tests retain their normal behavior, and doctests are excluded because
+limit. Listings have a thirty-second limit. Each invocation starts a separate process
+group. On timeout the runner sends SIGTERM to that group, allows one second to exit,
+then sends SIGKILL to remaining members and reaps the executable before deleting its
+scratch paths or advancing. Pipe draining and reaping each have a two-second cleanup
+limit. Descendants that deliberately leave the process group escape group cleanup.
+The `Hostile Runner Lifecycle` CI jobs exercise real timeout fixtures on Linux and
+macOS, including inherited output pipes and children that ignore SIGTERM.
+Ignored tests retain their normal behavior, and doctests are excluded because
 Cargo's no-run artifact stream does not expose them. This checks outcomes under
 ambient settings; the separate empty-HOME guard checks leftover writes. The runner's
 regressions use deliberately ambient-dependent fake executables to prove failure

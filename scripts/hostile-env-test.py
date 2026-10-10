@@ -4,12 +4,18 @@
 import json
 import os
 import re
+import signal
 from pathlib import Path
 import subprocess
 import sys
 import tempfile
+import time
 
 ROOT = Path(__file__).resolve().parents[1]
+LIST_TIMEOUT = 30
+TEST_TIMEOUT = 300
+TERMINATION_GRACE = 1
+CLEANUP_TIMEOUT = 2
 # Same valid inconvenient values as the #120 audit. Malformed values exercise
 # existing fallback/error semantics; paths remain valid and owned by this runner.
 VALID = {
@@ -84,6 +90,60 @@ def build_binaries():
     return [found[key] for key in sorted(expected)]
 
 
+def signal_group(group, sig):
+    """Signal our session, tolerating disappeared or macOS zombie-only groups."""
+    try:
+        os.killpg(group, sig)
+    except ProcessLookupError:
+        pass
+    except PermissionError:
+        if sys.platform != "darwin":
+            raise
+        # Darwin can return EPERM for a group containing only zombies. Verify
+        # there are no live members rather than suppressing a real denial.
+        listing = subprocess.run(
+            ["/bin/ps", "-axo", "pgid=,stat="], capture_output=True,
+            text=True, timeout=CLEANUP_TIMEOUT,
+        )
+        if listing.returncode:
+            raise RuntimeError("Failed to inspect timed-out process group")
+        for line in listing.stdout.splitlines():
+            pgid, state = line.split()
+            if int(pgid) == group and not state.startswith("Z"):
+                raise
+
+
+def run_isolated(arguments, *, env, timeout, stderr=None):
+    """Bound execution and timeout cleanup of a dedicated POSIX process group."""
+    process = subprocess.Popen(
+        arguments, cwd=ROOT, env=env, stdout=subprocess.PIPE, stderr=stderr,
+        text=True, start_new_session=True,
+    )
+    try:
+        stdout, _ = process.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        # Keep the leader unreaped until escalation, so its PID/group cannot be
+        # reused. A descendant can survive TERM even when the leader exits or
+        # closes its pipes; always signal the whole group again after the grace.
+        try:
+            for sig in (signal.SIGTERM, signal.SIGKILL):
+                signal_group(process.pid, sig)
+                if sig == signal.SIGTERM:
+                    time.sleep(TERMINATION_GRACE)
+        finally:
+            try:
+                process.communicate(timeout=CLEANUP_TIMEOUT)
+            except subprocess.TimeoutExpired:
+                # An escaped descendant may still hold stdout. Do not wait for
+                # EOF forever; separately kill/reap the owned executable even
+                # if signalling the group failed.
+                process.stdout.close()
+                process.kill()
+                process.wait(timeout=CLEANUP_TIMEOUT)
+        raise
+    return subprocess.CompletedProcess(arguments, process.returncode, stdout)
+
+
 def run_binary(binary, case):
     """No filters: run every nonignored test, with scratch paths even on failure."""
     print(f"==> hostile environment ({case}): {binary}", flush=True)
@@ -93,16 +153,16 @@ def run_binary(binary, case):
             env.update(CASES[case])
             env.update({key: str(Path(scratch) / name) for key, name in PATHS.items()})
             env["INSTA_WORKSPACE_ROOT"] = str(ROOT)
-            listed = subprocess.run(
+            listed = run_isolated(
                 [str(binary), "--list"],
-                cwd=ROOT, env=env, stdout=subprocess.PIPE, text=True, timeout=30,
+                env=env, timeout=LIST_TIMEOUT,
             )
             # --list includes ignored tests, so check the actual execution summary too.
             if listed.returncode or not any(line.endswith(": test") for line in listed.stdout.splitlines()):
                 raise RuntimeError("Failed or empty test listing")
-            result = subprocess.run(
-                [str(binary), "--color", "never"], cwd=ROOT, env=env,
-                stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=300,
+            result = run_isolated(
+                [str(binary), "--color", "never"], env=env,
+                stderr=subprocess.STDOUT, timeout=TEST_TIMEOUT,
             )
             print(result.stdout, end="", flush=True)
             summaries = re.findall(r"^test result: ok\. (\d+) passed;", result.stdout, re.MULTILINE)
