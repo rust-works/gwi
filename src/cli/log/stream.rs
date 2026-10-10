@@ -142,6 +142,8 @@ fn fd_hung_up(fd: std::os::fd::BorrowedFd<'_>) -> bool {
 /// Where `--follow` has got to in the file it is tailing.
 #[derive(Debug, Default)]
 struct Tail {
+    /// Whether an open failure has been reported since the last successful open.
+    open_failure_reported: bool,
     /// Byte offset just past the last complete line read.
     pos: u64,
     /// Number of newlines consumed before `pos` in this file.
@@ -628,13 +630,59 @@ fn drain_appended<W: Write>(
     format: Format,
     tail: &mut Tail,
     out: &mut W,
-    mut reader_gone: impl FnMut() -> bool,
+    reader_gone: impl FnMut() -> bool,
 ) -> Result<Drain> {
-    let Ok(file) = File::open(path) else {
+    let Some(file) = follow_file(
+        path,
+        File::open(path),
+        &mut tail.open_failure_reported,
+        &mut io::stderr().lock(),
+    ) else {
         return Ok(Drain::Complete {
             skipped: SkippedLines::default(),
         });
     };
+    drain_opened(file, filter, format, tail, out, reader_gone)
+}
+
+/// Handles a follow open result without altering the saved cursor or file identity.
+/// Missing files are quiet. Report only the first other error until a successful
+/// open, even if subsequent errors differ, to bound diagnostics during an outage.
+fn follow_file<W: Write>(
+    path: &Path,
+    opened: io::Result<File>,
+    reported: &mut bool,
+    err: &mut W,
+) -> Option<File> {
+    match opened {
+        Ok(file) => {
+            *reported = false;
+            Some(file)
+        }
+        Err(e) => {
+            if e.kind() != io::ErrorKind::NotFound && !*reported {
+                *reported = true;
+                // Best effort: a closed stderr must not stop following.
+                let _ = writeln!(
+                    err,
+                    "warning: failed to open log file {} while following: {e}; retrying",
+                    path.display()
+                );
+            }
+            None
+        }
+    }
+}
+
+/// Drains a successfully opened file using the existing append/replacement policy.
+fn drain_opened<W: Write>(
+    file: File,
+    filter: &Filter,
+    format: Format,
+    tail: &mut Tail,
+    out: &mut W,
+    mut reader_gone: impl FnMut() -> bool,
+) -> Result<Drain> {
     // Identity and length come from the handle that is read, not from the path.
     let len = file.metadata().map_or(tail.pos, |m| m.len());
     let id = file_id(&file);
@@ -834,6 +882,189 @@ mod tests {
             s.push('\n');
         }
         s
+    }
+
+    /// Exercises the production open-result handling and drain with captured stderr.
+    fn poll_open_result<W: Write>(
+        path: &Path,
+        opened: io::Result<File>,
+        tail: &mut Tail,
+        out: &mut Vec<u8>,
+        err: &mut W,
+    ) {
+        if let Some(file) = follow_file(path, opened, &mut tail.open_failure_reported, err) {
+            assert!(matches!(
+                drain_opened(file, &empty_filter(), Format::Json, tail, out, || false).unwrap(),
+                Drain::Complete { .. }
+            ));
+        }
+    }
+
+    #[test]
+    fn follow_open_failures_recover_and_warn_again_without_losing_the_tail() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("log.jsonl");
+        let initial = sample_lines();
+        std::fs::write(&path, &initial).unwrap();
+        let mut tail = Tail::default();
+        let mut out = Vec::new();
+        let mut err = Vec::new();
+        poll_open_result(&path, File::open(&path), &mut tail, &mut out, &mut err);
+        assert_eq!(out, initial.as_bytes());
+        out.clear();
+        let saved = (tail.pos, tail.lines, tail.id, tail.checkpoint.clone());
+        #[cfg(unix)]
+        let saved_fd = {
+            use std::os::fd::AsRawFd;
+            tail.file.as_ref().unwrap().as_raw_fd()
+        };
+        for kind in [
+            io::ErrorKind::PermissionDenied,
+            io::ErrorKind::PermissionDenied,
+            io::ErrorKind::Other,
+            io::ErrorKind::NotFound,
+            io::ErrorKind::PermissionDenied,
+        ] {
+            poll_open_result(
+                &path,
+                Err(io::Error::new(kind, "injected access failure")),
+                &mut tail,
+                &mut out,
+                &mut err,
+            );
+            assert_eq!(
+                (tail.pos, tail.lines, tail.id, tail.checkpoint.clone()),
+                saved
+            );
+            #[cfg(unix)]
+            {
+                use std::os::fd::AsRawFd;
+                assert_eq!(tail.file.as_ref().unwrap().as_raw_fd(), saved_fd);
+            }
+            assert!(out.is_empty());
+        }
+        let warning = String::from_utf8(err.clone()).unwrap();
+        assert_eq!(warning.lines().count(), 1);
+        assert!(warning.contains(&path.display().to_string()));
+        assert!(warning.contains("injected access failure"));
+        assert!(warning.contains("retrying"));
+
+        // A successful open with only a partial append resets suppression without
+        // advancing the cursor; finishing that line later must emit it once.
+        let appended = r#"{"id":"after-recovery","kind":"http"}"#;
+        let mut writer = std::fs::OpenOptions::new()
+            .append(true)
+            .open(&path)
+            .unwrap();
+        write!(writer, "{appended}").unwrap();
+        poll_open_result(&path, File::open(&path), &mut tail, &mut out, &mut err);
+        assert!(!tail.open_failure_reported);
+        assert_eq!(tail.pos, saved.0);
+        assert!(out.is_empty());
+        poll_open_result(
+            &path,
+            Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "later failure",
+            )),
+            &mut tail,
+            &mut out,
+            &mut err,
+        );
+        assert_eq!(String::from_utf8(err.clone()).unwrap().lines().count(), 2);
+        assert!(String::from_utf8(err.clone())
+            .unwrap()
+            .contains("later failure"));
+        writeln!(writer).unwrap();
+        poll_open_result(&path, File::open(&path), &mut tail, &mut out, &mut err);
+        poll_open_result(&path, File::open(&path), &mut tail, &mut out, &mut err);
+        assert_eq!(out, format!("{appended}\n").as_bytes());
+        assert_eq!(tail.lines, saved.1 + 1);
+        assert_eq!(String::from_utf8(err).unwrap().lines().count(), 2);
+    }
+
+    #[test]
+    fn follow_missing_start_stays_quiet_and_reads_created_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("log.jsonl");
+        let mut tail = Tail::default();
+        let mut out = Vec::new();
+        let mut err = Vec::new();
+        for _ in 0..3 {
+            poll_open_result(&path, File::open(&path), &mut tail, &mut out, &mut err);
+        }
+        assert!(err.is_empty());
+        assert!(out.is_empty());
+        assert!(!tail.open_failure_reported);
+        let initial = sample_lines();
+        std::fs::write(&path, &initial).unwrap();
+        poll_open_result(&path, File::open(&path), &mut tail, &mut out, &mut err);
+        assert_eq!(out, initial.as_bytes());
+        assert!(err.is_empty());
+    }
+
+    #[test]
+    fn follow_rewrite_during_open_failure_skips_existing_contents() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("log.jsonl");
+        std::fs::write(&path, sample_lines()).unwrap();
+        let mut tail = Tail::default();
+        let mut out = Vec::new();
+        let mut err = Vec::new();
+        poll_open_result(&path, File::open(&path), &mut tail, &mut out, &mut err);
+        out.clear();
+        poll_open_result(
+            &path,
+            Err(io::Error::new(io::ErrorKind::PermissionDenied, "denied")),
+            &mut tail,
+            &mut out,
+            &mut err,
+        );
+        let replacement = "{\"id\":\"replacement\"}\n";
+        std::fs::write(&path, replacement).unwrap();
+        poll_open_result(&path, File::open(&path), &mut tail, &mut out, &mut err);
+        assert!(out.is_empty());
+        assert_eq!(tail.pos, replacement.len() as u64);
+        assert_eq!(tail.lines, 1);
+        let appended = "{\"id\":\"new-append\"}\n";
+        let mut writer = std::fs::OpenOptions::new()
+            .append(true)
+            .open(&path)
+            .unwrap();
+        write!(writer, "{appended}").unwrap();
+        poll_open_result(&path, File::open(&path), &mut tail, &mut out, &mut err);
+        assert_eq!(out, appended.as_bytes());
+        assert_eq!(tail.lines, 2);
+    }
+
+    #[test]
+    fn follow_closed_stderr_does_not_prevent_recovery() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("log.jsonl");
+        let mut tail = Tail::default();
+        let mut out = Vec::new();
+        let mut err = PipeWriter::failing_with(io::ErrorKind::BrokenPipe, 0);
+        poll_open_result(
+            &path,
+            Err(io::Error::new(io::ErrorKind::PermissionDenied, "denied")),
+            &mut tail,
+            &mut out,
+            &mut err,
+        );
+        assert!(tail.open_failure_reported);
+        let attempts = err.attempts;
+        poll_open_result(
+            &path,
+            Err(io::Error::new(io::ErrorKind::PermissionDenied, "denied")),
+            &mut tail,
+            &mut out,
+            &mut err,
+        );
+        assert_eq!(err.attempts, attempts);
+        std::fs::write(&path, sample_lines()).unwrap();
+        poll_open_result(&path, File::open(&path), &mut tail, &mut out, &mut err);
+        assert!(!tail.open_failure_reported);
+        assert_eq!(out, sample_lines().as_bytes());
     }
 
     #[test]
@@ -1261,6 +1492,7 @@ mod tests {
             panic!("the scan should complete");
         };
         let mut tail = Tail {
+            open_failure_reported: false,
             pos,
             lines,
             id,
@@ -2751,6 +2983,7 @@ mod tests {
         // A missing file is a no-op that preserves the tail.
         let missing = dir.path().join("gone.jsonl");
         let mut kept = Tail {
+            open_failure_reported: false,
             pos: 7,
             lines: 0,
             id: tail.id,
@@ -2799,6 +3032,7 @@ mod tests {
         std::fs::write(&path, sample_lines()).unwrap();
         // The identity could not be read at startup (`None`), and the backlog is behind us.
         let mut tail = Tail {
+            open_failure_reported: false,
             pos: sample_lines().len() as u64,
             lines: 5,
             id: None,
@@ -3273,6 +3507,7 @@ mod tests {
                     std::fs::write(&path, &original).unwrap();
                     let file = File::open(&path).unwrap();
                     let mut tail = Tail {
+                        open_failure_reported: false,
                         pos: 0,
                         lines: 0,
                         id: file_id(&file),
