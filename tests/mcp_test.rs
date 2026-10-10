@@ -13,12 +13,11 @@
 #![cfg(feature = "mcp")]
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
-#[cfg(unix)]
+mod common;
+
 use std::{process::Stdio, time::Duration};
 
-#[cfg(unix)]
-use anyhow::Context;
-use anyhow::Result;
+use anyhow::{Context, Result};
 use rmcp::{
     model::{CallToolRequestParams, CallToolResult, ContentBlock},
     service::ServiceExt,
@@ -305,8 +304,6 @@ async fn list_tools_includes_gmail_draft_tools() -> Result<()> {
     Ok(())
 }
 
-// Requires HOME-based settings isolation; Windows uses the Known Folder API.
-#[cfg(unix)]
 #[tokio::test]
 async fn an_unknown_tool_is_a_protocol_error_not_a_panic() -> Result<()> {
     // Unknown tools are request-logged. Give the real server its own fixture
@@ -326,8 +323,6 @@ async fn an_unknown_tool_is_a_protocol_error_not_a_panic() -> Result<()> {
 
 /// Schemas and dispatch reject policy overrides before credentials or consent
 /// (omni-dev's `drive_write_tools_round_trip_and_reject_policy_parameters`).
-// Requires HOME-based settings/state isolation; Windows uses the Known Folder API.
-#[cfg(unix)]
 #[tokio::test]
 async fn drive_write_tools_round_trip_and_reject_policy_parameters() -> Result<()> {
     // Policy rejections write an audit record. Confine it to this fixture's HOME
@@ -403,35 +398,38 @@ async fn drive_write_tools_round_trip_and_reject_policy_parameters() -> Result<(
 }
 
 /// Spawns the real `gwi-mcp` binary hermetically in an empty `HOME`.
-// Windows' Known Folder API ignores HOME; this subprocess fixture cannot
-// isolate its settings from the user's real profile there.
-#[cfg(unix)]
 async fn spawn_binary(home: &std::path::Path) -> Result<(Client, tokio::process::Child)> {
     let profile = std::env::var_os("LLVM_PROFILE_FILE");
     spawn_binary_with_profile(home, profile.as_deref()).await
 }
 
 // Keep coverage output explicit without inheriting credentials or API endpoints.
-#[cfg(unix)]
 async fn spawn_binary_with_profile(
     home: &std::path::Path,
     profile: Option<&std::ffi::OsStr>,
 ) -> Result<(Client, tokio::process::Child)> {
-    let mut command = tokio::process::Command::new(env!("CARGO_BIN_EXE_gwi-mcp"));
+    // Cargo supplies an absolute executable path, so no shell or PATH is needed.
+    let mut command = std::process::Command::new(env!("CARGO_BIN_EXE_gwi-mcp"));
+    command.env_clear();
+    // Windows process/runtime support; keep only OS infrastructure, no credentials.
+    #[cfg(windows)]
+    for key in ["SystemRoot", "WINDIR", "TEMP", "TMP"] {
+        if let Some(value) = std::env::var_os(key) {
+            command.env(key, value);
+        }
+    }
+    common::isolate(&mut command, home);
+    if let Some(profile) = profile {
+        // LLVM's process/module placeholders keep concurrent children distinct.
+        command.env("LLVM_PROFILE_FILE", profile);
+    }
+    let mut command = tokio::process::Command::from(command);
     command
-        .env_clear()
-        .env("PATH", "/usr/bin:/bin")
-        .env("HOME", home)
-        .env("GWI_LOG_DISABLE", "1")
         .current_dir(home)
         .kill_on_drop(true)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::null());
-    if let Some(profile) = profile {
-        // LLVM's process/module placeholders keep concurrent children distinct.
-        command.env("LLVM_PROFILE_FILE", profile);
-    }
     let mut child = command.spawn()?;
     let stdin = child.stdin.take().expect("stdin");
     let stdout = child.stdout.take().expect("stdout");
@@ -443,8 +441,6 @@ async fn spawn_binary_with_profile(
 /// The real binary serves the same 23 tools over stdio, answers the one tool
 /// that needs no credentials, and reports the others as tool errors rather than
 /// protocol failures.
-// Requires HOME-based settings isolation; Windows uses the Known Folder API.
-#[cfg(unix)]
 #[tokio::test]
 async fn the_binary_serves_the_tools_over_stdio() -> Result<()> {
     let home = tempfile::tempdir()?;
@@ -522,7 +518,6 @@ async fn the_binary_serves_the_tools_over_stdio() -> Result<()> {
 }
 
 /// Close stdin and wait for a normal exit so LLVM can flush the child's profile.
-#[cfg(unix)]
 async fn shutdown_binary(client: Client, mut child: tokio::process::Child) -> Result<()> {
     let status = tokio::time::timeout(Duration::from_secs(20), async {
         client.cancel().await?;
@@ -535,8 +530,7 @@ async fn shutdown_binary(client: Client, mut child: tokio::process::Child) -> Re
 }
 
 /// The instrumented server must flush into the supplied fixture before cleanup.
-// Requires an instrumented binary and HOME-based isolation; Windows ignores HOME.
-#[cfg(unix)]
+// Requires an instrumented binary.
 #[tokio::test]
 async fn the_binary_flushes_its_coverage_profile_on_shutdown() -> Result<()> {
     if std::env::var_os("CARGO_LLVM_COV").is_none() {

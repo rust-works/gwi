@@ -49,8 +49,7 @@ pub(crate) const LEASE_ALLOW_HEADLESS_ENV: &str = "GWI_DRIVE_LEASE_ALLOW_HEADLES
 /// lease ledger, same posture. The hard-coded default at the bottom of
 /// [`resolve_backup_dir`]'s chain.
 fn default_backup_dir() -> Result<PathBuf> {
-    let base = dirs::state_dir()
-        .or_else(dirs::data_dir)
+    let base = crate::utils::app_dirs::state_dir()
         .context("could not resolve the state/data directory for the default backup directory")?;
     Ok(base.join("gwi").join("drive-backups"))
 }
@@ -195,6 +194,19 @@ pub(crate) fn resolve_allow_headless(
 mod tests {
     use super::*;
     use crate::test_support::env::MapEnv;
+
+    #[test]
+    fn state_override_controls_default_backups_without_changing_home() {
+        let guard = crate::drive::test_support::EnvGuard::take();
+        let home = guard.clear_credentials();
+        let state = tempfile::tempdir().unwrap();
+        std::env::set_var("GWI_STATE_DIR", state.path());
+        assert_eq!(
+            resolve_backup_dir(None, &MapEnv::new(), &LeaseSettings::default()).unwrap(),
+            state.path().join("gwi").join("drive-backups")
+        );
+        assert!(!home.path().join("gwi").exists());
+    }
 
     fn settings() -> LeaseSettings {
         LeaseSettings::default()

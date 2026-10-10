@@ -666,13 +666,14 @@ impl Settings {
     /// Returns the default settings path.
     pub fn get_settings_path() -> Result<PathBuf> {
         // Unit tests inject a fixture path explicitly: Windows' Known Folder
-        // API does not honour their HOME override. The binary keeps the real
-        // platform discovery below.
+        // API does not honour their HOME override. Production discovery below
+        // supports the explicit GWI_HOME override on every platform.
         #[cfg(test)]
         if let Some(path) = crate::test_support::settings_path() {
             return Ok(path);
         }
-        let home_dir = dirs::home_dir().context("Failed to determine home directory")?;
+        let home_dir =
+            crate::utils::app_dirs::home_dir().context("Failed to determine home directory")?;
 
         Ok(home_dir.join(".gwi").join("settings.json"))
     }

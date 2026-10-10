@@ -27,8 +27,7 @@ fn record(id: &str) -> String {
 
 fn command(home: &Path) -> Command {
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_gwi"));
-    common::scrub_ambient_env(&mut cmd).env("HOME", home);
-    common::pin_log_env(&mut cmd, home);
+    common::isolate(&mut cmd, home);
     cmd
 }
 

@@ -19,6 +19,17 @@ cargo run -- drive --help
 Configuration lives in `~/.gwi/settings.json` (not omni-dev's `~/.omni-dev`), and
 environment variables use the `GWI_` prefix.
 
+Set `GWI_HOME` to use another application home: settings then live at
+`<GWI_HOME>/.gwi/settings.json`, and the default import source is
+`<GWI_HOME>/.omni-dev/settings.json`. Set `GWI_STATE_DIR` to relocate the state base:
+logs, the lease ledger and default backups live under `<GWI_STATE_DIR>/gwi/`, and
+import looks for the source ledger under `<GWI_STATE_DIR>/omni-dev/`. Both variables
+are read directly from the process environment, support native paths on every OS,
+and use the usual platform directories when unset or empty. Set both for an isolated
+installation; `GWI_HOME` alone does not relocate state. Explicit log, backup and
+import source options still take precedence. MCP path protection covers relocated
+application data as well as the platform's credential directories.
+
 ### Coming from omni-dev
 
 If you already configured Gmail in omni-dev, copy it across instead of logging in again:

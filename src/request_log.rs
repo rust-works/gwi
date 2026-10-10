@@ -348,7 +348,7 @@ pub fn headers_enabled() -> bool {
 /// `cli::drive::lease::default_backup_dir`) resolve their own location the
 /// same way and share this rather than re-deriving it.
 pub(crate) fn gwi_state_subpath(component: &str) -> Option<PathBuf> {
-    let base = dirs::state_dir().or_else(dirs::data_dir)?;
+    let base = crate::utils::app_dirs::state_dir()?;
     Some(base.join("gwi").join(component))
 }
 

@@ -47,7 +47,7 @@ pub fn import_client_credentials(explicit: Option<&Path>) -> Result<ImportOutcom
         &Settings::get_settings_path()?,
         active_profile_from(&SystemEnv).as_deref(),
         &SystemEnv,
-        dirs::home_dir().as_deref(),
+        crate::utils::app_dirs::home_dir().as_deref(),
         explicit,
     )
 }
@@ -85,7 +85,11 @@ pub fn import_client_credentials_for(
     explicit_account: Option<&str>,
     explicit_path: Option<&Path>,
 ) -> Result<ImportOutcome> {
-    let path = discover_client_secret_file(&SystemEnv, dirs::home_dir().as_deref(), explicit_path)?;
+    let path = discover_client_secret_file(
+        &SystemEnv,
+        crate::utils::app_dirs::home_dir().as_deref(),
+        explicit_path,
+    )?;
     let credentials = parse_client_secret_file(&path)?;
 
     let settings = Settings::load_or_warn_default();
@@ -614,5 +618,33 @@ mod tests {
             serde_json::from_str(&std::fs::read_to_string(&settings_path).unwrap()).unwrap();
         assert_eq!(val["env"]["GMAIL_CLIENT_ID"], "the-id");
         assert!(val.get("gmail").is_none());
+    }
+
+    #[test]
+    fn import_legacy_wrapper_writes_settings_under_the_redirected_home() {
+        let guard = crate::gmail::test_support::EnvGuard::take();
+        let dir = guard.clear_credentials();
+        let settings_path = dir.path().join(".gwi").join("settings.json");
+
+        let secret_dir = temp_dir();
+        let secret_path = secret_dir.path().join("client_secret.json");
+        write_installed_json(&secret_path, "the-id", "the-secret");
+
+        let outcome = import_client_credentials(Some(&secret_path)).unwrap();
+        assert_eq!(outcome.client_id, "the-id");
+
+        let val: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&settings_path).unwrap()).unwrap();
+        assert_eq!(val["env"]["GMAIL_CLIENT_ID"], "the-id");
+    }
+
+    #[test]
+    fn import_for_reports_a_missing_explicit_client_secret_file() {
+        let guard = crate::gmail::test_support::EnvGuard::take();
+        let dir = guard.clear_credentials();
+        let missing = dir.path().join("does-not-exist.json");
+
+        assert!(import_client_credentials_for(None, Some(&missing)).is_err());
+        assert!(!dir.path().join(".gwi").join("settings.json").exists());
     }
 }

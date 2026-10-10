@@ -36,6 +36,8 @@ impl EnvGuard {
     pub(crate) fn keys() -> Vec<String> {
         let mut keys = vec![
             "HOME".to_string(),
+            "GWI_HOME".to_string(),
+            "GWI_STATE_DIR".to_string(),
             PROFILE_ENV_VAR.to_string(),
             GMAIL_CLIENT_ID.to_string(),
             GMAIL_CLIENT_SECRET.to_string(),

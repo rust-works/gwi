@@ -1,5 +1,6 @@
 //! Shared helpers: secrets, settings, environment access, HTTP, filesystem safety.
 
+pub(crate) mod app_dirs;
 pub mod browser_command;
 pub(crate) mod browser_launch;
 pub mod config_dir;

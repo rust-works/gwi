@@ -20,7 +20,7 @@ use crate::utils::env::{EnvSource, SystemEnv};
 /// `dirs::config_dir()`, which returns `~/Library/Application Support/` on
 /// macOS — not the expected location for a CLI tool. Taking `env`/`home` as
 /// parameters keeps this resolver pure: production callers pass `&SystemEnv`
-/// and `dirs::home_dir()`, while tests pass a `MapEnv` (the `#[cfg(test)]`
+/// and the application home, while tests pass a `MapEnv` (the `#[cfg(test)]`
 /// `crate::test_support::env::MapEnv`) and a temp `home` without mutating the
 /// environment (STYLE-0028, issue #821).
 fn xdg_config_dir_with(env: &impl EnvSource, home: Option<&Path>) -> Option<PathBuf> {
@@ -42,7 +42,12 @@ fn xdg_config_dir_with(env: &impl EnvSource, home: Option<&Path>) -> Option<Path
 /// 3. `$XDG_CONFIG_HOME/gwi/{filename}` (XDG global config)
 /// 4. `$HOME/.gwi/{filename}` (legacy global fallback)
 pub fn resolve_config_file(dir: &Path, filename: &str) -> PathBuf {
-    resolve_config_file_with(dir, filename, &SystemEnv, dirs::home_dir().as_deref())
+    resolve_config_file_with(
+        dir,
+        filename,
+        &SystemEnv,
+        crate::utils::app_dirs::home_dir().as_deref(),
+    )
 }
 
 /// Inner seam for [`resolve_config_file`]: the XDG and legacy-home tiers read

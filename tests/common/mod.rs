@@ -7,7 +7,7 @@ use std::process::Command;
 /// logging, timeouts and leases. Tests remove these so their results do not
 /// depend on the developer's shell (issues #62 and #120). `src/gmail/test_support.rs` and
 /// `src/drive/test_support.rs` keep the in-process equivalent.
-const AMBIENT_ENV: [&str; 42] = [
+const AMBIENT_ENV: [&str; 44] = [
     "GWI_LOG_FILE",
     "GWI_LOG_DISABLE",
     "GWI_AUDIT_LOG_FILE",
@@ -47,6 +47,8 @@ const AMBIENT_ENV: [&str; 42] = [
     "GWI_DRIVE_ACCOUNT",
     "GWI_PROFILE",
     "GWI_CONFIG_DIR",
+    "GWI_HOME",
+    "GWI_STATE_DIR",
     "XDG_DATA_HOME",
     "XDG_STATE_HOME",
     "XDG_CONFIG_HOME",
@@ -72,4 +74,13 @@ pub fn pin_log_env<'a>(command: &'a mut Command, home: &Path) -> &'a mut Command
         .env("GWI_LOG_FILE", home.join("log.jsonl"))
         .env("GWI_AUDIT_LOG_FILE", home.join("audit.jsonl"))
         .env("GWI_LOG_DISABLE", "1")
+}
+
+/// Isolates production settings, state, credentials and both log sinks on every OS.
+pub fn isolate<'a>(command: &'a mut Command, home: &Path) -> &'a mut Command {
+    scrub_ambient_env(command)
+        .env("HOME", home)
+        .env("GWI_HOME", home)
+        .env("GWI_STATE_DIR", home.join("state"));
+    pin_log_env(command, home)
 }
