@@ -117,6 +117,44 @@ fn edit_help_preserves_content_and_mime_hints() {
     }
 }
 
+/// Force help explains overwrite scope before the user runs an import.
+#[test]
+fn import_force_help_explains_scope_and_lease_authority() {
+    let mut root = Cli::command();
+    root.build();
+    let import = root.find_subcommand_mut("import").unwrap();
+    let normalize = |text: String| text.split_whitespace().collect::<Vec<_>>().join(" ");
+    for help in [import.render_help(), import.render_long_help()] {
+        let text = normalize(help.to_string());
+        assert!(
+            text.contains(
+                "Replace conflicting settings items and entire conflicting unreleased lease rows"
+            ),
+            "Missing overwrite scope: {text}"
+        );
+    }
+    let text = normalize(import.render_long_help().to_string());
+    for hint in [
+        "individual conflicting items, not the entire settings file",
+        "Without this flag, conflicts are reported and left unchanged",
+        "replaces gwi's entire row with the source row",
+        "version, modified_time, expiry, file binding, backup/restore metadata and unknown fields",
+        "does not check which copy is current against Drive",
+        "may restore write authority to a stale token",
+        "Locally released leases are never revived",
+        "When token and file ID match, source release propagation takes precedence",
+        "preserves gwi's non-release fields, even with --force",
+        "Preview with gwi import --dry-run first",
+        "When switching tools after a write, release the old lease in omni-dev",
+        "run gwi import to propagate its release when token and file ID match",
+        "gwi drive lease release TOKEN",
+        "acquire a fresh authorized lease with gwi drive lease acquire FILE_ID",
+        "Releasing gwi's copy alone does not release omni-dev's copy",
+    ] {
+        assert!(text.contains(hint), "Missing {hint:?}: {text}");
+    }
+}
+
 /// URL identifier hints are plain text in both terminal help formats.
 #[test]
 fn identifier_hints_have_no_markdown() {
