@@ -3538,10 +3538,21 @@ mod tests {
         )
         .unwrap();
 
-        // The replacement is larger than the saved offset: only the identity gives it away.
-        let replacement = sample_lines().replace("/x/", "/replaced/").repeat(2);
-        assert!(replacement.len() as u64 > tail.pos);
+        // Identical bytes at the saved checkpoint and a larger length leave
+        // identity as the only replacement signal.
+        assert!(tail.id.is_some());
+        assert!(!tail.checkpoint.is_empty());
+        let replacement = sample_lines().repeat(2);
         replace_by_rename(&path, &replacement);
+        let replaced = File::open(&path).unwrap();
+        let replacement_id = file_id(&replaced);
+        assert!(replacement_id.is_some());
+        assert_ne!(replacement_id, tail.id);
+        assert!(replaced.metadata().unwrap().len() > tail.pos);
+        assert_eq!(
+            read_checkpoint(&replaced, tail.pos).unwrap(),
+            tail.checkpoint
+        );
 
         let mut out = Vec::new();
         drain_appended(
@@ -3556,6 +3567,7 @@ mod tests {
         let text = String::from_utf8(out).unwrap();
         assert!(text.is_empty(), "text was: {text}");
         assert_eq!(tail.pos, replacement.len() as u64);
+        assert_eq!(tail.id, replacement_id);
         assert_follows_next_append(&path, &mut tail);
     }
 
@@ -3576,6 +3588,7 @@ mod tests {
         )
         .unwrap();
 
+        // This complementary fixture changes both identity and checkpoint bytes.
         let replacement = sample_lines().replace("/x/", "/y/");
         assert_eq!(replacement.len() as u64, tail.pos);
         replace_by_rename(&path, &replacement);
@@ -3866,14 +3879,20 @@ mod tests {
     fn checkpoint_reads_only_bounded_raw_bytes_before_the_offset() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("log.jsonl");
-        let bytes = vec![0xff; TAIL_CHECKPOINT_BYTES * 4];
+        // Distinct regions expose reads from the prefix, EOF or past the offset.
+        // Both the short prefix and nonuniform checkpoint contain invalid UTF-8.
+        let mut bytes = vec![0xff; 300];
+        bytes.extend(0u8..=255);
+        let pos = bytes.len();
+        bytes.extend([0x55; 400]);
         std::fs::write(&path, &bytes).unwrap();
         let file = File::open(&path).unwrap();
         assert!(read_checkpoint(&file, 0).unwrap().is_empty());
         assert_eq!(read_checkpoint(&file, 7).unwrap(), bytes[..7]);
+        assert_eq!(read_checkpoint(&file, pos as u64).unwrap(), bytes[300..pos]);
         assert_eq!(
             read_checkpoint(&file, bytes.len() as u64).unwrap(),
-            bytes[..TAIL_CHECKPOINT_BYTES]
+            bytes[bytes.len() - TAIL_CHECKPOINT_BYTES..]
         );
         // A concurrent shrink yields fewer bytes rather than an unexpected-EOF error.
         std::fs::write(&path, []).unwrap();
