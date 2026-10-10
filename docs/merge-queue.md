@@ -125,3 +125,64 @@ block or pass to this required context. A required-check readback alone does
 not prove observed blocking. The issue-to-pr run does not enqueue or merge a
 PR, modify another session's checks, or exercise administrator bypass to
 manufacture this evidence.
+
+## Hostile environment required context
+
+[Issue #225](https://github.com/rust-works/gwi/issues/225) added
+`Hostile Environment Test` from GitHub Actions (integration ID `15368`) to the
+active main merge queue ruleset on 11 October 2026 at 00:21:18 AEDT, after
+[PR #212](https://github.com/rust-works/gwi/pull/212) merged. This live settings
+change applies immediately to ordinary PRs and merge groups targeting main;
+merging this document does not enable it. The administrator bypass remains
+available.
+
+The unconditional job in [ci.yml](../.github/workflows/ci.yml) reports the exact
+context on both `pull_request` and `merge_group`. It runs the
+[runner regressions](../scripts/test_hostile_env_test.py) and the
+[hostile-environment sweep](../scripts/hostile-env-test.py), covering the
+MCP-enabled library and integration executables under valid inconvenient and
+malformed settings. Keep the context name stable.
+
+A fresh ruleset snapshot immediately preceded a rules-only update appending
+`{"context":"Hostile Environment Test","integration_id":15368}`. Structural
+comparison of the full readback showed only this addition and the server's
+updated timestamp. Existing `Doc links`, `Commit Message Lint`, and
+`Empty HOME Test` requirements, queue parameters, conditions, enforcement, and
+bypass actors were preserved. Classic protection matched its pre-update snapshot
+exactly. Effective rules for main reported the new context/app pair. The
+read-only policy commands above inspect the current settings.
+
+### Hostile environment context compatibility
+
+- [PR #212's successful job](https://github.com/rust-works/gwi/actions/runs/38029719736/job/114147917468)
+  reported the exact context from app `15368` on head
+  `e6a842b384cc7f778abd467009b1dae370a24b97`.
+- [Successful merge-group job](https://github.com/rust-works/gwi/actions/runs/38052057360/job/114213005316)
+  reported the same context from app `15368` on queue head
+  `b6e535ca129df99b79a39d860549dc934df5ddbe`; it completed on
+  10 October 2026 at 23:33:52 AEDT.
+
+Both jobs predate the policy update. The passing queue check matches the exact
+required context/app combination, but does not demonstrate queue enforcement
+under the updated policy. Inspect its provenance with:
+
+```bash
+gh api repos/rust-works/gwi/check-runs/114213005316
+gh run view 38052057360 --repo rust-works/gwi --json event,headSha,jobs,conclusion,url
+gh api repos/rust-works/gwi/rulesets/rule-suites
+```
+
+### Hostile environment live acceptance still needed
+
+No post-update queue rejection attributed to a failed or missing
+`Hostile Environment Test`, or passing queue evaluation under the updated
+policy, has been demonstrated by this record. Before treating #225 as fully
+verified, link the queue head, exact check/app result, and rule evaluation that
+attributes blocking or satisfaction to this requirement. A PR reported as
+blocked while several required checks are pending does not isolate this check's
+effect. Configuration readback and historical compatibility are separate from
+observed enforcement.
+
+The issue-to-pr run did not enqueue or merge a PR, alter other sessions' checks,
+or create probe branches/PRs; no probe cleanup was needed. Windows support and
+additional stress runs are outside this change.
