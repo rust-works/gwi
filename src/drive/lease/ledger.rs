@@ -175,7 +175,10 @@ pub(crate) struct LeaseRecord {
     /// `preserve_order` and `arbitrary_precision` features retain the relative
     /// order of unknown keys (including nested objects) and number precision.
     /// Known fields are written in declaration order before unknown fields;
-    /// whitespace is not preserved.
+    /// whitespace is not preserved. Objects whose first key is
+    /// `$serde_json::private::Number` collide with serde_json's number protocol:
+    /// they can become numbers or fail to load, including recursively and inside
+    /// backup metadata. See [the compatibility decision](../../../docs/lease-ledger-json.md).
     #[serde(flatten)]
     pub(crate) extra: serde_json::Map<String, serde_json::Value>,
 }
@@ -1263,6 +1266,101 @@ mod tests {
             assert_eq!(loaded.restored_sheet_id, Some(7));
             assert!(loaded.released_at.is_some());
         }
+    }
+
+    /// Characterizes the accepted serde_json limitation documented in #143.
+    /// Build the input as text: parsing the fixture as Value would hide the collision.
+    #[test]
+    fn private_number_key_limitation_applies_to_unknown_row_and_backup_values() {
+        for backup_kind in [None, Some("drive_copy"), Some("bytes")] {
+            for nested in [false, true] {
+                for (value, error) in [
+                    (r#"{"$serde_json::private::Number":"123"}"#, None),
+                    (
+                        r#"{"$serde_json::private::Number":"not-a-number"}"#,
+                        Some("invalid number"),
+                    ),
+                    (
+                        r#"{"$serde_json::private::Number":"123","other":"keep"}"#,
+                        Some("invalid length 2"),
+                    ),
+                ] {
+                    let dir = tempfile::tempdir().unwrap();
+                    let path = dir.path().join("lease-ledger.jsonl");
+                    let value = if nested {
+                        format!(r#"{{"nested":[{value}]}}"#)
+                    } else {
+                        value.to_string()
+                    };
+                    let mut record = sample_record("t1");
+                    // Put the unknown value at row level or in either backup variant.
+                    let known = serde_json::to_string(&record).unwrap();
+                    let row = if let Some(kind) = backup_kind {
+                        let backup = match kind {
+                            "bytes" => {
+                                r#"{"kind":"bytes","path":"backup.bin","sha256":"abc","size":1"#
+                            }
+                            _ => r#"{"kind":"drive_copy","file_id":"backup-copy""#,
+                        };
+                        record.backup = serde_json::from_str(&format!("{backup}}}")).unwrap();
+                        let known = serde_json::to_string(&record).unwrap();
+                        let plain_backup = serde_json::to_string(&record.backup).unwrap();
+                        let with_extra = format!("{backup},\"future\":{value}}}");
+                        known.replace(&plain_backup, &with_extra)
+                    } else {
+                        format!("{},\"future\":{value}}}", known.strip_suffix('}').unwrap())
+                    };
+                    std::fs::write(&path, &row).unwrap();
+
+                    if let Some(error) = error {
+                        let err = format!("{:#}", LeaseLedger::load(&path).unwrap_err());
+                        assert!(err.contains(error), "{err}");
+                        assert!(err.contains("line 1"), "{err}");
+                        assert_eq!(std::fs::read_to_string(&path).unwrap(), row);
+                        continue;
+                    }
+
+                    let ledger = LeaseLedger::load(&path).unwrap();
+                    ledger.save(&path).unwrap();
+                    let expected = if nested {
+                        r#""future":{"nested":[123]}"#
+                    } else {
+                        r#""future":123"#
+                    };
+                    let saved = std::fs::read_to_string(&path).unwrap();
+                    assert!(saved.contains(expected), "{saved}");
+                    assert!(!saved.contains("$serde_json::private::Number"), "{saved}");
+
+                    let lock = LedgerLock::acquire(&path).unwrap();
+                    LeaseLedger::mutate(&lock, &path, |ledger| {
+                        ledger.record_write("t1", "9".into(), None);
+                        ledger.release("t1", Utc::now(), None);
+                    })
+                    .unwrap();
+                    let saved = std::fs::read_to_string(&path).unwrap();
+                    assert!(saved.contains(expected), "{saved}");
+                    assert_eq!(
+                        LeaseLedger::load(&path).unwrap().get("t1").unwrap().version,
+                        "9"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn private_number_key_after_an_ordinary_key_remains_an_object() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("lease-ledger.jsonl");
+        let known = serde_json::to_string(&sample_record("t1")).unwrap();
+        let extra = r#""future":{"other":"keep","$serde_json::private::Number":"not-a-number"}"#;
+        let row = format!("{},{extra}}}", known.strip_suffix('}').unwrap());
+        std::fs::write(&path, row).unwrap();
+
+        LeaseLedger::load(&path).unwrap().save(&path).unwrap();
+
+        let saved = std::fs::read_to_string(&path).unwrap();
+        assert!(saved.contains(extra), "{saved}");
     }
 
     #[test]

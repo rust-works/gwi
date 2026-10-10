@@ -33,7 +33,9 @@
 //!   be touched). A dry run takes no lock and writes nothing.
 //! - **A field gwi does not know is copied too.** A row from a newer omni-dev keeps its
 //!   unknown fields, including those inside `backup`, through the import and every later
-//!   rewrite of the ledger (`LeaseRecord::extra` and `LeaseBackup` flatten them).
+//!   rewrite of the ledger (`LeaseRecord::extra` and `LeaseBackup` flatten them),
+//!   subject to the [private number key limitation](../../../docs/lease-ledger-json.md):
+//!   some valid unknown JSON objects become numbers or prevent the ledger loading.
 //! - No audit history is copied (ADR-0001 §3).
 //! - The report names tokens (identifiers, not credentials: ADR-0080 §2) and never a
 //!   backup path, hash or file id.
