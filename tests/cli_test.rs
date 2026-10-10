@@ -1005,69 +1005,189 @@ fn log_recovers_a_record_after_a_partial_prefix() {
     assert!(output.stderr.is_empty());
 }
 
-#[test]
-fn log_follow_recovers_appended_records_and_warns_on_stderr() {
-    use std::io::{BufRead, BufReader, Write};
-    use std::process::Stdio;
-    use std::sync::mpsc;
-    use std::time::Duration;
+type FollowEvent = (std::time::Duration, std::io::Result<String>);
 
-    let home = tempfile::tempdir().unwrap();
-    let path = home.path().join("log.jsonl");
-    std::fs::write(&path, format!("{HTTP_LINE}\n{{partial")).unwrap();
+/// Reads both pipes independently and preserves I/O failures and event timestamps.
+fn log_follow_reader(
+    pipe: impl std::io::Read + Send + 'static,
+    started: std::time::Instant,
+    gate: Option<std::sync::mpsc::Receiver<()>>,
+) -> (
+    std::sync::mpsc::Receiver<FollowEvent>,
+    std::thread::JoinHandle<usize>,
+) {
+    use std::io::{BufRead, BufReader};
+
+    let (sender, receiver) = std::sync::mpsc::channel();
+    let reader = std::thread::spawn(move || {
+        if let Some(gate) = gate {
+            gate.recv().unwrap();
+        }
+        let mut count = 0;
+        for line in BufReader::new(pipe).lines() {
+            let failed = line.is_err();
+            count += 1;
+            if sender.send((started.elapsed(), line)).is_err() || failed {
+                break;
+            }
+        }
+        count
+    });
+    (receiver, reader)
+}
+
+fn check_log_follow_recovery(
+    path: &Path,
+    split_append: bool,
+    receive_timeout: std::time::Duration,
+    hold_stdout: bool,
+) -> anyhow::Result<()> {
+    use std::io::Write;
+    use std::process::Stdio;
+    use std::time::{Duration, Instant};
+
+    use anyhow::Context;
+
+    // Longer than a follow poll: exercise a line left incomplete across polls.
+    const PARTIAL_WAIT: Duration = Duration::from_millis(500);
+
+    let started = Instant::now();
     let mut command = Command::new(env!("CARGO_BIN_EXE_gwi"));
-    let mut child = common::isolate(&mut command, home.path())
+    let mut child = common::isolate(&mut command, path.parent().unwrap())
         .args(["log", "--follow", "-o", "json"])
-        .env("HOME", home.path())
-        .env("GWI_LOG_FILE", &path)
-        .env("GWI_LOG_DISABLE", "1")
+        .env("GWI_LOG_FILE", path)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
-        .spawn()
-        .unwrap();
-    let stdout = child.stdout.take().unwrap();
-    let stderr = child.stderr.take().unwrap();
-    let (out_tx, out_rx) = mpsc::channel();
-    let out_reader = std::thread::spawn(move || {
-        for line in BufReader::new(stdout).lines() {
-            if out_tx.send(line.unwrap()).is_err() {
-                break;
-            }
-        }
-    });
-    let (err_tx, err_rx) = mpsc::channel();
-    let err_reader = std::thread::spawn(move || {
-        for line in BufReader::new(stderr).lines() {
-            if err_tx.send(line.unwrap()).is_err() {
-                break;
-            }
-        }
-    });
-    let timeout = Duration::from_secs(10);
-    let initial = out_rx.recv_timeout(timeout);
-    let mut file = std::fs::OpenOptions::new()
-        .append(true)
-        .open(&path)
-        .unwrap();
-    writeln!(file, "{DRIVE_MUTATION_LINE}\njunk").unwrap();
-    let recovered = out_rx.recv_timeout(timeout);
-    let warning = err_rx.recv_timeout(timeout);
-    // Reap before assertions so even a failed timeout cannot leave a follower running.
-    child.kill().unwrap();
-    child.wait().unwrap();
-    out_reader.join().unwrap();
-    err_reader.join().unwrap();
-    assert_eq!(initial.unwrap(), HTTP_LINE);
-    assert_eq!(recovered.unwrap(), DRIVE_MUTATION_LINE);
-    assert_eq!(
-        warning.unwrap(),
-        format!(
-            "warning: skipped 1 unparseable line in {} (lines 3)",
-            path.display()
-        )
+        .spawn()?;
+    let pid = child.id();
+    // A held reader makes the timeout regression independent of child startup speed.
+    let (release_stdout, stdout_gate) = std::sync::mpsc::channel();
+    let (out_rx, out_reader) = log_follow_reader(
+        child.stdout.take().unwrap(),
+        started,
+        hold_stdout.then_some(stdout_gate),
     );
-    assert!(out_rx.try_recv().is_err());
-    assert!(err_rx.try_recv().is_err());
+    let (err_rx, err_reader) = log_follow_reader(child.stderr.take().unwrap(), started, None);
+    let mut events = Vec::new();
+    let mut receive = |receiver: &std::sync::mpsc::Receiver<FollowEvent>, phase, expected: &str| {
+        let event = receiver.recv_timeout(receive_timeout);
+        events.push(format!("{phase} at {:?}: {event:?}", started.elapsed()));
+        let (_, line) = event.with_context(|| format!("Failed to receive {phase}"))?;
+        let line = line.with_context(|| format!("Failed to read {phase}"))?;
+        anyhow::ensure!(line == expected, "Unexpected {phase}: {line:?}");
+        Ok::<_, anyhow::Error>(())
+    };
+    // Return errors to the cleanup below; never append unless backlog readiness succeeded.
+    let result = (|| {
+        receive(&out_rx, "initial backlog stdout", HTTP_LINE)?;
+        let mut file = std::fs::OpenOptions::new().append(true).open(path)?;
+        if split_append {
+            write!(file, "{DRIVE_MUTATION_LINE}")?;
+            let pending = out_rx.recv_timeout(PARTIAL_WAIT);
+            anyhow::ensure!(
+                matches!(pending, Err(std::sync::mpsc::RecvTimeoutError::Timeout)),
+                "Unexpected output before appended newline: {pending:?}"
+            );
+            writeln!(file, "\njunk")?;
+        } else {
+            writeln!(file, "{DRIVE_MUTATION_LINE}\njunk")?;
+        }
+        receive(&out_rx, "recovered appended stdout", DRIVE_MUTATION_LINE)?;
+        receive(
+            &err_rx,
+            "malformed-line stderr",
+            &format!(
+                "warning: skipped 1 unparseable line in {} (lines 3)",
+                path.display()
+            ),
+        )?;
+        // Leave the follower alive across later polls to catch replayed records.
+        let quiet = out_rx.recv_timeout(PARTIAL_WAIT);
+        anyhow::ensure!(
+            matches!(quiet, Err(std::sync::mpsc::RecvTimeoutError::Timeout)),
+            "Unexpected stdout after recovery: {quiet:?}"
+        );
+        Ok::<_, anyhow::Error>(())
+    })();
+    let before_kill = child.try_wait();
+    // Reap and join BOTH readers before reporting even a timeout or write failure.
+    let killed = child.kill();
+    let reaped = child.wait();
+    let released = if hold_stdout {
+        Some(release_stdout.send(()))
+    } else {
+        None
+    };
+    let out_join = out_reader.join();
+    let err_join = err_reader.join();
+    let late_stdout: Vec<_> = out_rx.try_iter().collect();
+    let late_stderr: Vec<_> = err_rx.try_iter().collect();
+    let diagnostics = format!(
+        "pid={pid}, split_append={split_append}, elapsed={:?}, \
+         child before kill={before_kill:?}, kill={killed:?}, wait={reaped:?}, release={released:?}, \
+         stdout reader={out_join:?}, stderr reader={err_join:?}, \
+         late stdout={late_stdout:?}, late stderr={late_stderr:?}\nevents:\n{}",
+        started.elapsed(),
+        events.join("\n")
+    );
+    result.with_context(|| diagnostics.clone())?;
+    anyhow::ensure!(
+        matches!(before_kill, Ok(None)),
+        "Follower exited: {diagnostics}"
+    );
+    anyhow::ensure!(
+        killed.is_ok() && reaped.is_ok(),
+        "Cleanup failed: {diagnostics}"
+    );
+    anyhow::ensure!(
+        out_join.is_ok() && err_join.is_ok(),
+        "Reader panicked: {diagnostics}"
+    );
+    anyhow::ensure!(
+        late_stdout.is_empty() && late_stderr.is_empty(),
+        "Extra output: {diagnostics}"
+    );
+    eprintln!("log follow recovery: {diagnostics}");
+    Ok(())
+}
+
+#[test]
+fn log_follow_recovers_appended_records_and_warns_on_stderr() {
+    for split_append in [false, true] {
+        let home = tempfile::tempdir().unwrap();
+        let path = home.path().join("log.jsonl");
+        std::fs::write(&path, format!("{HTTP_LINE}\n{{partial")).unwrap();
+        check_log_follow_recovery(
+            &path,
+            split_append,
+            std::time::Duration::from_secs(10),
+            false,
+        )
+        .unwrap();
+    }
+}
+
+#[test]
+fn log_follow_initial_timeout_reports_phase_and_reaps_before_returning() {
+    let home = tempfile::tempdir().unwrap();
+    let path = home.path().join("log.jsonl");
+    let backlog = format!("{HTTP_LINE}\n{{partial");
+    std::fs::write(&path, &backlog).unwrap();
+    let error =
+        check_log_follow_recovery(&path, false, std::time::Duration::ZERO, true).unwrap_err();
+    let diagnostic = format!("{error:#}");
+    assert!(
+        diagnostic.contains("Failed to receive initial backlog stdout"),
+        "{diagnostic}"
+    );
+    assert!(diagnostic.contains("Timeout"), "{diagnostic}");
+    assert!(diagnostic.contains("kill=Ok(())"), "{diagnostic}");
+    assert!(diagnostic.contains("wait=Ok("), "{diagnostic}");
+    assert!(diagnostic.contains("release=Some(Ok(()))"), "{diagnostic}");
+    assert!(diagnostic.contains("stdout reader=Ok("), "{diagnostic}");
+    assert!(diagnostic.contains("stderr reader=Ok("), "{diagnostic}");
+    // Dependent appends must not run after startup/backlog readiness failed.
+    assert_eq!(std::fs::read_to_string(path).unwrap(), backlog);
 }
 
 #[test]
