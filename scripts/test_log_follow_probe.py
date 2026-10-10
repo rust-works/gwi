@@ -212,6 +212,71 @@ time.sleep({0.1 if immediate_exit else 60})
             self.assert_not_running(int(pidfile.read_text()))
             pidfile.unlink()
 
+    def cleanup_runner(self, child, output, pidfile):
+        if child.poll() is None:
+            child.terminate()
+            try:
+                child.wait(timeout=3)
+            except subprocess.TimeoutExpired:
+                pass
+        groups = set()
+        for path in output.glob('*/command.json'):
+            record = json.loads(path.read_text())
+            if 'outcome' not in record and 'pid' in record:
+                groups.add(record['pid'])
+        if pidfile.exists():
+            try:
+                groups.add(os.getpgid(int(pidfile.read_text())))
+            except ProcessLookupError:
+                pass
+        try:
+            for group in groups:
+                try:
+                    os.killpg(group, signal.SIGKILL)
+                except (ProcessLookupError, PermissionError):
+                    # Confirm exit below; a denied signal cannot hide a live group.
+                    pass
+        finally:
+            if child.poll() is None:
+                child.kill()
+            child.wait(timeout=3)
+        deadline = time.monotonic() + 3
+        while groups:
+            snapshot = subprocess.run(['ps', '-axo', 'pgid=,stat='], capture_output=True,
+                                      text=True, check=True, timeout=5)
+            live = {int(group) for group, state in (line.split() for line in snapshot.stdout.splitlines())
+                    if not state.startswith('Z')}
+            groups &= live
+            if time.monotonic() >= deadline:
+                self.assertFalse(groups, 'signal fixture left live workload groups')
+            if groups:
+                time.sleep(0.01)
+        pidfile.unlink(missing_ok=True)
+
+    def test_signal_fixture_cleanup_handles_a_crashed_probe(self):
+        parent, pidfile = self.descendant()
+        output = self.root / 'crashed'
+        command_dir = output / 'build'
+        command_dir.mkdir(parents=True)
+        broken = self.binary('broken-probe', f"""import json,pathlib,subprocess,time
+child = subprocess.Popen([{str(parent)!r}], start_new_session=True)
+pathlib.Path({str(command_dir / 'command.json')!r}).write_text(json.dumps({{'pid': child.pid}}))
+time.sleep(60)
+""")
+        child = subprocess.Popen([str(broken)])
+        try:
+            deadline = time.monotonic() + 10
+            while not pidfile.exists() and time.monotonic() < deadline:
+                time.sleep(0.01)
+            self.assertTrue(pidfile.exists())
+            descendant = int(pidfile.read_text())
+            child.kill()
+            child.wait(timeout=3)
+            self.cleanup_runner(child, output, pidfile)
+            self.assert_not_running(descendant)
+        finally:
+            self.cleanup_runner(child, output, pidfile)
+
     def test_real_signals_cleanup_and_preserve_summary(self):
         # Exercise main's installed signal handlers while a real build descendant
         # is running, rather than only injecting an exception into wait().
@@ -234,10 +299,7 @@ time.sleep({0.1 if immediate_exit else 60})
                 self.assertEqual(summary['status'], 130)
                 self.assertEqual(summary['commands'][-1]['outcome'], 'stopped')
             finally:
-                if child.poll() is None:
-                    child.kill()
-                child.wait()
-                pidfile.unlink(missing_ok=True)
+                self.cleanup_runner(child, output, pidfile)
 
     def test_metadata_write_failure_keeps_child_owned_for_cleanup(self):
         with patch.object(runner, 'write_json', side_effect=OSError('disk full')):
