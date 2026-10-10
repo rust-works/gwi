@@ -854,7 +854,10 @@ fn log_follow_recovers_appended_records_and_warns_on_stderr() {
     assert_eq!(recovered.unwrap(), DRIVE_MUTATION_LINE);
     assert_eq!(
         warning.unwrap(),
-        format!("warning: skipped 1 unparseable line in {}", path.display())
+        format!(
+            "warning: skipped 1 unparseable line in {} (lines 3)",
+            path.display()
+        )
     );
     assert!(out_rx.try_recv().is_err());
     assert!(err_rx.try_recv().is_err());
@@ -881,7 +884,23 @@ fn log_warns_about_unparseable_lines_but_leaves_stdout_and_exit_code_alone() {
     assert_eq!(
         String::from_utf8_lossy(&output.stderr),
         format!(
-            "warning: skipped 3 unparseable lines in {}\n",
+            "warning: skipped 3 unparseable lines in {} (lines 1, 4, 6)\n",
+            path.display()
+        )
+    );
+
+    // Retain only five positions even when a filter and limit hide every record.
+    std::fs::write(&path, "\n\r\njunk\njunk\njunk\njunk\njunk\njunk\njunk\n").unwrap();
+    let output = gwi(
+        home.path(),
+        &["log", "-o", "json", "--limit", "0", "--service", "drive"],
+    );
+    assert!(output.status.success());
+    assert!(output.stdout.is_empty());
+    assert_eq!(
+        String::from_utf8_lossy(&output.stderr),
+        format!(
+            "warning: skipped 7 unparseable lines in {} (lines 3, 4, 5, 6, 7 and 2 more)\n",
             path.display()
         )
     );

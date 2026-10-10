@@ -304,7 +304,11 @@ A line that does not parse as a record (including a partly written trailing line
 Piping into something that closes early, such as `| head`, ends the scan cleanly when a
 write detects the closed pipe.
 
-Unparseable records produce a best-effort stderr warning naming the count and log path;
+Unparseable records produce a best-effort stderr warning naming the total count, log path,
+and the first five 1-based physical line numbers, followed by `and N more` when capped.
+For example: `warning: skipped 3 unparseable lines in /path/log.jsonl (lines 12, 40, 41)`.
+Blank and filtered lines still occupy line numbers. Numbering starts at 1 in each file,
+including after a replacement or truncation;
 stdout and the exit behavior are unchanged. The backlog scan reports once per file.
 While following, newly appended corrupt complete lines are counted together and reported
 once per drain pass (the log is polled every 250 ms). Blank lines and incomplete trailing
