@@ -26,6 +26,10 @@ path = "src/mcp_server.rs"
 required-features = ["mcp"]
 
 [[test]]
+name = "description_consistency_test"
+path = "tests/description_consistency_test.rs"
+
+[[test]]
 name = "cli_test"
 path = "tests/cli_test.rs"
 
