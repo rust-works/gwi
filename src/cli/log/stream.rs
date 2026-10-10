@@ -10,8 +10,8 @@
 //! polling stdout for hangup. On Windows and other non-unix platforms, closure is
 //! noticed only on the next matching write; an idle follow may run indefinitely
 //! until explicitly interrupted (accepted platform limit, #91). Backlog scans
-//! also probe before reading and every 1,024 lines on unix, even when a filter or
-//! `--limit` prevents writes.
+//! and appended drains probe before reading and every 1,024 lines on unix, even
+//! when a filter or `--limit` prevents writes.
 //!
 //! `--follow` also notices the log being replaced (`gwi log prune`, rotation):
 //! by the file's identity (device and inode on unix; volume serial number and file
@@ -37,8 +37,8 @@ use crate::request_log::LogRecord;
 /// Poll interval while following the log.
 const FOLLOW_POLL: Duration = Duration::from_millis(250);
 
-/// Amortize the hangup probe across this many backlog lines, including nonmatches.
-const BACKLOG_PROBE_LINES: usize = 1024;
+/// Amortizes the hangup probe across this many scanned lines, including nonmatches.
+const HANGUP_PROBE_LINES: usize = 1024;
 
 /// Maximum physical line numbers included in a skipped-lines warning.
 const SKIPPED_POSITION_CAP: usize = 5;
@@ -408,7 +408,7 @@ fn read_line_lossy<R: BufRead>(
 /// `--follow` reads it from that offset once it is complete. A one-shot scan has
 /// nothing to complete it, so it renders or counts that line immediately.
 /// Stops at the first write to a closed pipe or when `reader_gone` reports hangup,
-/// checked before reading and every [`BACKLOG_PROBE_LINES`] lines thereafter.
+/// checked before reading and every [`HANGUP_PROBE_LINES`] lines thereafter.
 /// The cadence counts every line, regardless of parsing or filtering.
 fn scan_backlog<R: BufRead, W: Write>(
     reader: &mut R,
@@ -428,7 +428,7 @@ fn scan_backlog<R: BufRead, W: Write>(
             if reader_gone() {
                 return Ok(Backlog::ReaderGone);
             }
-            until_probe = BACKLOG_PROBE_LINES;
+            until_probe = HANGUP_PROBE_LINES;
         }
         until_probe -= 1;
         let n = read_line_lossy(reader, &mut buf, &mut line)?;
@@ -496,8 +496,9 @@ fn write_line<W: Write>(out: &mut W, rendered: &str) -> io::Result<bool> {
 /// Tails the file from `pos`, printing newly appended complete lines forever
 /// (until the process is interrupted, a write finds the pipe closed, or
 /// `reader_gone` reports that the reader has gone away, which is checked each
-/// tick so an idle follow, which never writes, still stops). Resumes from the
-/// end when the file is truncated or replaced, without replaying its contents.
+/// tick and periodically during a drain, so nonmatching appends also stop).
+/// Resumes from the end when the file is truncated or replaced, without replaying
+/// its contents.
 fn follow_loop<W: Write>(
     path: &Path,
     filter: &Filter,
@@ -512,17 +513,33 @@ fn follow_loop<W: Write>(
         if reader_gone() {
             return Ok(());
         }
-        let skipped = drain_appended(path, filter, format, &mut tail, out)?;
+        let Drain::Complete { skipped } =
+            drain_appended(path, filter, format, &mut tail, out, &mut reader_gone)?
+        else {
+            return Ok(());
+        };
         warn_skipped(path, &skipped);
         std::thread::sleep(FOLLOW_POLL);
     }
+}
+
+/// The outcome of scanning appended records.
+#[derive(Debug, PartialEq, Eq)]
+enum Drain {
+    /// Reached EOF or a partial line, with a summary of unparseable complete lines.
+    Complete { skipped: SkippedLines },
+    /// The output reader exited; no further drain is needed.
+    ReaderGone,
 }
 
 /// Reads and emits any complete lines appended past `tail.pos`, advancing the
 /// tail. Skips to the observed end if the file was replaced (its identity changed)
 /// or shrank (truncation); a no-op if the file is absent or has not grown.
 /// This also applies to replacement during the initial backlog scan.
-/// Returns the count and bounded positions of unparseable complete lines consumed in this pass.
+/// Returns the count and bounded positions of unparseable complete lines on
+/// completion, or reader gone.
+/// Checks `reader_gone` before reading and every [`HANGUP_PROBE_LINES`] lines,
+/// counting blank, malformed and filtered lines alike.
 /// A trailing partial line (no newline yet) is left for the next call.
 fn drain_appended<W: Write>(
     path: &Path,
@@ -530,9 +547,12 @@ fn drain_appended<W: Write>(
     format: Format,
     tail: &mut Tail,
     out: &mut W,
-) -> Result<SkippedLines> {
+    mut reader_gone: impl FnMut() -> bool,
+) -> Result<Drain> {
     let Ok(file) = File::open(path) else {
-        return Ok(SkippedLines::default());
+        return Ok(Drain::Complete {
+            skipped: SkippedLines::default(),
+        });
     };
     // Identity and length come from the handle that is read, not from the path.
     let len = file.metadata().map_or(tail.pos, |m| m.len());
@@ -554,7 +574,15 @@ fn drain_appended<W: Write>(
         reader.seek(SeekFrom::Start(tail.pos))?;
         let mut buf = Vec::new();
         let mut line = String::new();
+        let mut until_probe = 0;
         loop {
+            if until_probe == 0 {
+                if reader_gone() {
+                    return Ok(Drain::ReaderGone);
+                }
+                until_probe = HANGUP_PROBE_LINES;
+            }
+            until_probe -= 1;
             let n = read_line_lossy(&mut reader, &mut buf, &mut line)?;
             if n == 0 || !line.ends_with('\n') {
                 break; // EOF or partial trailing line — wait for more
@@ -581,7 +609,7 @@ fn drain_appended<W: Write>(
     {
         tail.file = Some(file);
     }
-    Ok(skipped)
+    Ok(Drain::Complete { skipped })
 }
 
 /// Counts physical line boundaries up to the observed replacement end, without
@@ -723,9 +751,9 @@ mod tests {
         std::fs::write(&path, format!("{raw}\n{raw}\n")).unwrap();
         let mut tail = Tail::default();
         let mut out = Vec::new();
-        drain_appended(&path, &f, Format::Json, &mut tail, &mut out).unwrap();
+        drain_appended(&path, &f, Format::Json, &mut tail, &mut out, || false).unwrap();
         std::fs::write(&path, format!("{raw}\n")).unwrap();
-        drain_appended(&path, &f, Format::Json, &mut tail, &mut out).unwrap();
+        drain_appended(&path, &f, Format::Json, &mut tail, &mut out, || false).unwrap();
         assert!(f.unknown_field_warnings(true)[0].contains("2 records scanned"));
         assert!(f.unseen_status_warnings(true)[0].contains("2 drivemutation records scanned"));
         let mut file = std::fs::OpenOptions::new()
@@ -733,7 +761,7 @@ mod tests {
             .open(&path)
             .unwrap();
         writeln!(file, "{raw}").unwrap();
-        drain_appended(&path, &f, Format::Json, &mut tail, &mut out).unwrap();
+        drain_appended(&path, &f, Format::Json, &mut tail, &mut out, || false).unwrap();
         assert!(f.unknown_field_warnings(true)[0].contains("3 records scanned"));
         assert!(f.unseen_status_warnings(true)[0].contains("3 drivemutation records scanned"));
         assert!(f.pending_follow_warnings().is_empty());
@@ -920,8 +948,8 @@ mod tests {
             .unwrap()
             .write_all(b"\n")
             .unwrap();
-        drain_appended(&path, &filter, Format::Json, &mut tail, &mut out).unwrap();
-        drain_appended(&path, &filter, Format::Json, &mut tail, &mut out).unwrap();
+        drain_appended(&path, &filter, Format::Json, &mut tail, &mut out, || false).unwrap();
+        drain_appended(&path, &filter, Format::Json, &mut tail, &mut out, || false).unwrap();
         assert_eq!(
             String::from_utf8_lossy(&out),
             format!("{UNTERMINATED}\n{complete}{UNTERMINATED}\n")
@@ -1143,7 +1171,15 @@ mod tests {
 
         // The writer has not finished: the follow loop prints nothing yet.
         let mut out = Vec::new();
-        drain_appended(&path, &empty_filter(), Format::Json, &mut tail, &mut out).unwrap();
+        drain_appended(
+            &path,
+            &empty_filter(),
+            Format::Json,
+            &mut tail,
+            &mut out,
+            || false,
+        )
+        .unwrap();
         assert!(out.is_empty());
 
         // The writer finishes the line.
@@ -1152,7 +1188,15 @@ mod tests {
             .open(&path)
             .unwrap();
         writeln!(f).unwrap();
-        drain_appended(&path, &empty_filter(), Format::Json, &mut tail, &mut out).unwrap();
+        drain_appended(
+            &path,
+            &empty_filter(),
+            Format::Json,
+            &mut tail,
+            &mut out,
+            || false,
+        )
+        .unwrap();
 
         let all = format!(
             "{}{}",
@@ -1349,7 +1393,15 @@ mod tests {
             }
         );
         let mut tail = tail_at_start();
-        drain_appended(&path, &empty_filter(), Format::Json, &mut tail, &mut out).unwrap();
+        drain_appended(
+            &path,
+            &empty_filter(),
+            Format::Json,
+            &mut tail,
+            &mut out,
+            || false,
+        )
+        .unwrap();
         assert!(out.is_empty());
         assert_eq!(tail.pos, 0);
         let mut file = std::fs::OpenOptions::new()
@@ -1357,8 +1409,24 @@ mod tests {
             .open(&path)
             .unwrap();
         writeln!(file, "{GOOD}").unwrap();
-        drain_appended(&path, &empty_filter(), Format::Json, &mut tail, &mut out).unwrap();
-        drain_appended(&path, &empty_filter(), Format::Json, &mut tail, &mut out).unwrap();
+        drain_appended(
+            &path,
+            &empty_filter(),
+            Format::Json,
+            &mut tail,
+            &mut out,
+            || false,
+        )
+        .unwrap();
+        drain_appended(
+            &path,
+            &empty_filter(),
+            Format::Json,
+            &mut tail,
+            &mut out,
+            || false,
+        )
+        .unwrap();
         assert_eq!(String::from_utf8(out).unwrap(), format!("{GOOD}\n"));
         assert_eq!(tail.pos, file.metadata().unwrap().len());
     }
@@ -1419,13 +1487,33 @@ mod tests {
             .unwrap();
         file.write_all(b"\n\ninvalid\n").unwrap();
         assert_eq!(
-            drain_appended(&path, &empty_filter(), Format::Json, &mut tail, &mut out).unwrap(),
-            skipped_lines(&[3, 5])
+            drain_appended(
+                &path,
+                &empty_filter(),
+                Format::Json,
+                &mut tail,
+                &mut out,
+                || false
+            )
+            .unwrap(),
+            Drain::Complete {
+                skipped: skipped_lines(&[3, 5])
+            }
         );
         file.write_all(b"more\n").unwrap();
         assert_eq!(
-            drain_appended(&path, &empty_filter(), Format::Json, &mut tail, &mut out).unwrap(),
-            skipped_lines(&[6])
+            drain_appended(
+                &path,
+                &empty_filter(),
+                Format::Json,
+                &mut tail,
+                &mut out,
+                || false
+            )
+            .unwrap(),
+            Drain::Complete {
+                skipped: skipped_lines(&[6])
+            }
         );
     }
 
@@ -1436,11 +1524,29 @@ mod tests {
         std::fs::write(&path, format!("{GOOD}\n{GOOD}\n{GOOD}\n")).unwrap();
         let mut tail = tail_at_start();
         let mut out = Vec::new();
-        drain_appended(&path, &empty_filter(), Format::Json, &mut tail, &mut out).unwrap();
+        drain_appended(
+            &path,
+            &empty_filter(),
+            Format::Json,
+            &mut tail,
+            &mut out,
+            || false,
+        )
+        .unwrap();
         std::fs::write(&path, b"\n\r\npartial").unwrap();
         assert_eq!(
-            drain_appended(&path, &empty_filter(), Format::Json, &mut tail, &mut out).unwrap(),
-            SkippedLines::default()
+            drain_appended(
+                &path,
+                &empty_filter(),
+                Format::Json,
+                &mut tail,
+                &mut out,
+                || false
+            )
+            .unwrap(),
+            Drain::Complete {
+                skipped: SkippedLines::default()
+            }
         );
         assert_eq!(tail.lines, 2);
         let mut file = std::fs::OpenOptions::new()
@@ -1449,8 +1555,18 @@ mod tests {
             .unwrap();
         file.write_all(b"bad\ninvalid\n").unwrap();
         assert_eq!(
-            drain_appended(&path, &empty_filter(), Format::Json, &mut tail, &mut out).unwrap(),
-            skipped_lines(&[3, 4])
+            drain_appended(
+                &path,
+                &empty_filter(),
+                Format::Json,
+                &mut tail,
+                &mut out,
+                || false
+            )
+            .unwrap(),
+            Drain::Complete {
+                skipped: skipped_lines(&[3, 4])
+            }
         );
     }
 
@@ -1462,11 +1578,29 @@ mod tests {
         std::fs::write(&path, format!("{GOOD}\n")).unwrap();
         let mut tail = tail_at_start();
         let mut out = Vec::new();
-        drain_appended(&path, &empty_filter(), Format::Json, &mut tail, &mut out).unwrap();
+        drain_appended(
+            &path,
+            &empty_filter(),
+            Format::Json,
+            &mut tail,
+            &mut out,
+            || false,
+        )
+        .unwrap();
         replace_by_rename(&path, &format!("{GOOD}\n\n{GOOD}\n{GOOD}\n"));
         assert_eq!(
-            drain_appended(&path, &empty_filter(), Format::Json, &mut tail, &mut out).unwrap(),
-            SkippedLines::default()
+            drain_appended(
+                &path,
+                &empty_filter(),
+                Format::Json,
+                &mut tail,
+                &mut out,
+                || false
+            )
+            .unwrap(),
+            Drain::Complete {
+                skipped: SkippedLines::default()
+            }
         );
         assert_eq!(tail.lines, 4);
         let mut file = std::fs::OpenOptions::new()
@@ -1475,8 +1609,18 @@ mod tests {
             .unwrap();
         file.write_all(b"invalid\n").unwrap();
         assert_eq!(
-            drain_appended(&path, &empty_filter(), Format::Json, &mut tail, &mut out).unwrap(),
-            skipped_lines(&[5])
+            drain_appended(
+                &path,
+                &empty_filter(),
+                Format::Json,
+                &mut tail,
+                &mut out,
+                || false
+            )
+            .unwrap(),
+            Drain::Complete {
+                skipped: skipped_lines(&[5])
+            }
         );
     }
 
@@ -1488,13 +1632,33 @@ mod tests {
         let mut tail = tail_at_start();
         let mut out = Vec::new();
         assert_eq!(
-            drain_appended(&path, &empty_filter(), Format::Json, &mut tail, &mut out).unwrap(),
-            skipped_lines(&[1, 5])
+            drain_appended(
+                &path,
+                &empty_filter(),
+                Format::Json,
+                &mut tail,
+                &mut out,
+                || false
+            )
+            .unwrap(),
+            Drain::Complete {
+                skipped: skipped_lines(&[1, 5])
+            }
         );
         assert_eq!(String::from_utf8(out.clone()).unwrap(), format!("{GOOD}\n"));
         assert_eq!(
-            drain_appended(&path, &empty_filter(), Format::Json, &mut tail, &mut out).unwrap(),
-            SkippedLines::default()
+            drain_appended(
+                &path,
+                &empty_filter(),
+                Format::Json,
+                &mut tail,
+                &mut out,
+                || false
+            )
+            .unwrap(),
+            Drain::Complete {
+                skipped: SkippedLines::default()
+            }
         );
         assert_eq!(String::from_utf8(out).unwrap(), format!("{GOOD}\n"));
     }
@@ -1512,8 +1676,10 @@ mod tests {
         let mut tail = tail_at_start();
         let mut out = Vec::new();
         assert_eq!(
-            drain_appended(&path, &filter, Format::Json, &mut tail, &mut out).unwrap(),
-            SkippedLines::default()
+            drain_appended(&path, &filter, Format::Json, &mut tail, &mut out, || false).unwrap(),
+            Drain::Complete {
+                skipped: SkippedLines::default()
+            }
         );
         assert_eq!(tail.pos, (GOOD.len() + 1) as u64);
         let mut file = std::fs::OpenOptions::new()
@@ -1522,12 +1688,16 @@ mod tests {
             .unwrap();
         file.write_all(b"\n\xff\n").unwrap();
         assert_eq!(
-            drain_appended(&path, &filter, Format::Json, &mut tail, &mut out).unwrap(),
-            skipped_lines(&[2, 3])
+            drain_appended(&path, &filter, Format::Json, &mut tail, &mut out, || false).unwrap(),
+            Drain::Complete {
+                skipped: skipped_lines(&[2, 3])
+            }
         );
         assert_eq!(
-            drain_appended(&path, &filter, Format::Json, &mut tail, &mut out).unwrap(),
-            SkippedLines::default()
+            drain_appended(&path, &filter, Format::Json, &mut tail, &mut out, || false).unwrap(),
+            Drain::Complete {
+                skipped: SkippedLines::default()
+            }
         );
         assert!(out.is_empty());
     }
@@ -1706,6 +1876,210 @@ mod tests {
     }
 
     #[test]
+    fn drain_probe_stops_no_match_appends_and_new_file_scans() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("log.jsonl");
+        let filter = Filter::build(FilterInput {
+            service: Some("drive"),
+            ..filter_input()
+        })
+        .unwrap();
+        // A new file starts at byte 0; an ordinary append starts after the backlog.
+        for prefix in [String::new(), format!("{GOOD}\n")] {
+            std::fs::write(&path, &prefix).unwrap();
+            let mut tail = tail_at_start();
+            drain_appended(
+                &path,
+                &empty_filter(),
+                Format::Json,
+                &mut tail,
+                &mut Vec::new(),
+                || false,
+            )
+            .unwrap();
+            assert_drain_probe_stops(&path, &filter, &mut tail, &format!("{GOOD}\n"));
+        }
+    }
+
+    /// Appends a large batch and verifies a second probe stops at the shared cadence.
+    fn assert_drain_probe_stops(path: &Path, filter: &Filter, tail: &mut Tail, line: &str) {
+        let start = tail.pos;
+        let start_lines = tail.lines;
+        let batch = line.repeat(HANGUP_PROBE_LINES * 3);
+        std::fs::OpenOptions::new()
+            .append(true)
+            .open(path)
+            .unwrap()
+            .write_all(batch.as_bytes())
+            .unwrap();
+        let mut out = Vec::new();
+        let mut probes = 0;
+        let result = drain_appended(path, filter, Format::Json, tail, &mut out, || {
+            probes += 1;
+            probes == 2
+        })
+        .unwrap();
+        assert_eq!(result, Drain::ReaderGone);
+        assert_eq!(probes, 2);
+        assert_eq!(tail.pos, start + (line.len() * HANGUP_PROBE_LINES) as u64);
+        assert_eq!(tail.lines, start_lines + HANGUP_PROBE_LINES as u64);
+        assert!(tail.pos < std::fs::metadata(path).unwrap().len());
+        assert!(out.is_empty());
+    }
+
+    #[test]
+    fn drain_probe_counts_blank_and_malformed_lines() {
+        for line in ["\n", "not json\n"] {
+            let dir = tempfile::tempdir().unwrap();
+            let path = dir.path().join("log.jsonl");
+            std::fs::write(&path, "").unwrap();
+            assert_drain_probe_stops(&path, &empty_filter(), &mut tail_at_start(), line);
+        }
+    }
+
+    #[cfg(any(unix, windows))]
+    #[test]
+    fn drain_probe_stops_appends_after_replacement_without_replaying() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("log.jsonl");
+        std::fs::write(&path, format!("{GOOD}\n")).unwrap();
+        let mut tail = tail_at_start();
+        drain_appended(
+            &path,
+            &empty_filter(),
+            Format::Json,
+            &mut tail,
+            &mut Vec::new(),
+            || false,
+        )
+        .unwrap();
+        let replacement = format!("{GOOD}\n").repeat(HANGUP_PROBE_LINES * 3);
+        replace_by_rename(&path, &replacement);
+        let mut out = Vec::new();
+        let result = drain_appended(
+            &path,
+            &empty_filter(),
+            Format::Json,
+            &mut tail,
+            &mut out,
+            || false,
+        )
+        .unwrap();
+        assert_eq!(
+            result,
+            Drain::Complete {
+                skipped: SkippedLines::default()
+            }
+        );
+        assert_eq!(tail.pos, replacement.len() as u64);
+        assert!(out.is_empty());
+        let filter = Filter::build(FilterInput {
+            service: Some("drive"),
+            ..filter_input()
+        })
+        .unwrap();
+        assert_drain_probe_stops(&path, &filter, &mut tail, &format!("{GOOD}\n"));
+    }
+
+    #[test]
+    fn drain_probe_detects_a_closed_reader_before_reading() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("log.jsonl");
+        std::fs::write(&path, sample_lines()).unwrap();
+        let mut tail = tail_at_start();
+        let mut out = Vec::new();
+        let result = drain_appended(
+            &path,
+            &empty_filter(),
+            Format::Json,
+            &mut tail,
+            &mut out,
+            || true,
+        )
+        .unwrap();
+        assert_eq!(result, Drain::ReaderGone);
+        assert_eq!(tail.pos, 0);
+        assert!(out.is_empty());
+    }
+
+    #[test]
+    fn drain_probe_live_reader_preserves_output_and_partial_line_cursor() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("log.jsonl");
+        let batch = format!("{GOOD}\n").repeat(HANGUP_PROBE_LINES * 2);
+        std::fs::write(&path, format!("{batch}{GOOD}")).unwrap();
+        let mut tail = tail_at_start();
+        let mut out = Vec::new();
+        let mut probes = 0;
+        let result = drain_appended(
+            &path,
+            &empty_filter(),
+            Format::Json,
+            &mut tail,
+            &mut out,
+            || {
+                probes += 1;
+                false
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            result,
+            Drain::Complete {
+                skipped: SkippedLines::default()
+            }
+        );
+        assert_eq!(probes, 3);
+        assert_eq!(tail.pos, batch.len() as u64);
+        assert_eq!(String::from_utf8(out.clone()).unwrap(), batch);
+        std::fs::OpenOptions::new()
+            .append(true)
+            .open(&path)
+            .unwrap()
+            .write_all(b"\n")
+            .unwrap();
+        drain_appended(
+            &path,
+            &empty_filter(),
+            Format::Json,
+            &mut tail,
+            &mut out,
+            || false,
+        )
+        .unwrap();
+        assert_eq!(String::from_utf8(out).unwrap(), format!("{batch}{GOOD}\n"));
+        assert_eq!(tail.pos, std::fs::metadata(&path).unwrap().len());
+    }
+
+    #[test]
+    fn follow_loop_exits_immediately_when_the_drain_reports_reader_gone() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("log.jsonl");
+        std::fs::write(&path, "\n".repeat(HANGUP_PROBE_LINES * 3)).unwrap();
+        let mut out = Vec::new();
+        let mut probes = 0;
+        follow_loop(
+            &path,
+            &empty_filter(),
+            Format::Json,
+            tail_at_start(),
+            &mut out,
+            || {
+                probes += 1;
+                // Outer probe, drain's first probe, then hangup during the drain.
+                assert!(
+                    probes <= 3,
+                    "follow polled again after the drain detected hangup"
+                );
+                probes == 3
+            },
+        )
+        .unwrap();
+        assert_eq!(probes, 3);
+        assert!(out.is_empty());
+    }
+
+    #[test]
     fn backlog_probe_stops_scans_that_write_nothing() {
         let input = many_lines();
         let mut no_match = filter_input();
@@ -1735,7 +2109,7 @@ mod tests {
                 assert!(out.is_empty());
                 let consumed = reader.position() as usize;
                 assert!(consumed < input.len());
-                assert_eq!(input[..consumed].lines().count(), BACKLOG_PROBE_LINES);
+                assert_eq!(input[..consumed].lines().count(), HANGUP_PROBE_LINES);
             }
         }
     }
@@ -1743,7 +2117,7 @@ mod tests {
     #[test]
     fn backlog_probe_counts_blank_and_malformed_lines() {
         for line in ["\n", "not json\n"] {
-            let input = line.repeat(BACKLOG_PROBE_LINES * 3);
+            let input = line.repeat(HANGUP_PROBE_LINES * 3);
             let mut reader = Cursor::new(input.as_bytes());
             let mut out = Vec::new();
             let mut probes = 0;
@@ -1761,7 +2135,7 @@ mod tests {
             )
             .unwrap();
             assert_eq!(result, Backlog::ReaderGone);
-            assert_eq!(reader.position() as usize, line.len() * BACKLOG_PROBE_LINES);
+            assert_eq!(reader.position() as usize, line.len() * HANGUP_PROBE_LINES);
             assert_eq!(probes, 2);
             assert!(out.is_empty());
         }
@@ -1814,7 +2188,7 @@ mod tests {
             }
         );
         assert_eq!(out, input.as_bytes());
-        assert_eq!(probes, input.lines().count() / BACKLOG_PROBE_LINES + 1);
+        assert_eq!(probes, input.lines().count() / HANGUP_PROBE_LINES + 1);
     }
 
     #[test]
@@ -1980,7 +2354,15 @@ mod tests {
         // First drain reads the whole backlog and advances the position.
         let mut tail = tail_at_start();
         let mut out = Vec::new();
-        drain_appended(&path, &empty_filter(), Format::Json, &mut tail, &mut out).unwrap();
+        drain_appended(
+            &path,
+            &empty_filter(),
+            Format::Json,
+            &mut tail,
+            &mut out,
+            || false,
+        )
+        .unwrap();
         assert_eq!(String::from_utf8(out).unwrap().lines().count(), 5);
         let pos = tail.pos;
         assert!(pos > 0);
@@ -1993,7 +2375,15 @@ mod tests {
         writeln!(f, r#"{{"id":"5","kind":"http"}}"#).unwrap();
         writeln!(f, r#"{{"id":"6","kind":"http"}}"#).unwrap();
         let mut out = Vec::new();
-        drain_appended(&path, &empty_filter(), Format::Json, &mut tail, &mut out).unwrap();
+        drain_appended(
+            &path,
+            &empty_filter(),
+            Format::Json,
+            &mut tail,
+            &mut out,
+            || false,
+        )
+        .unwrap();
         let text = String::from_utf8(out).unwrap();
         assert_eq!(text.lines().count(), 2);
         assert!(text.contains(r#""id":"5""#));
@@ -2007,14 +2397,30 @@ mod tests {
             .unwrap();
         write!(f, r#"{{"id":"7","kind":"http"}}"#).unwrap();
         let mut out = Vec::new();
-        drain_appended(&path, &empty_filter(), Format::Json, &mut tail, &mut out).unwrap();
+        drain_appended(
+            &path,
+            &empty_filter(),
+            Format::Json,
+            &mut tail,
+            &mut out,
+            || false,
+        )
+        .unwrap();
         assert!(String::from_utf8(out).unwrap().is_empty());
         assert_eq!(tail.pos, pos2, "partial line does not advance the position");
 
         // Truncation skips existing contents and follows subsequent appends.
         std::fs::write(&path, "{\"id\":\"x\",\"kind\":\"http\"}\n").unwrap();
         let mut out = Vec::new();
-        drain_appended(&path, &empty_filter(), Format::Json, &mut tail, &mut out).unwrap();
+        drain_appended(
+            &path,
+            &empty_filter(),
+            Format::Json,
+            &mut tail,
+            &mut out,
+            || false,
+        )
+        .unwrap();
         assert!(out.is_empty());
         assert_eq!(tail.pos, std::fs::metadata(&path).unwrap().len());
         assert_follows_next_append(&path, &mut tail);
@@ -2029,7 +2435,15 @@ mod tests {
             file: None,
         };
         let mut out = Vec::new();
-        drain_appended(&missing, &empty_filter(), Format::Json, &mut kept, &mut out).unwrap();
+        drain_appended(
+            &missing,
+            &empty_filter(),
+            Format::Json,
+            &mut kept,
+            &mut out,
+            || false,
+        )
+        .unwrap();
         assert_eq!(kept.pos, 7);
         assert!(String::from_utf8(out).unwrap().is_empty());
     }
@@ -2074,7 +2488,15 @@ mod tests {
         writeln!(f, r#"{{"id":"5","kind":"http"}}"#).unwrap();
 
         let mut out = Vec::new();
-        drain_appended(&path, &empty_filter(), Format::Json, &mut tail, &mut out).unwrap();
+        drain_appended(
+            &path,
+            &empty_filter(),
+            Format::Json,
+            &mut tail,
+            &mut out,
+            || false,
+        )
+        .unwrap();
 
         let text = String::from_utf8(out).unwrap();
         assert_eq!(text.lines().count(), 1, "text was: {text}");
@@ -2104,6 +2526,7 @@ mod tests {
             Format::Json,
             &mut tail,
             &mut Vec::new(),
+            || false,
         )
         .unwrap();
 
@@ -2113,7 +2536,15 @@ mod tests {
         replace_by_rename(&path, &replacement);
 
         let mut out = Vec::new();
-        drain_appended(&path, &empty_filter(), Format::Json, &mut tail, &mut out).unwrap();
+        drain_appended(
+            &path,
+            &empty_filter(),
+            Format::Json,
+            &mut tail,
+            &mut out,
+            || false,
+        )
+        .unwrap();
         let text = String::from_utf8(out).unwrap();
         assert!(text.is_empty(), "text was: {text}");
         assert_eq!(tail.pos, replacement.len() as u64);
@@ -2133,6 +2564,7 @@ mod tests {
             Format::Json,
             &mut tail,
             &mut Vec::new(),
+            || false,
         )
         .unwrap();
 
@@ -2141,7 +2573,15 @@ mod tests {
         replace_by_rename(&path, &replacement);
 
         let mut out = Vec::new();
-        drain_appended(&path, &empty_filter(), Format::Json, &mut tail, &mut out).unwrap();
+        drain_appended(
+            &path,
+            &empty_filter(),
+            Format::Json,
+            &mut tail,
+            &mut out,
+            || false,
+        )
+        .unwrap();
         let text = String::from_utf8(out).unwrap();
         assert!(text.is_empty(), "text was: {text}");
         assert_eq!(tail.pos, replacement.len() as u64);
@@ -2170,7 +2610,15 @@ mod tests {
                     .unwrap()
             } else {
                 let mut tail = tail_at_start();
-                drain_appended(&path, &empty_filter(), Format::Json, &mut tail, &mut out).unwrap();
+                drain_appended(
+                    &path,
+                    &empty_filter(),
+                    Format::Json,
+                    &mut tail,
+                    &mut out,
+                    || false,
+                )
+                .unwrap();
                 tail
             };
             let original_id = tail.id;
@@ -2180,7 +2628,15 @@ mod tests {
             out.clear();
             if !after_backlog {
                 // An idle poll must retain a handle too, not just polls that read bytes.
-                drain_appended(&path, &empty_filter(), Format::Json, &mut tail, &mut out).unwrap();
+                drain_appended(
+                    &path,
+                    &empty_filter(),
+                    Format::Json,
+                    &mut tail,
+                    &mut out,
+                    || false,
+                )
+                .unwrap();
                 assert!(out.is_empty());
             }
             replace_by_rename(&path, &sample_lines().replace("/x/", "/first/"));
@@ -2194,7 +2650,15 @@ mod tests {
             let final_id = file_id(&File::open(&path).unwrap());
             assert_ne!(final_id, original_id);
             assert!(replacement.len() as u64 > tail.pos);
-            drain_appended(&path, &empty_filter(), Format::Json, &mut tail, &mut out).unwrap();
+            drain_appended(
+                &path,
+                &empty_filter(),
+                Format::Json,
+                &mut tail,
+                &mut out,
+                || false,
+            )
+            .unwrap();
             assert!(out.is_empty(), "replacement contents must not replay");
             assert_eq!(tail.pos, replacement.len() as u64);
             assert_eq!(tail.id, final_id);
@@ -2218,13 +2682,22 @@ mod tests {
             Format::Json,
             &mut tail,
             &mut Vec::new(),
+            || false,
         )
         .unwrap();
         let original_id = tail.id;
         let original_pos = tail.pos;
         std::fs::remove_file(&path).unwrap();
         let mut out = Vec::new();
-        drain_appended(&path, &empty_filter(), Format::Json, &mut tail, &mut out).unwrap();
+        drain_appended(
+            &path,
+            &empty_filter(),
+            Format::Json,
+            &mut tail,
+            &mut out,
+            || false,
+        )
+        .unwrap();
         assert!(out.is_empty());
         assert_eq!(tail.pos, original_pos);
         let held = tail.file.as_ref().unwrap();
@@ -2232,7 +2705,15 @@ mod tests {
         assert_eq!(held.metadata().unwrap().nlink(), 0);
 
         std::fs::write(&path, sample_lines().repeat(2)).unwrap();
-        drain_appended(&path, &empty_filter(), Format::Json, &mut tail, &mut out).unwrap();
+        drain_appended(
+            &path,
+            &empty_filter(),
+            Format::Json,
+            &mut tail,
+            &mut out,
+            || false,
+        )
+        .unwrap();
         assert!(out.is_empty());
         assert_ne!(tail.id, original_id);
         assert_eq!(tail.pos, sample_lines().len() as u64 * 2);
@@ -2243,10 +2724,16 @@ mod tests {
         let mut file = std::fs::OpenOptions::new().append(true).open(path).unwrap();
         writeln!(file, "{GOOD}").unwrap();
         let mut out = Vec::new();
-        drain_appended(path, &empty_filter(), Format::Json, tail, &mut out).unwrap();
+        drain_appended(path, &empty_filter(), Format::Json, tail, &mut out, || {
+            false
+        })
+        .unwrap();
         assert_eq!(out, format!("{GOOD}\n").as_bytes());
         out.clear();
-        drain_appended(path, &empty_filter(), Format::Json, tail, &mut out).unwrap();
+        drain_appended(path, &empty_filter(), Format::Json, tail, &mut out, || {
+            false
+        })
+        .unwrap();
         assert!(out.is_empty(), "the next append is printed exactly once");
     }
 
@@ -2256,9 +2743,25 @@ mod tests {
         let path = dir.path().join("log.jsonl");
         let mut tail = tail_at_start();
         let mut out = Vec::new();
-        drain_appended(&path, &empty_filter(), Format::Json, &mut tail, &mut out).unwrap();
+        drain_appended(
+            &path,
+            &empty_filter(),
+            Format::Json,
+            &mut tail,
+            &mut out,
+            || false,
+        )
+        .unwrap();
         std::fs::write(&path, sample_lines()).unwrap();
-        drain_appended(&path, &empty_filter(), Format::Json, &mut tail, &mut out).unwrap();
+        drain_appended(
+            &path,
+            &empty_filter(),
+            Format::Json,
+            &mut tail,
+            &mut out,
+            || false,
+        )
+        .unwrap();
         assert_eq!(out, sample_lines().as_bytes());
     }
 
@@ -2318,8 +2821,15 @@ mod tests {
                         replace_by_rename(&path, &replacement);
                     }
                     out.clear();
-                    drain_appended(&path, &empty_filter(), Format::Json, &mut tail, &mut out)
-                        .unwrap();
+                    drain_appended(
+                        &path,
+                        &empty_filter(),
+                        Format::Json,
+                        &mut tail,
+                        &mut out,
+                        || false,
+                    )
+                    .unwrap();
                     assert!(out.is_empty(), "replacement must never replay records");
                     assert_eq!(tail.pos, replacement.len() as u64);
                     assert_follows_next_append(&path, &mut tail);
