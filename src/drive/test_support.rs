@@ -12,9 +12,21 @@ use crate::drive::auth::{
     DRIVE_API_URL, DRIVE_CLIENT_ID, DRIVE_CLIENT_SECRET, DRIVE_REFRESH_TOKEN, DRIVE_SCOPE,
 };
 use crate::drive::docs::client::DOCS_API_URL;
+use crate::drive::lease::settings::{
+    LEASE_ALLOW_HEADLESS_ENV, LEASE_BACKUP_DIR_ENV, LEASE_BIOMETRICS_ONLY_ENV,
+    LEASE_EXPIRY_MINUTES_ENV,
+};
 use crate::drive::sheets::client::SHEETS_API_URL;
 use crate::drive::slides::client::SLIDES_API_URL;
 use crate::utils::settings::PROFILE_ENV_VAR;
+
+// Shared by the snapshot and source-mutation guard so lease-policy names cannot drift.
+const LEASE_POLICY_ENV_KEYS: &[&str] = &[
+    LEASE_EXPIRY_MINUTES_ENV,
+    LEASE_BACKUP_DIR_ENV,
+    LEASE_BIOMETRICS_ONLY_ENV,
+    LEASE_ALLOW_HEADLESS_ENV,
+];
 
 /// Process-wide mutex serialising tests that mutate `HOME` and the Drive
 /// credential environment variables.
@@ -51,11 +63,8 @@ impl EnvGuard {
             SHEETS_API_URL.to_string(),
             DOCS_API_URL.to_string(),
             SLIDES_API_URL.to_string(),
-            "GWI_DRIVE_LEASE_EXPIRY_MINUTES".to_string(),
-            "GWI_DRIVE_LEASE_BACKUP_DIR".to_string(),
-            "GWI_DRIVE_LEASE_BIOMETRICS_ONLY".to_string(),
-            "GWI_DRIVE_LEASE_ALLOW_HEADLESS".to_string(),
         ];
+        keys.extend(LEASE_POLICY_ENV_KEYS.iter().map(|key| (*key).to_string()));
         // The `_FILE` / `_COMMAND` companions of every Drive secret, derived from
         // the registry so a new secret is covered without touching this list:
         // a developer who exports one changes the outcome of any test that
@@ -285,8 +294,8 @@ pub(crate) async fn client_with_bootstrapped_token(
 mod tests {
     use std::path::{Path, PathBuf};
 
-    /// The identifiers of every Drive and Gmail key the two `EnvGuard`s
-    /// snapshot. `HOME` is left out: Atlassian's and other domains' own
+    /// Rust identifiers recognized by the source guard; literal lease-policy
+    /// names come from `LEASE_POLICY_ENV_KEYS`. `HOME` is left out: other domains' own
     /// guards mutate it legitimately without these. `GWI_PROFILE` is left
     /// out too: `Cli::propagate_profile_flag` sets it in production code.
     const GUARDED_KEYS: &[&str] = &[
@@ -305,6 +314,10 @@ mod tests {
         "GMAIL_SCOPE",
         "GMAIL_ACCOUNT_ENV",
         "GMAIL_API_URL",
+        "LEASE_EXPIRY_MINUTES_ENV",
+        "LEASE_BACKUP_DIR_ENV",
+        "LEASE_BIOMETRICS_ONLY_ENV",
+        "LEASE_ALLOW_HEADLESS_ENV",
     ];
 
     fn rust_sources(dir: &Path, out: &mut Vec<PathBuf>) {
@@ -321,7 +334,12 @@ mod tests {
     fn env_mutation_pattern() -> regex::Regex {
         regex::Regex::new(&format!(
             r#"(?:set_var|remove_var)\(\s*"?(?:[A-Za-z_][A-Za-z0-9_]*::)*(?:{})\b"#,
-            GUARDED_KEYS.join("|")
+            GUARDED_KEYS
+                .iter()
+                .chain(super::LEASE_POLICY_ENV_KEYS)
+                .copied()
+                .collect::<Vec<_>>()
+                .join("|")
         ))
         .unwrap()
     }
@@ -352,6 +370,60 @@ mod tests {
             "std::env::set_var(SLIDES_API_URL_OTHER, \"unrelated\");",
             &mutation,
         ));
+    }
+
+    #[test]
+    fn lease_policy_env_mutations_require_the_guard() {
+        let mutation = env_mutation_pattern();
+        for (literal, identifier) in [
+            ("GWI_DRIVE_LEASE_EXPIRY_MINUTES", "LEASE_EXPIRY_MINUTES_ENV"),
+            ("GWI_DRIVE_LEASE_BACKUP_DIR", "LEASE_BACKUP_DIR_ENV"),
+            (
+                "GWI_DRIVE_LEASE_BIOMETRICS_ONLY",
+                "LEASE_BIOMETRICS_ONLY_ENV",
+            ),
+            ("GWI_DRIVE_LEASE_ALLOW_HEADLESS", "LEASE_ALLOW_HEADLESS_ENV"),
+        ] {
+            for key in [
+                format!("\"{literal}\""),
+                identifier.to_string(),
+                format!("super::{identifier}"),
+                format!("crate::drive::lease::settings::{identifier}"),
+            ] {
+                for call in [
+                    format!("std::env::set_var(\n    {key}, \"value\");"),
+                    format!("std::env::remove_var(\n    {key});"),
+                ] {
+                    assert!(mutates_env_without_guard(&call, &mutation), "{call}");
+                    let guarded = format!("let _guard = EnvGuard::take(); {call}");
+                    assert!(!mutates_env_without_guard(&guarded, &mutation), "{guarded}");
+                }
+            }
+            for key in [
+                format!("\"{literal}_OTHER\""),
+                format!("{identifier}_OTHER"),
+            ] {
+                for call in [
+                    format!("std::env::set_var({key}, \"unrelated\");"),
+                    format!("std::env::remove_var({key});"),
+                ] {
+                    assert!(!mutates_env_without_guard(&call, &mutation), "{call}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn source_guard_preserves_home_and_profile_exceptions() {
+        let mutation = env_mutation_pattern();
+        for key in ["\"HOME\"", "\"GWI_PROFILE\"", "PROFILE_ENV_VAR"] {
+            for call in [
+                format!("std::env::set_var({key}, \"value\");"),
+                format!("std::env::remove_var({key});"),
+            ] {
+                assert!(!mutates_env_without_guard(&call, &mutation), "{call}");
+            }
+        }
     }
 
     /// Grep guard: any function that sets or removes one of the Drive or
