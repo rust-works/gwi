@@ -300,6 +300,13 @@ with `--audit`: the invocation goes to the request log, not the audit log. Use
 A missing log file is an empty log: exit 0 with no output. With `--follow`, the reader
 waits for the file to appear and reads it from the beginning. Use `GWI_LOG_DISABLE=1` when
 checking this: otherwise the command can create the request log on exit (see above).
+During follow polling, other file-open failures (such as permission denied) produce a
+best-effort stderr warning naming the path and error, and the reader keeps retrying.
+Only the first failure is reported until a successful open resets the warning; changed
+errors and temporary missing-file polls do not produce more warnings in that interval.
+Recovery preserves the saved position and the replacement policy described below.
+Errors opening files during the initial backlog scan still fail the command.
+
 A line that does not parse as a record (including a partly written trailing line) is skipped.
 Piping into something that closes early, such as `| head`, ends the scan cleanly when a
 write detects the closed pipe.
