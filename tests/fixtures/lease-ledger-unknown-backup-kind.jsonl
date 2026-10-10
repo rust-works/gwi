@@ -1,0 +1,2 @@
+{"token":"known","file_id":"file-known","version":"1","backup":{"kind":"bytes","path":"backup.bin","sha256":"abc123","size":42},"acquired_at":"2026-09-11T00:00:00Z","expires_at":"2026-09-11T00:10:00Z"}
+{"token":"unknown","file_id":"file-unknown","version":"1","backup":{"kind":"future_archive","path":"backup.archive"},"acquired_at":"2026-09-11T00:00:00Z","expires_at":"2026-09-11T00:10:00Z"}
