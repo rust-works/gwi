@@ -6,10 +6,12 @@ import importlib.util
 import io
 import json
 import os
+import signal
 from pathlib import Path
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from unittest.mock import patch
 
@@ -101,11 +103,166 @@ class HostileEnvTest(unittest.TestCase):
         def timeout(*args, **kwargs):
             (self.root / 'observed').write_text(json.dumps({key: kwargs['env'][key] for key in runner.PATHS}))
             raise subprocess.TimeoutExpired('fake', 30)
-        with patch.object(runner.subprocess, 'run', side_effect=timeout):
+        with patch.object(runner, 'run_isolated', side_effect=timeout):
             self.assertFalse(runner.run_binary(self.binary(), 'valid'))
         self.assertIn('malformed:', self.output.getvalue())
         self.assertIn('valid:', self.output.getvalue())
         self.assert_cleaned()
+
+    def test_signal_denial_is_only_ignored_for_verified_dead_macos_group(self):
+        for platform, listing, denied in (
+            ('darwin', '123 Z\n999 S\n', False),
+            ('darwin', '999 S\n', False),
+            ('darwin', '123 S\n', True),
+            ('linux', '', True),
+        ):
+            with self.subTest(platform=platform, listing=listing):
+                with patch.object(runner.sys, 'platform', platform), \
+                        patch.object(runner.os, 'killpg', side_effect=PermissionError), \
+                        patch.object(runner.subprocess, 'run', return_value=
+                                     subprocess.CompletedProcess([], 0, listing)):
+                    if denied:
+                        with self.assertRaises(PermissionError):
+                            runner.signal_group(123, signal.SIGKILL)
+                    else:
+                        runner.signal_group(123, signal.SIGKILL)
+
+    def assert_terminated(self, pid):
+        # Orphans belong to the OS reaper. Zombies have exited and cannot retain
+        # pipes, ports or scratch files, even with a slow container init process.
+        deadline = time.monotonic() + 2
+        while True:
+            if sys.platform == 'linux':
+                try:
+                    state = Path(f'/proc/{pid}/stat').read_text().rsplit(')', 1)[1].split()[0]
+                except FileNotFoundError:
+                    state = ''
+            else:
+                state = subprocess.run(
+                    ['ps', '-o', 'stat=', '-p', str(pid)], capture_output=True,
+                    text=True, timeout=2,
+                ).stdout.strip()
+            if not state or state.startswith('Z'):
+                return
+            self.assertLess(time.monotonic(), deadline, (pid, state))
+            time.sleep(0.01)
+
+    @unittest.skipUnless(sys.platform in ('linux', 'darwin'), 'POSIX runner')
+    def test_real_timeout_terminates_group_before_continuing(self):
+        for phase, resistant, leader_exits, retain_output in (
+            ('list', False, False, True),
+            ('run', False, False, True),
+            ('run', True, False, True),
+            ('list', True, True, True),
+            ('run', True, False, False),
+        ):
+            with self.subTest(phase=phase, resistant=resistant,
+                              leader_exits=leader_exits, retain_output=retain_output):
+                records = self.root / 'processes.jsonl'
+                records.unlink(missing_ok=True)
+                child_code = (
+                    "import os, pathlib, signal, time; "
+                    + ("signal.signal(signal.SIGTERM, signal.SIG_IGN); " if resistant else "")
+                    + f"pathlib.Path({str(self.root / 'ready')!r}).write_text('ready'); "
+                    + "time.sleep(20)"
+                )
+                bad = self.root / 'hung-test'
+                bad.write_text(
+                    f"#!{sys.executable}\n"
+                    "import json, os, pathlib, subprocess, sys, time\n"
+                    f"if ('--list' in sys.argv) != {phase == 'list'!r}:\n"
+                    "    print('example: test' if '--list' in sys.argv else 'test result: ok. 1 passed;')\n"
+                    "    sys.exit(0)\n"
+                    f"ready = pathlib.Path({str(self.root / 'ready')!r})\n"
+                    "ready.unlink(missing_ok=True)\n"
+                    f"child = subprocess.Popen([sys.executable, '-c', {child_code!r}]"
+                    + (")\n" if retain_output else ", stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)\n")
+                    + "while not ready.exists(): time.sleep(0.005)\n"
+                    + f"with open({str(records)!r}, 'a') as record:\n"
+                    + "    record.write(json.dumps({'parent': os.getpid(), 'child': child.pid, "
+                    + "'group': os.getpgrp(), 'scratch': str(pathlib.Path(os.environ['GWI_LOG_FILE']).parent)}) + '\\n')\n"
+                    + ("sys.exit(0)\n" if leader_exits else "time.sleep(20)\n")
+                )
+                bad.chmod(0o755)
+                good = self.binary()
+                observed = []
+                owned = []
+                timeout_started = []
+                original_run = runner.run_binary
+                original_popen = runner.subprocess.Popen
+                original_isolated = runner.run_isolated
+
+                def isolated(arguments, **kwargs):
+                    if arguments[0] == str(bad) and (('--list' in arguments) == (phase == 'list')):
+                        kwargs['timeout'] = 0.5
+                    return original_isolated(arguments, **kwargs)
+
+                def popen(*args, **kwargs):
+                    process = original_popen(*args, **kwargs)
+                    if kwargs.get('start_new_session'):
+                        owned.append(process)
+                        arguments = args[0]
+                        if arguments[0] == str(bad) and (('--list' in arguments) == (phase == 'list')):
+                            # Start the short execution deadline only once the
+                            # descendant is ready, independent of interpreter
+                            # startup speed or concurrent Rust builds.
+                            deadline = time.monotonic() + 10
+                            while not records.exists() or not any(
+                                    json.loads(line)['parent'] == process.pid
+                                    for line in records.read_text().splitlines()):
+                                self.assertLess(time.monotonic(), deadline, 'Fixture startup timed out')
+                                time.sleep(0.01)
+                            timeout_started.append(time.monotonic())
+                    return process
+
+                def run(binary, case):
+                    # Check before the next invocation can touch any paths.
+                    self.assertTrue(all(p.returncode is not None for p in owned))
+                    if records.exists():
+                        for line in records.read_text().splitlines():
+                            record = json.loads(line)
+                            self.assertNotEqual(record['group'], os.getpgrp())
+                            self.assert_terminated(record['parent'])
+                            self.assert_terminated(record['child'])
+                            self.assertFalse(Path(record['scratch']).exists())
+                    observed.append((binary, case))
+                    result = original_run(binary, case)
+                    self.assertEqual(result, binary == good)
+                    if binary == bad:
+                        self.assertLess(time.monotonic() - timeout_started[-1], 5)
+                    return result
+
+                try:
+                    with patch.object(runner, 'TERMINATION_GRACE', 0.2), \
+                            patch.object(runner, 'CLEANUP_TIMEOUT', 1), \
+                            patch.object(runner, 'build_binaries', return_value=[bad, good]), \
+                            patch.object(runner, 'run_binary', side_effect=run), \
+                            patch.object(runner, 'run_isolated', side_effect=isolated), \
+                            patch.object(runner.subprocess, 'Popen', side_effect=popen):
+                        self.assertEqual(runner.main(), 1)
+                    self.assertEqual(observed, [(b, c) for c in runner.CASES for b in (bad, good)])
+                    self.assertEqual(len(records.read_text().splitlines()), 2)
+                    self.assertTrue(owned)
+                    self.assertTrue(all(process.returncode is not None for process in owned),
+                                    ([(p.pid, p.args, p.returncode) for p in owned], self.output.getvalue()))
+                    for case in runner.CASES:
+                        self.assertIn(f'{case}: {bad}:', self.output.getvalue())
+                    self.assertIn('timed out', self.output.getvalue())
+                    self.assert_cleaned()
+                finally:
+                    # A broken implementation must not leak fixture processes.
+                    if records.exists():
+                        for line in records.read_text().splitlines():
+                            record = json.loads(line)
+                            for pid in (record['parent'], record['child']):
+                                try:
+                                    os.kill(pid, signal.SIGKILL)
+                                except ProcessLookupError:
+                                    pass
+                    for process in owned:
+                        if process.returncode is None:
+                            runner.signal_group(process.pid, signal.SIGKILL)
+                        process.wait(timeout=2)
 
     def artifacts(self, missing=False):
         binary = self.binary()
