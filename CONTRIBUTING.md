@@ -157,8 +157,9 @@ The separate `Windows Clippy` job runs `cargo clippy --all-targets -- -D warning
 and `cargo clippy --all-targets --features mcp -- -D warnings` on `windows-latest`
 for pull requests, merge-group events and pushes to `main`. This catches warnings
 in Windows-only code and tests. The existing Linux `Clippy` required-check name
-is preserved; `Windows Clippy` is initially non-required. Requiring the new context
-is a separate repository-ruleset decision.
+is preserved. `Windows Clippy` is required for PRs targeting `main` and merge-queue
+entries by the active repository ruleset, using the GitHub Actions app. See the
+[merge-queue policy and verification record](docs/merge-queue.md#windows-clippy-required-context).
 
 Tests that require Unix behaviour (file modes, Unix symlinks, `flock`, `/bin/sh`, or a
 particular Unix filesystem error) use `#[cfg(unix)]` with a comment explaining why.

@@ -186,3 +186,69 @@ observed enforcement.
 The issue-to-pr run did not enqueue or merge a PR, alter other sessions' checks,
 or create probe branches/PRs; no probe cleanup was needed. Windows support and
 additional stress runs are outside this change.
+
+## Windows Clippy required context
+
+[Issue #241](https://github.com/rust-works/gwi/issues/241) added `Windows Clippy`
+from GitHub Actions (integration ID `15368`) to active ruleset `24584603` on
+11 October 2026 at 00:23:08 AEDT. This live setting requires the check for ordinary
+PRs targeting `main` and merge-queue entries immediately; merging this document
+is not what enables it. The existing administrator bypass remains available.
+
+The separate job in [ci.yml](../.github/workflows/ci.yml) retains the exact name
+`Windows Clippy` and runs on `pull_request`, `merge_group`, and main pushes. It
+uses native Windows with stable Clippy and runs both
+`cargo clippy --all-targets -- -D warnings` and
+`cargo clippy --all-targets --features mcp -- -D warnings`. The Linux `Clippy`
+context is preserved. No new lint matrix or portability changes were needed.
+
+### Configuration readback
+
+A fresh ruleset read immediately preceded a rules-only update. Structural
+comparison of readback showed exactly one appended context/app pair and the
+server's changed update timestamp. All existing requirements (`Doc links`,
+`Commit Message Lint`, `Empty HOME Test`, and `Hostile Environment Test`), branch
+conditions, enforcement, bypass actors, and queue parameters matched. Classic
+branch protection matched its pre-update snapshot exactly. Effective rules for
+`main` reported `Windows Clippy` with integration ID `15368`. The read-only
+policy commands above inspect the current configuration.
+
+### Observed PR enforcement
+
+Disposable [probe PR #244](https://github.com/rust-works/gwi/pull/244) targeted
+`main`. Its first signed head,
+`ee07c33533c9167a38c6751e1d25893c97097d8e`, used `[skip ci]` so no checks ran.
+The PR merge panel explicitly displayed `Windows Clippy` as **Required**, with
+“Expected — Waiting for status to be reported.” Normal merging waited for
+requirements; the bypass checkbox remained unchecked.
+
+The second signed head, `aecaed8c2ab768dadd2c18737f2d83137f40aa69`, replaced only
+the probe branch's CI workflow with a native Windows job named `Windows Clippy`
+that deliberately exited 1. Its
+[failed Actions check](https://github.com/rust-works/gwi/actions/runs/38055589176/job/114223253789)
+reported the exact name from app `15368`. The PR merge panel identified that
+failed check as **Required**, and the API reported `mergeStateStatus: BLOCKED`.
+Other required checks were also missing in these isolated probes, so this is
+context-specific required-check UI evidence, not an experiment proving Windows
+Clippy was the sole blocking condition. No merge or enqueue was attempted and
+administrator bypass was never exercised.
+
+The probe PR was closed without merging, its remaining run was cancelled, and
+its remote branch was deleted. Probe workflow changes are absent from this PR.
+
+### Merge-group compatibility and remaining evidence
+
+A successful
+[merge-group Windows Clippy job](https://github.com/rust-works/gwi/actions/runs/38052057360/job/114213005220)
+reported `Windows Clippy` from app `15368` on queue head
+`b6e535ca129df99b79a39d860549dc934df5ddbe`. Its CI run used the `merge_group`
+event and succeeded. This exact context/app combination matches the new
+requirement; the run predates the policy update and proves compatible reporting,
+not observed post-update queue acceptance.
+
+Direct post-update queue evidence remains outstanding: record a healthy queue
+entry satisfying the new requirement and, if testing queue rejection, the queue
+head and evaluation attributing rejection to failed or missing Windows Clippy.
+The issue-to-pr workflow does not authorize enqueueing or merging a probe to
+manufacture that evidence. Configuration readback, observed PR required-check
+states, and historical merge-group compatibility are distinct evidence.
