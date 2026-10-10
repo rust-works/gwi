@@ -248,6 +248,8 @@ async fn list_tools_includes_gmail_draft_tools() -> Result<()> {
     Ok(())
 }
 
+// Requires HOME-based settings isolation; Windows uses the Known Folder API.
+#[cfg(unix)]
 #[tokio::test]
 async fn an_unknown_tool_is_a_protocol_error_not_a_panic() -> Result<()> {
     // Unknown tools are request-logged. Give the real server its own fixture
@@ -266,6 +268,8 @@ async fn an_unknown_tool_is_a_protocol_error_not_a_panic() -> Result<()> {
 
 /// Schemas and dispatch reject policy overrides before credentials or consent
 /// (omni-dev's `drive_write_tools_round_trip_and_reject_policy_parameters`).
+// Requires HOME-based settings/state isolation; Windows uses the Known Folder API.
+#[cfg(unix)]
 #[tokio::test]
 async fn drive_write_tools_round_trip_and_reject_policy_parameters() -> Result<()> {
     // Policy rejections write an audit record. Confine it to this fixture's HOME
