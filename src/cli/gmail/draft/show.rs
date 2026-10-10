@@ -22,7 +22,7 @@ use crate::gmail::drafts_api::DraftsApi;
 )]
 pub struct ShowCommand {
     /// Gmail draft id (the `DRAFT_ID` column of `gmail draft list`).
-    #[arg(help = "Gmail draft id (the DRAFT_ID column of gmail draft list)", long_help = None)]
+    #[arg(help = "Gmail draft id (the DRAFT_ID column of gmail draft list)")]
     pub draft_id: String,
 
     /// Output flags shared with `gmail read`.

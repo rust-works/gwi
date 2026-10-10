@@ -35,13 +35,15 @@ pub struct DeleteDuplicatesCommand {
     pub spreadsheet_id: String,
 
     /// Sheet (tab) title. Supplies the prefix for a bare `--range`.
-    #[arg(help = "Sheet (tab) title. Supplies the prefix for a bare --range", long_help = None)]
+    #[arg(help = "Sheet (tab) title. Supplies the prefix for a bare --range")]
     #[arg(long, value_name = "NAME")]
     pub sheet: Option<String>,
 
     /// Fully bounded A1 range to dedupe, optionally carrying its own
     /// `Sheet!` prefix (for example `A2:D100`).
-    #[arg(help = "Fully bounded A1 range to dedupe, optionally carrying its own Sheet! prefix (for example A2:D100)", long_help = None)]
+    #[arg(
+        help = "Fully bounded A1 range to dedupe, optionally carrying its own Sheet! prefix (for example A2:D100)"
+    )]
     #[arg(long, value_name = "A1")]
     pub range: String,
 
@@ -53,7 +55,9 @@ pub struct DeleteDuplicatesCommand {
     /// Reports the gate verdict and the request scope without calling
     /// `spreadsheets.batchUpdate`. Which rows are duplicates is computed
     /// by Sheets only when the request executes.
-    #[arg(help = "Reports the gate verdict and the request scope without calling spreadsheets.batchUpdate. Which rows are duplicates is computed by Sheets only when the request executes", long_help = None)]
+    #[arg(
+        help = "Reports the gate verdict and the request scope without calling spreadsheets.batchUpdate. Which rows are duplicates is computed by Sheets only when the request executes"
+    )]
     #[arg(long)]
     pub dry_run: bool,
 

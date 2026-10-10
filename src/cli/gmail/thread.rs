@@ -12,7 +12,7 @@ use crate::gmail::types::Thread;
 
 /// Reads a Gmail thread (mirrors the `gmail_thread_read` MCP tool).
 #[derive(Parser)]
-#[command(about = "Reads a Gmail thread (mirrors the gmail_thread_read MCP tool)", long_about = None)]
+#[command(about = "Reads a Gmail thread (mirrors the gmail_thread_read MCP tool)")]
 pub struct ThreadCommand {
     /// Gmail thread id.
     pub thread_id: String,

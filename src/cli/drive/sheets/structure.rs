@@ -100,7 +100,9 @@ pub struct InsertRowsCommand {
 
     /// Insert before this row, 1-based — the row number the spreadsheet
     /// itself shows. `--at 5` puts the new rows above the current row 5.
-    #[arg(help = "Insert before this row, 1-based — the row number the spreadsheet itself shows. --at 5 puts the new rows above the current row 5", long_help = None)]
+    #[arg(
+        help = "Insert before this row, 1-based — the row number the spreadsheet itself shows. --at 5 puts the new rows above the current row 5"
+    )]
     #[arg(long, value_name = "ROW")]
     pub at: i64,
 
@@ -159,7 +161,9 @@ pub struct MoveRowsCommand {
     /// past the sheet's last row moves the block to the end. A `--before`
     /// inside or immediately after the block being moved is refused (it
     /// would move nothing).
-    #[arg(help = "Move the block to before this row, numbered as the sheet stands *before* the move — the same numbering --at uses. --before one past the sheet's last row moves the block to the end. A --before inside or immediately after the block being moved is refused (it would move nothing)", long_help = None)]
+    #[arg(
+        help = "Move the block to before this row, numbered as the sheet stands *before* the move — the same numbering --at uses. --before one past the sheet's last row moves the block to the end. A --before inside or immediately after the block being moved is refused (it would move nothing)"
+    )]
     #[arg(long, value_name = "ROW")]
     pub before: i64,
 
@@ -192,7 +196,9 @@ pub struct MoveColumnsCommand {
     /// `--before` one past the sheet's last column moves the block to the
     /// end. A `--before` inside or immediately after the block being moved
     /// is refused (it would move nothing).
-    #[arg(help = "Move the block to before this column, numbered as the sheet stands *before* the move — the same numbering --at uses (column A is 1). --before one past the sheet's last column moves the block to the end. A --before inside or immediately after the block being moved is refused (it would move nothing)", long_help = None)]
+    #[arg(
+        help = "Move the block to before this column, numbered as the sheet stands *before* the move — the same numbering --at uses (column A is 1). --before one past the sheet's last column moves the block to the end. A --before inside or immediately after the block being moved is refused (it would move nothing)"
+    )]
     #[arg(long, value_name = "COLUMN")]
     pub before: i64,
 
@@ -411,7 +417,9 @@ pub struct DuplicateSheetCommand {
     /// — confirmed against the live API to be the *front* of the workbook
     /// (index 0), not the end: unlike `add-sheet`, `duplicateSheetRequest`
     /// does not default to appending.
-    #[arg(help = "Zero-based position for the copy. Omitted takes Sheets' own default — confirmed against the live API to be the *front* of the workbook (index 0), not the end: unlike add-sheet, duplicateSheetRequest does not default to appending", long_help = None)]
+    #[arg(
+        help = "Zero-based position for the copy. Omitted takes Sheets' own default — confirmed against the live API to be the *front* of the workbook (index 0), not the end: unlike add-sheet, duplicateSheetRequest does not default to appending"
+    )]
     #[arg(long, value_name = "N")]
     pub index: Option<i64>,
 
@@ -491,7 +499,7 @@ pub struct UpdateSheetPropertiesCommand {
     pub freeze_columns: Option<i64>,
 
     /// The new tab color, `#RRGGBB`.
-    #[arg(help = "The new tab color, #RRGGBB", long_help = None)]
+    #[arg(help = "The new tab color, #RRGGBB")]
     #[arg(long, value_name = "HEX", conflicts_with = "clear_tab_color")]
     pub tab_color: Option<String>,
 
@@ -580,13 +588,15 @@ pub struct UpdateWorkbookPropertiesCommand {
     pub target: SpreadsheetIdArg,
 
     /// The workbook's new locale, e.g. `en_US`. Omitted leaves it unchanged.
-    #[arg(help = "The workbook's new locale, e.g. en_US. Omitted leaves it unchanged", long_help = None)]
+    #[arg(help = "The workbook's new locale, e.g. en_US. Omitted leaves it unchanged")]
     #[arg(long, value_name = "LOCALE")]
     pub locale: Option<String>,
 
     /// The workbook's new IANA time zone, e.g. `America/New_York`. Omitted
     /// leaves it unchanged.
-    #[arg(help = "The workbook's new IANA time zone, e.g. America/New_York. Omitted leaves it unchanged", long_help = None)]
+    #[arg(
+        help = "The workbook's new IANA time zone, e.g. America/New_York. Omitted leaves it unchanged"
+    )]
     #[arg(long, value_name = "TIME_ZONE")]
     pub time_zone: Option<String>,
 
@@ -601,14 +611,18 @@ pub struct UpdateWorkbookPropertiesCommand {
 
     /// Maximum calculation rounds per recalculation. Only valid alongside
     /// `--iterative-calculation on`; omitted takes Sheets' own default.
-    #[arg(help = "Maximum calculation rounds per recalculation. Only valid alongside --iterative-calculation on; omitted takes Sheets' own default", long_help = None)]
+    #[arg(
+        help = "Maximum calculation rounds per recalculation. Only valid alongside --iterative-calculation on; omitted takes Sheets' own default"
+    )]
     #[arg(long, value_name = "N")]
     pub iterative_calculation_max_iterations: Option<i64>,
 
     /// The maximum change between two consecutive rounds that still counts
     /// as converged. Only valid alongside `--iterative-calculation on`;
     /// omitted takes Sheets' own default.
-    #[arg(help = "The maximum change between two consecutive rounds that still counts as converged. Only valid alongside --iterative-calculation on; omitted takes Sheets' own default", long_help = None)]
+    #[arg(
+        help = "The maximum change between two consecutive rounds that still counts as converged. Only valid alongside --iterative-calculation on; omitted takes Sheets' own default"
+    )]
     #[arg(long, value_name = "THRESHOLD")]
     pub iterative_calculation_convergence_threshold: Option<f64>,
 

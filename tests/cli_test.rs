@@ -32,6 +32,22 @@ fn render_all(cmd: &mut clap::Command, out: &mut String) {
     }
 }
 
+// Windows CLI processes start with a 1 MiB stack. Construct and parse the
+// complete command tree on that budget, even when testing on other platforms.
+#[test]
+fn command_tree_fits_the_windows_startup_stack() {
+    std::thread::Builder::new()
+        .stack_size(1024 * 1024)
+        .spawn(|| {
+            for args in [vec!["gwi", "--help"], vec!["gwi", "log", "--limit", "0"]] {
+                let _ = Cli::command().try_get_matches_from(args);
+            }
+        })
+        .unwrap()
+        .join()
+        .unwrap();
+}
+
 #[test]
 fn help_all_golden() {
     let mut root = Cli::command();

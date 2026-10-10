@@ -36,21 +36,21 @@ const DEFAULT_CONTENT_MIME_TYPE: &str = "application/octet-stream";
 pub struct EditCommand {
     /// Drive file id (from `drive search`, or the `id` segment of a Drive
     /// URL).
-    #[arg(help = "Drive file id (from drive search, or the id segment of a Drive URL)", long_help = None)]
+    #[arg(help = "Drive file id (from drive search, or the id segment of a Drive URL)")]
     pub file_id: String,
 
     /// New content: a local file path, or `-` to read from stdin.
-    #[arg(help = "New content: a local file path, or - to read from stdin", long_help = None)]
+    #[arg(help = "New content: a local file path, or - to read from stdin")]
     #[arg(long, value_name = "LOCAL_PATH|-")]
     pub content: String,
 
     /// MIME type for the content. Defaults to `application/octet-stream`.
-    #[arg(help = "MIME type for the content. Defaults to application/octet-stream", long_help = None)]
+    #[arg(help = "MIME type for the content. Defaults to application/octet-stream")]
     #[arg(long = "mime-type", value_name = "TYPE")]
     pub mime_type: Option<String>,
 
     /// Reports the gate verdict without calling `files.update`.
-    #[arg(help = "Reports the gate verdict without calling files.update", long_help = None)]
+    #[arg(help = "Reports the gate verdict without calling files.update")]
     #[arg(long)]
     pub dry_run: bool,
 

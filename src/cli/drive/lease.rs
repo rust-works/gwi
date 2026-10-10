@@ -52,7 +52,9 @@ enum LeaseAction {
     /// Backs up a file and mints a lease token, prompting for device-owner
     /// authentication (Touch ID or the account password).
     /// (mirrors the `drive_lease_acquire` MCP tool).
-    #[command(about = "Backs up a file and mints a lease token, prompting for device-owner authentication (Touch ID or the account password). (mirrors the drive_lease_acquire MCP tool)", long_about = None)]
+    #[command(
+        about = "Backs up a file and mints a lease token, prompting for device-owner authentication (Touch ID or the account password). (mirrors the drive_lease_acquire MCP tool)"
+    )]
     Acquire(AcquireCommand),
     /// Restores a file from a backup lease's recorded content, minting a
     /// fresh lease of its own before writing.
@@ -152,7 +154,9 @@ pub struct LeaseFlags {
     /// Local directory byte backups are written under. Defaults to
     /// `GWI_DRIVE_LEASE_BACKUP_DIR`, then `settings.json`'s
     /// `lease.backup_dir`, then `<state dir>/gwi/drive-backups`.
-    #[arg(help = "Local directory byte backups are written under. Defaults to GWI_DRIVE_LEASE_BACKUP_DIR, then settings.json's lease.backup_dir, then <state dir>/gwi/drive-backups", long_help = None)]
+    #[arg(
+        help = "Local directory byte backups are written under. Defaults to GWI_DRIVE_LEASE_BACKUP_DIR, then settings.json's lease.backup_dir, then <state dir>/gwi/drive-backups"
+    )]
     #[arg(long, value_name = "PATH")]
     pub backup_dir: Option<std::path::PathBuf>,
 
@@ -160,7 +164,9 @@ pub struct LeaseFlags {
     /// this — a fresh window means a fresh `drive lease acquire` (ADR-0080
     /// §5). Defaults to `GWI_DRIVE_LEASE_EXPIRY_MINUTES`, then
     /// `settings.json`'s `lease.default_expiry_minutes`, then 30.
-    #[arg(help = "Minutes the lease stays live once authorised. A write never extends this — a fresh window means a fresh drive lease acquire (ADR-0080 §5). Defaults to GWI_DRIVE_LEASE_EXPIRY_MINUTES, then settings.json's lease.default_expiry_minutes, then 30", long_help = None)]
+    #[arg(
+        help = "Minutes the lease stays live once authorised. A write never extends this — a fresh window means a fresh drive lease acquire (ADR-0080 §5). Defaults to GWI_DRIVE_LEASE_EXPIRY_MINUTES, then settings.json's lease.default_expiry_minutes, then 30"
+    )]
     #[arg(long, value_name = "N", value_parser = parse_expiry_minutes)]
     pub expiry_minutes: Option<i64>,
 
@@ -169,7 +175,9 @@ pub struct LeaseFlags {
     /// the default policy works on any Mac. Also settable via
     /// `settings.json`'s `lease.biometrics_only` or
     /// `GWI_DRIVE_LEASE_BIOMETRICS_ONLY`; any layer selecting it wins.
-    #[arg(help = "Require Touch ID specifically, failing outright rather than falling back to the account password (ADR-0080 §7). Needs Touch ID hardware; the default policy works on any Mac. Also settable via settings.json's lease.biometrics_only or GWI_DRIVE_LEASE_BIOMETRICS_ONLY; any layer selecting it wins", long_help = None)]
+    #[arg(
+        help = "Require Touch ID specifically, failing outright rather than falling back to the account password (ADR-0080 §7). Needs Touch ID hardware; the default policy works on any Mac. Also settable via settings.json's lease.biometrics_only or GWI_DRIVE_LEASE_BIOMETRICS_ONLY; any layer selecting it wins"
+    )]
     #[arg(long)]
     pub biometrics_only: bool,
 
@@ -179,7 +187,9 @@ pub struct LeaseFlags {
     /// refusing outright. Also settable via `settings.json`'s
     /// `lease.allow_headless` or `GWI_DRIVE_LEASE_ALLOW_HEADLESS`; any
     /// layer opting in wins.
-    #[arg(help = "Proceed even when no device-owner authenticator is available in this context — off-macOS, or a macOS process with no attached GUI session (ADR-0080 §8) — waiving the human-presence guarantee instead of refusing outright. Also settable via settings.json's lease.allow_headless or GWI_DRIVE_LEASE_ALLOW_HEADLESS; any layer opting in wins", long_help = None)]
+    #[arg(
+        help = "Proceed even when no device-owner authenticator is available in this context — off-macOS, or a macOS process with no attached GUI session (ADR-0080 §8) — waiving the human-presence guarantee instead of refusing outright. Also settable via settings.json's lease.allow_headless or GWI_DRIVE_LEASE_ALLOW_HEADLESS; any layer opting in wins"
+    )]
     #[arg(long)]
     pub allow_headless: bool,
 }
@@ -232,11 +242,13 @@ impl LeaseFlags {
 /// which case it backs up via a lossless Drive-side `files.copy` into that
 /// folder instead (ADR-0080 §3).
 #[derive(Parser)]
-#[command(about = "Backs up FILE_ID's current content and mints a lease token (ADR-0080 §2). Refuses a Google-native document (Docs/Sheets/Slides) unless the active account has lease_backup_folder_id configured, in which case it backs up via a lossless Drive-side files.copy into that folder instead (ADR-0080 §3)", long_about = None)]
+#[command(
+    about = "Backs up FILE_ID's current content and mints a lease token (ADR-0080 §2). Refuses a Google-native document (Docs/Sheets/Slides) unless the active account has lease_backup_folder_id configured, in which case it backs up via a lossless Drive-side files.copy into that folder instead (ADR-0080 §3)"
+)]
 pub struct AcquireCommand {
     /// Drive file id to lease (from `drive search`, or the `id` segment of
     /// a Drive URL).
-    #[arg(help = "Drive file id to lease (from drive search, or the id segment of a Drive URL)", long_help = None)]
+    #[arg(help = "Drive file id to lease (from drive search, or the id segment of a Drive URL)")]
     pub file_id: String,
 
     #[command(flatten)]
@@ -285,11 +297,15 @@ impl AcquireCommand {
 /// itself; restoring mints its own fresh lease, prompting for device-owner
 /// authentication the same way `acquire` does.
 #[derive(Parser)]
-#[command(about = "Restores a file from the backup a lease recorded (ADR-0080 §10). TOKEN is the *backup* lease — it locates the backup and authorises nothing itself; restoring mints its own fresh lease, prompting for device-owner authentication the same way acquire does", long_about = None)]
+#[command(
+    about = "Restores a file from the backup a lease recorded (ADR-0080 §10). TOKEN is the *backup* lease — it locates the backup and authorises nothing itself; restoring mints its own fresh lease, prompting for device-owner authentication the same way acquire does"
+)]
 pub struct RestoreCommand {
     /// The backup lease's token (from `drive lease acquire`), expired or
     /// not — an expired-but-kept row is the expected common case.
-    #[arg(help = "The backup lease's token (from drive lease acquire), expired or not — an expired-but-kept row is the expected common case", long_help = None)]
+    #[arg(
+        help = "The backup lease's token (from drive lease acquire), expired or not — an expired-but-kept row is the expected common case"
+    )]
     pub token: String,
 
     #[command(flatten)]
@@ -358,7 +374,7 @@ impl RestoreCommand {
 pub struct ReleaseCommand {
     /// The lease token to release (from `drive lease acquire` or `drive
     /// lease restore`).
-    #[arg(help = "The lease token to release (from drive lease acquire or drive lease restore)", long_help = None)]
+    #[arg(help = "The lease token to release (from drive lease acquire or drive lease restore)")]
     pub token: String,
 
     /// Output format.
@@ -408,14 +424,18 @@ impl ReleaseCommand {
 pub struct PruneCommand {
     /// Drop non-live rows whose expiry is older than this relative window
     /// (e.g. `7d`, `24h`, `2w`).
-    #[arg(help = "Drop non-live rows whose expiry is older than this relative window (e.g. 7d, 24h, 2w)", long_help = None)]
+    #[arg(
+        help = "Drop non-live rows whose expiry is older than this relative window (e.g. 7d, 24h, 2w)"
+    )]
     #[arg(long, value_name = "DUR")]
     older_than: Option<String>,
     /// After `--older-than`, additionally drop the oldest-expiring
     /// survivors until their local backup bytes total at most this size
     /// (e.g. `10mb`, `512kb`, `1048576`). A `DriveCopy` backup counts as
     /// zero bytes here — it consumes no local disk.
-    #[arg(help = "After --older-than, additionally drop the oldest-expiring survivors until their local backup bytes total at most this size (e.g. 10mb, 512kb, 1048576). A DriveCopy backup counts as zero bytes here — it consumes no local disk", long_help = None)]
+    #[arg(
+        help = "After --older-than, additionally drop the oldest-expiring survivors until their local backup bytes total at most this size (e.g. 10mb, 512kb, 1048576). A DriveCopy backup counts as zero bytes here — it consumes no local disk"
+    )]
     #[arg(long, value_name = "SIZE")]
     max_size: Option<String>,
     /// Report what would be removed without deleting/trashing any backup

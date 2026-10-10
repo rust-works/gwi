@@ -30,7 +30,7 @@ pub struct ReadCommand {
     pub document_id: String,
 
     /// Restrict output to one tab id (see `drive docs info`).
-    #[arg(help = "Restrict output to one tab id (see drive docs info)", long_help = None)]
+    #[arg(help = "Restrict output to one tab id (see drive docs info)")]
     #[arg(long)]
     pub tab: Option<String>,
 

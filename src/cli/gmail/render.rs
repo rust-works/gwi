@@ -44,7 +44,7 @@ use crate::gmail::render::render_markdown;
 pub struct RenderCommand {
     /// One or more `.eml` file paths to render. Mutually exclusive with
     /// `--archive-dir`.
-    #[arg(help = "One or more .eml file paths to render. Mutually exclusive with --archive-dir", long_help = None)]
+    #[arg(help = "One or more .eml file paths to render. Mutually exclusive with --archive-dir")]
     #[arg(value_name = "PATH", group = "render_source")]
     pub paths: Vec<PathBuf>,
 
@@ -53,7 +53,9 @@ pub struct RenderCommand {
     /// by `--all`/`--since`/`--until`/`--id`/`--ids-from`/`--source-label`
     /// (see `selection`). Mutually exclusive with positional `PATH`
     /// arguments.
-    #[arg(help = "Archive directory previously populated by gmail sync/sync-all. Renders every non-deleted message from its manifest.jsonl selected by --all/--since/--until/--id/--ids-from/--source-label (see selection). Mutually exclusive with positional PATH arguments", long_help = None)]
+    #[arg(
+        help = "Archive directory previously populated by gmail sync/sync-all. Renders every non-deleted message from its manifest.jsonl selected by --all/--since/--until/--id/--ids-from/--source-label (see selection). Mutually exclusive with positional PATH arguments"
+    )]
     #[arg(long, value_name = "PATH", group = "render_source")]
     pub archive_dir: Option<PathBuf>,
 
@@ -67,7 +69,9 @@ pub struct RenderCommand {
     /// this directory instead of printing Markdown to stdout. With
     /// `--archive-dir`, also makes a message already rendered by a prior
     /// run into this directory skipped on this run.
-    #[arg(help = "Writes one .md file per input (named after the input's stem) into this directory instead of printing Markdown to stdout. With --archive-dir, also makes a message already rendered by a prior run into this directory skipped on this run", long_help = None)]
+    #[arg(
+        help = "Writes one .md file per input (named after the input's stem) into this directory instead of printing Markdown to stdout. With --archive-dir, also makes a message already rendered by a prior run into this directory skipped on this run"
+    )]
     #[arg(long = "out-dir", value_name = "DIR")]
     pub out_dir: Option<PathBuf>,
 
@@ -76,7 +80,9 @@ pub struct RenderCommand {
     /// line per file — so redirecting stdout to a file yields clean
     /// Markdown; json/yaml/yamls/jsonl instead emit one structured record
     /// per input.
-    #[arg(help = "Report format. Table (default) prints each input's rendered Markdown directly to stdout — or, with --out-dir, a Saved to: line per file — so redirecting stdout to a file yields clean Markdown; json/yaml/yamls/jsonl instead emit one structured record per input", long_help = None)]
+    #[arg(
+        help = "Report format. Table (default) prints each input's rendered Markdown directly to stdout — or, with --out-dir, a Saved to: line per file — so redirecting stdout to a file yields clean Markdown; json/yaml/yamls/jsonl instead emit one structured record per input"
+    )]
     #[arg(short = 'o', long, value_enum, default_value_t = OutputFormat::Table)]
     pub output: OutputFormat,
 
@@ -84,7 +90,9 @@ pub struct RenderCommand {
     /// one-line `*(N quoted lines omitted)*` marker (rust-works/omni-dev#1514). Off by
     /// default: verbatim rendering is fully information-preserving, and the full text
     /// is one re-render away without this flag.
-    #[arg(help = "Collapses '>'-quoted reply history nested more than one level deep into a one-line '*(N quoted lines omitted)*' marker (rust-works/omni-dev#1514). Off by default: verbatim rendering is fully information-preserving, and the full text is one re-render away without this flag", long_help = None)]
+    #[arg(
+        help = "Collapses '>'-quoted reply history nested more than one level deep into a one-line '*(N quoted lines omitted)*' marker (rust-works/omni-dev#1514). Off by default: verbatim rendering is fully information-preserving, and the full text is one re-render away without this flag"
+    )]
     #[arg(long)]
     pub fold_quotes: bool,
 }

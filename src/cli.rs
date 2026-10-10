@@ -18,8 +18,7 @@ pub mod log;
 #[derive(Parser)]
 #[command(name = "gwi")]
 #[command(
-    about = "Google Workspace Interface: Gmail, Drive, Docs, Sheets and Slides from the command line.",
-    long_about = None
+    about = "Google Workspace Interface: Gmail, Drive, Docs, Sheets and Slides from the command line."
 )]
 #[command(version = crate::VERSION)]
 pub struct Cli {

@@ -58,13 +58,15 @@ pub struct TextToColumnsCommand {
     pub spreadsheet_id: String,
 
     /// Sheet (tab) title. Supplies the prefix for a bare `--source`.
-    #[arg(help = "Sheet (tab) title. Supplies the prefix for a bare --source", long_help = None)]
+    #[arg(help = "Sheet (tab) title. Supplies the prefix for a bare --source")]
     #[arg(long, value_name = "NAME")]
     pub sheet: Option<String>,
 
     /// The column to split, optionally carrying its own `Sheet!` prefix.
     /// Must resolve to a fully bounded single column (e.g. `A2:A100`).
-    #[arg(help = "The column to split, optionally carrying its own Sheet! prefix. Must resolve to a fully bounded single column (e.g. A2:A100)", long_help = None)]
+    #[arg(
+        help = "The column to split, optionally carrying its own Sheet! prefix. Must resolve to a fully bounded single column (e.g. A2:A100)"
+    )]
     #[arg(long, value_name = "A1")]
     pub source: String,
 
@@ -72,13 +74,17 @@ pub struct TextToColumnsCommand {
     /// itself, including separators this preview cannot try — a
     /// tab-separated column splits under `auto` — so an `auto` preview
     /// is a guess in both directions. See `--dry-run`.
-    #[arg(help = "Which separator to split on. auto lets Sheets detect it itself, including separators this preview cannot try — a tab-separated column splits under auto — so an auto preview is a guess in both directions. See --dry-run", long_help = None)]
+    #[arg(
+        help = "Which separator to split on. auto lets Sheets detect it itself, including separators this preview cannot try — a tab-separated column splits under auto — so an auto preview is a guess in both directions. See --dry-run"
+    )]
     #[arg(long, value_enum)]
     pub delimiter: DelimiterArg,
 
     /// The separator text. Required with `--delimiter custom`, and
     /// refused with any other `--delimiter`.
-    #[arg(help = "The separator text. Required with --delimiter custom, and refused with any other --delimiter", long_help = None)]
+    #[arg(
+        help = "The separator text. Required with --delimiter custom, and refused with any other --delimiter"
+    )]
     #[arg(
         long,
         value_name = "TEXT",
@@ -95,7 +101,9 @@ pub struct TextToColumnsCommand {
     /// tab-separated column splits under `auto`), so an `auto` preview
     /// can under-report as well as over-report, and says so on its own
     /// line rather than printing an all-clear.
-    #[arg(help = "Reports the gate verdict, a local upper-bound split width, and the count and A1 locations of the non-blank cells that would be overwritten — never the values Sheets would write, which cannot be previewed. The width is a true bound for every delimiter but auto: Sheets detects separators this preview does not try (a tab-separated column splits under auto), so an auto preview can under-report as well as over-report, and says so on its own line rather than printing an all-clear", long_help = None)]
+    #[arg(
+        help = "Reports the gate verdict, a local upper-bound split width, and the count and A1 locations of the non-blank cells that would be overwritten — never the values Sheets would write, which cannot be previewed. The width is a true bound for every delimiter but auto: Sheets detects separators this preview does not try (a tab-separated column splits under auto), so an auto preview can under-report as well as over-report, and says so on its own line rather than printing an all-clear"
+    )]
     #[arg(long)]
     pub dry_run: bool,
 

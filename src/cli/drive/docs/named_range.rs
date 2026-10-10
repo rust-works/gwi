@@ -17,11 +17,13 @@ pub struct ScopedArgs {
     /// Document ID.
     pub document_id: String,
     /// Server tab ID, or `legacy` for a response without tabs. Never defaults to first tab.
-    #[arg(help = "Server tab ID, or legacy for a response without tabs. Never defaults to first tab", long_help = None)]
+    #[arg(
+        help = "Server tab ID, or legacy for a response without tabs. Never defaults to first tab"
+    )]
     #[arg(long)]
     pub tab: String,
     /// `body` or an existing header/footer/footnote segment ID.
-    #[arg(help = "body or an existing header/footer/footnote segment ID", long_help = None)]
+    #[arg(help = "body or an existing header/footer/footnote segment ID")]
     #[arg(long)]
     pub segment: String,
     /// Resolve and report the complete effect without mutation or a backup lease.
@@ -103,7 +105,7 @@ pub struct DeleteNamedRangeCommand {
     #[command(flatten)]
     pub scope: ScopedArgs,
     /// Stable ID from the selected tab's namedRanges in `docs read -o json`.
-    #[arg(help = "Stable ID from the selected tab's namedRanges in docs read -o json", long_help = None)]
+    #[arg(help = "Stable ID from the selected tab's namedRanges in docs read -o json")]
     #[arg(long)]
     pub id: String,
 }
@@ -133,7 +135,7 @@ pub struct ReplaceNamedRangeContentCommand {
     )]
     pub text: Option<String>,
     /// Read replacement text from a bounded UTF-8 file, or `-` for stdin.
-    #[arg(help = "Read replacement text from a bounded UTF-8 file, or - for stdin", long_help = None)]
+    #[arg(help = "Read replacement text from a bounded UTF-8 file, or - for stdin")]
     #[arg(long, value_name = "PATH")]
     pub text_file: Option<String>,
 }

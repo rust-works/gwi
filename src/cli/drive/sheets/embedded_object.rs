@@ -41,13 +41,15 @@ pub struct AddChartCommand {
     pub spreadsheet_id: String,
 
     /// `column`, `bar`, `line`, `area`, `scatter`, or `pie`.
-    #[arg(help = "column, bar, line, area, scatter, or pie", long_help = None)]
+    #[arg(help = "column, bar, line, area, scatter, or pie")]
     #[arg(long = "type", value_name = "TYPE")]
     pub chart_type: String,
 
     /// The domain (category/x-axis) range, e.g. `A2:A10`. Must carry its
     /// own `Sheet!` prefix unless `--sheet` is given.
-    #[arg(help = "The domain (category/x-axis) range, e.g. A2:A10. Must carry its own Sheet! prefix unless --sheet is given", long_help = None)]
+    #[arg(
+        help = "The domain (category/x-axis) range, e.g. A2:A10. Must carry its own Sheet! prefix unless --sheet is given"
+    )]
     #[arg(long, value_name = "A1")]
     pub domain: String,
 
@@ -58,7 +60,9 @@ pub struct AddChartCommand {
 
     /// Sheet title, supplying the prefix for `--domain`/`--series`/
     /// `--anchor` when they don't carry their own.
-    #[arg(help = "Sheet title, supplying the prefix for --domain/--series/ --anchor when they don't carry their own", long_help = None)]
+    #[arg(
+        help = "Sheet title, supplying the prefix for --domain/--series/ --anchor when they don't carry their own"
+    )]
     #[arg(long, value_name = "NAME")]
     pub sheet: Option<String>,
 
@@ -71,12 +75,12 @@ pub struct AddChartCommand {
     pub subtitle: Option<String>,
 
     /// `bottom`, `top`, `left`, `right`, or `none`.
-    #[arg(help = "bottom, top, left, right, or none", long_help = None)]
+    #[arg(help = "bottom, top, left, right, or none")]
     #[arg(long, value_name = "POSITION")]
     pub legend: Option<String>,
 
     /// `none`, `stacked`, or `percent` — column/bar/area charts only.
-    #[arg(help = "none, stacked, or percent — column/bar/area charts only", long_help = None)]
+    #[arg(help = "none, stacked, or percent — column/bar/area charts only")]
     #[arg(long, value_name = "MODE")]
     pub stacked: Option<String>,
 
@@ -109,7 +113,7 @@ pub struct AddChartCommand {
     pub pie_hole: Option<f64>,
 
     /// The anchor cell, e.g. `E2`. Required unless `--new-sheet`.
-    #[arg(help = "The anchor cell, e.g. E2. Required unless --new-sheet", long_help = None)]
+    #[arg(help = "The anchor cell, e.g. E2. Required unless --new-sheet")]
     #[arg(long, value_name = "A1", conflicts_with = "new_sheet")]
     pub anchor: Option<String>,
 
@@ -177,14 +181,16 @@ impl AddChartCommand {
 /// supported kind, and otherwise applies only the flags actually set —
 /// see `embedded_object.rs`'s module docs.
 #[derive(Parser)]
-#[command(about = "Replaces an existing chart's spec. updateChartSpec carries no field mask, so this reads the existing spec, refuses it if it isn't a supported kind, and otherwise applies only the flags actually set — see embedded_object.rs's module docs", long_about = None)]
+#[command(
+    about = "Replaces an existing chart's spec. updateChartSpec carries no field mask, so this reads the existing spec, refuses it if it isn't a supported kind, and otherwise applies only the flags actually set — see embedded_object.rs's module docs"
+)]
 pub struct UpdateChartCommand {
     /// Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL).
     #[arg(help = "Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).")]
     pub spreadsheet_id: String,
 
     /// Which chart to update, discovered via `list-charts`.
-    #[arg(help = "Which chart to update, discovered via list-charts", long_help = None)]
+    #[arg(help = "Which chart to update, discovered via list-charts")]
     #[arg(long, value_name = "ID")]
     pub chart_id: i64,
 
@@ -194,7 +200,7 @@ pub struct UpdateChartCommand {
     pub chart_type: Option<String>,
 
     /// Replace the domain range (requires `--series` too).
-    #[arg(help = "Replace the domain range (requires --series too)", long_help = None)]
+    #[arg(help = "Replace the domain range (requires --series too)")]
     #[arg(long, value_name = "A1")]
     pub domain: Option<String>,
 
@@ -204,7 +210,9 @@ pub struct UpdateChartCommand {
 
     /// Sheet title, supplying the prefix for `--domain`/`--series` when
     /// they don't carry their own.
-    #[arg(help = "Sheet title, supplying the prefix for --domain/--series when they don't carry their own", long_help = None)]
+    #[arg(
+        help = "Sheet title, supplying the prefix for --domain/--series when they don't carry their own"
+    )]
     #[arg(long, value_name = "NAME")]
     pub sheet: Option<String>,
 
@@ -281,13 +289,15 @@ pub struct DeleteChartCommand {
     pub spreadsheet_id: String,
 
     /// Which chart to remove, discovered via `list-charts`.
-    #[arg(help = "Which chart to remove, discovered via list-charts", long_help = None)]
+    #[arg(help = "Which chart to remove, discovered via list-charts")]
     #[arg(long, value_name = "ID")]
     pub chart_id: i64,
 
     /// Reports the gate verdict and what would be removed, without calling
     /// `spreadsheets.batchUpdate`.
-    #[arg(help = "Reports the gate verdict and what would be removed, without calling spreadsheets.batchUpdate", long_help = None)]
+    #[arg(
+        help = "Reports the gate verdict and what would be removed, without calling spreadsheets.batchUpdate"
+    )]
     #[arg(long)]
     pub dry_run: bool,
 
@@ -364,7 +374,9 @@ pub struct AddSlicerCommand {
 
     /// Sheet title, supplying the prefix for `--range`/`--anchor` when they
     /// don't carry their own.
-    #[arg(help = "Sheet title, supplying the prefix for --range/--anchor when they don't carry their own", long_help = None)]
+    #[arg(
+        help = "Sheet title, supplying the prefix for --range/--anchor when they don't carry their own"
+    )]
     #[arg(long, value_name = "NAME")]
     pub sheet: Option<String>,
 
@@ -376,12 +388,14 @@ pub struct AddSlicerCommand {
     /// = column A), not an A1 letter and not an offset within `--range` —
     /// for `--range B2:F8`, column F is `5`. Must fall inside `--range`'s
     /// columns; anything else is refused, `--dry-run` included.
-    #[arg(help = "The absolute 0-based sheet column the filter criteria apply to (0 = column A), not an A1 letter and not an offset within --range — for --range B2:F8, column F is 5. Must fall inside --range's columns; anything else is refused, --dry-run included", long_help = None)]
+    #[arg(
+        help = "The absolute 0-based sheet column the filter criteria apply to (0 = column A), not an A1 letter and not an offset within --range — for --range B2:F8, column F is 5. Must fall inside --range's columns; anything else is refused, --dry-run included"
+    )]
     #[arg(long, value_name = "N")]
     pub column: i64,
 
     /// A value to hide in `--column`. Repeatable.
-    #[arg(help = "A value to hide in --column. Repeatable", long_help = None)]
+    #[arg(help = "A value to hide in --column. Repeatable")]
     #[arg(long = "hide-values", value_name = "VALUES", value_delimiter = ',')]
     pub hide_values: Vec<String>,
 
@@ -390,12 +404,12 @@ pub struct AddSlicerCommand {
     pub title: Option<String>,
 
     /// Whether this slicer also filters pivot tables built from `--range`.
-    #[arg(help = "Whether this slicer also filters pivot tables built from --range", long_help = None)]
+    #[arg(help = "Whether this slicer also filters pivot tables built from --range")]
     #[arg(long, value_name = "BOOL")]
     pub apply_to_pivot_tables: Option<bool>,
 
     /// The anchor cell, e.g. `F2`.
-    #[arg(help = "The anchor cell, e.g. F2", long_help = None)]
+    #[arg(help = "The anchor cell, e.g. F2")]
     #[arg(long, value_name = "A1")]
     pub anchor: String,
 
@@ -449,20 +463,22 @@ impl AddSlicerCommand {
 /// pivot-table linkage. Unlike `update-chart`, `updateSlicerSpec` carries a
 /// field mask, so only the flags actually set are written.
 #[derive(Parser)]
-#[command(about = "Changes an existing slicer's range, filter column/criteria, title, or pivot-table linkage. Unlike update-chart, updateSlicerSpec carries a field mask, so only the flags actually set are written", long_about = None)]
+#[command(
+    about = "Changes an existing slicer's range, filter column/criteria, title, or pivot-table linkage. Unlike update-chart, updateSlicerSpec carries a field mask, so only the flags actually set are written"
+)]
 pub struct UpdateSlicerCommand {
     /// Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL).
     #[arg(help = "Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).")]
     pub spreadsheet_id: String,
 
     /// Which slicer to change, discovered via `list-slicers`.
-    #[arg(help = "Which slicer to change, discovered via list-slicers", long_help = None)]
+    #[arg(help = "Which slicer to change, discovered via list-slicers")]
     #[arg(long, value_name = "ID")]
     pub slicer_id: i64,
 
     /// Sheet title, supplying the prefix for `--range` when it doesn't
     /// carry its own.
-    #[arg(help = "Sheet title, supplying the prefix for --range when it doesn't carry its own", long_help = None)]
+    #[arg(help = "Sheet title, supplying the prefix for --range when it doesn't carry its own")]
     #[arg(long, value_name = "NAME")]
     pub sheet: Option<String>,
 
@@ -474,7 +490,9 @@ pub struct UpdateSlicerCommand {
     /// = column A), like `add-slicer --column`. Must fall inside the
     /// slicer's range (the new `--range` when given, else its existing
     /// one).
-    #[arg(help = "Replace the filtered column — an absolute 0-based sheet column (0 = column A), like add-slicer --column. Must fall inside the slicer's range (the new --range when given, else its existing one)", long_help = None)]
+    #[arg(
+        help = "Replace the filtered column — an absolute 0-based sheet column (0 = column A), like add-slicer --column. Must fall inside the slicer's range (the new --range when given, else its existing one)"
+    )]
     #[arg(long, value_name = "N")]
     pub column: Option<i64>,
 
@@ -535,13 +553,15 @@ pub struct DeleteSlicerCommand {
     pub spreadsheet_id: String,
 
     /// Which slicer to remove, discovered via `list-slicers`.
-    #[arg(help = "Which slicer to remove, discovered via list-slicers", long_help = None)]
+    #[arg(help = "Which slicer to remove, discovered via list-slicers")]
     #[arg(long, value_name = "ID")]
     pub slicer_id: i64,
 
     /// Reports the gate verdict and what would be removed, without calling
     /// `spreadsheets.batchUpdate`.
-    #[arg(help = "Reports the gate verdict and what would be removed, without calling spreadsheets.batchUpdate", long_help = None)]
+    #[arg(
+        help = "Reports the gate verdict and what would be removed, without calling spreadsheets.batchUpdate"
+    )]
     #[arg(long)]
     pub dry_run: bool,
 
@@ -572,7 +592,9 @@ impl DeleteSlicerCommand {
 /// Lists the slicers in a spreadsheet. Read-only and ungated, like
 /// [`ListChartsCommand`].
 #[derive(Parser)]
-#[command(about = "Lists the slicers in a spreadsheet. Read-only and ungated, like [ListChartsCommand]", long_about = None)]
+#[command(
+    about = "Lists the slicers in a spreadsheet. Read-only and ungated, like [ListChartsCommand]"
+)]
 pub struct ListSlicersCommand {
     /// Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL).
     #[arg(help = "Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).")]
@@ -608,26 +630,32 @@ impl ListSlicersCommand {
 /// requires one of `--anchor`/`--new-sheet` — since "leave it where it is
 /// and only resize" is a valid call.
 #[derive(Parser)]
-#[command(about = "Moves and/or resizes an existing chart (updateEmbeddedObjectPosition, issue #1837). Every flag is optional — unlike add-chart, which requires one of --anchor/--new-sheet — since \"leave it where it is and only resize\" is a valid call", long_about = None)]
+#[command(
+    about = "Moves and/or resizes an existing chart (updateEmbeddedObjectPosition, issue #1837). Every flag is optional — unlike add-chart, which requires one of --anchor/--new-sheet — since \"leave it where it is and only resize\" is a valid call"
+)]
 pub struct MoveChartCommand {
     /// Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL).
     #[arg(help = "Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).")]
     pub spreadsheet_id: String,
 
     /// Which chart to move, discovered via `list-charts`.
-    #[arg(help = "Which chart to move, discovered via list-charts", long_help = None)]
+    #[arg(help = "Which chart to move, discovered via list-charts")]
     #[arg(long, value_name = "ID")]
     pub chart_id: i64,
 
     /// Sheet title, supplying the prefix for `--anchor` when it doesn't
     /// carry its own. Has no effect without `--anchor`.
-    #[arg(help = "Sheet title, supplying the prefix for --anchor when it doesn't carry its own. Has no effect without --anchor", long_help = None)]
+    #[arg(
+        help = "Sheet title, supplying the prefix for --anchor when it doesn't carry its own. Has no effect without --anchor"
+    )]
     #[arg(long, value_name = "NAME", requires = "anchor")]
     pub sheet: Option<String>,
 
     /// The new anchor cell, e.g. `F2`. Required to move a chart that
     /// currently occupies its own sheet.
-    #[arg(help = "The new anchor cell, e.g. F2. Required to move a chart that currently occupies its own sheet", long_help = None)]
+    #[arg(
+        help = "The new anchor cell, e.g. F2. Required to move a chart that currently occupies its own sheet"
+    )]
     #[arg(long, value_name = "A1", conflicts_with = "new_sheet")]
     pub anchor: Option<String>,
 
@@ -684,25 +712,29 @@ impl MoveChartCommand {
 /// comment; a slicer has no own-sheet placement, so there is no
 /// `--new-sheet`.
 #[derive(Parser)]
-#[command(about = "Moves and/or resizes an existing slicer. See [MoveChartCommand]'s doc comment; a slicer has no own-sheet placement, so there is no --new-sheet", long_about = None)]
+#[command(
+    about = "Moves and/or resizes an existing slicer. See [MoveChartCommand]'s doc comment; a slicer has no own-sheet placement, so there is no --new-sheet"
+)]
 pub struct MoveSlicerCommand {
     /// Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL).
     #[arg(help = "Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).")]
     pub spreadsheet_id: String,
 
     /// Which slicer to move, discovered via `list-slicers`.
-    #[arg(help = "Which slicer to move, discovered via list-slicers", long_help = None)]
+    #[arg(help = "Which slicer to move, discovered via list-slicers")]
     #[arg(long, value_name = "ID")]
     pub slicer_id: i64,
 
     /// Sheet title, supplying the prefix for `--anchor` when it doesn't
     /// carry its own. Has no effect without `--anchor`.
-    #[arg(help = "Sheet title, supplying the prefix for --anchor when it doesn't carry its own. Has no effect without --anchor", long_help = None)]
+    #[arg(
+        help = "Sheet title, supplying the prefix for --anchor when it doesn't carry its own. Has no effect without --anchor"
+    )]
     #[arg(long, value_name = "NAME", requires = "anchor")]
     pub sheet: Option<String>,
 
     /// The new anchor cell, e.g. `F2`.
-    #[arg(help = "The new anchor cell, e.g. F2", long_help = None)]
+    #[arg(help = "The new anchor cell, e.g. F2")]
     #[arg(long, value_name = "A1")]
     pub anchor: Option<String>,
 
@@ -752,19 +784,21 @@ impl MoveSlicerCommand {
 /// (`updateEmbeddedObjectBorder`, issue #1837). Colour-only — there is no
 /// `--style`/`--width` flag, since `EmbeddedObjectBorder` models neither.
 #[derive(Parser)]
-#[command(about = "Sets or clears an existing chart's border colour (updateEmbeddedObjectBorder, issue #1837). Colour-only — there is no --style/--width flag, since EmbeddedObjectBorder models neither", long_about = None)]
+#[command(
+    about = "Sets or clears an existing chart's border colour (updateEmbeddedObjectBorder, issue #1837). Colour-only — there is no --style/--width flag, since EmbeddedObjectBorder models neither"
+)]
 pub struct UpdateChartBorderCommand {
     /// Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL).
     #[arg(help = "Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).")]
     pub spreadsheet_id: String,
 
     /// Which chart to update, discovered via `list-charts`.
-    #[arg(help = "Which chart to update, discovered via list-charts", long_help = None)]
+    #[arg(help = "Which chart to update, discovered via list-charts")]
     #[arg(long, value_name = "ID")]
     pub chart_id: i64,
 
     /// The new border colour, e.g. `#4A86E8`.
-    #[arg(help = "The new border colour, e.g. #4A86E8", long_help = None)]
+    #[arg(help = "The new border colour, e.g. #4A86E8")]
     #[arg(long, value_name = "#RRGGBB", conflicts_with = "clear")]
     pub color: Option<String>,
 

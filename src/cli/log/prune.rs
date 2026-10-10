@@ -14,12 +14,14 @@ use crate::request_log::{self, PruneOptions};
 #[derive(Parser)]
 pub struct PruneCommand {
     /// Remove records older than this relative window (e.g. `7d`, `24h`, `2w`).
-    #[arg(help = "Remove records older than this relative window (e.g. 7d, 24h, 2w)", long_help = None)]
+    #[arg(help = "Remove records older than this relative window (e.g. 7d, 24h, 2w)")]
     #[arg(long, value_name = "DUR")]
     older_than: Option<String>,
     /// Trim the oldest records until the file is at most this size (e.g. `10mb`,
     /// `512kb`, `1048576`); applied after `--older-than`.
-    #[arg(help = "Trim the oldest records until the file is at most this size (e.g. 10mb, 512kb, 1048576); applied after --older-than", long_help = None)]
+    #[arg(
+        help = "Trim the oldest records until the file is at most this size (e.g. 10mb, 512kb, 1048576); applied after --older-than"
+    )]
     #[arg(long, value_name = "SIZE")]
     max_size: Option<String>,
     /// Report what would be removed without modifying the log.
@@ -29,7 +31,9 @@ pub struct PruneCommand {
     /// pruning by design (ADR-0080 §11) —
     /// present only so the refusal is explicit rather than a silent no-op
     /// or a confusing "no such flag".
-    #[arg(help = "Refused outright: the audit log (audit.jsonl) is exempt from pruning by design (ADR-0080 §11) — present only so the refusal is explicit rather than a silent no-op or a confusing \"no such flag\"", long_help = None)]
+    #[arg(
+        help = "Refused outright: the audit log (audit.jsonl) is exempt from pruning by design (ADR-0080 §11) — present only so the refusal is explicit rather than a silent no-op or a confusing \"no such flag\""
+    )]
     #[arg(long)]
     audit: bool,
 }

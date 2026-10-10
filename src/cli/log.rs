@@ -43,16 +43,20 @@ pub struct LogCommand {
     action: Option<LogAction>,
     /// Lower time bound: a relative window (`30m`, `2h`, `1d`), a date
     /// (`2026-07-01`), or an RFC3339 timestamp.
-    #[arg(help = "Lower time bound: a relative window (30m, 2h, 1d), a date (2026-07-01), or an RFC3339 timestamp", long_help = None)]
+    #[arg(
+        help = "Lower time bound: a relative window (30m, 2h, 1d), a date (2026-07-01), or an RFC3339 timestamp"
+    )]
     #[arg(long, value_name = "DUR_OR_TS")]
     since: Option<String>,
     /// Upper time bound: same forms as `--since` (a relative value means that
     /// long ago). Pair with `--since` for a bounded window.
-    #[arg(help = "Upper time bound: same forms as --since (a relative value means that long ago). Pair with --since for a bounded window", long_help = None)]
+    #[arg(
+        help = "Upper time bound: same forms as --since (a relative value means that long ago). Pair with --since for a bounded window"
+    )]
     #[arg(long, value_name = "DUR_OR_TS")]
     until: Option<String>,
     /// Match the HTTP method (case-insensitive), e.g. `GET`.
-    #[arg(help = "Match the HTTP method (case-insensitive), e.g. GET", long_help = None)]
+    #[arg(help = "Match the HTTP method (case-insensitive), e.g. GET")]
     #[arg(long, value_name = "METHOD")]
     method: Option<String>,
     /// Match the status: exact (`200`), class (`5xx`), list (`4xx,5xx`),
@@ -60,15 +64,17 @@ pub struct LogCommand {
     /// (exact, case-insensitive; a comma list is accepted). Same values as
     /// `status:` in `--query`. A Drive-mutation status that no scanned record
     /// has draws a warning on stderr (a likely typo); the exit code is unchanged.
-    #[arg(help = "Match the status: exact (200), class (5xx), list (4xx,5xx), comparison (>=400), or a Drive-mutation status such as blocked (exact, case-insensitive; a comma list is accepted). Same values as status: in --query. A Drive-mutation status that no scanned record has draws a warning on stderr (a likely typo); the exit code is unchanged", long_help = None)]
+    #[arg(
+        help = "Match the status: exact (200), class (5xx), list (4xx,5xx), comparison (>=400), or a Drive-mutation status such as blocked (exact, case-insensitive; a comma list is accepted). Same values as status: in --query. A Drive-mutation status that no scanned record has draws a warning on stderr (a likely typo); the exit code is unchanged"
+    )]
     #[arg(long, value_name = "STATUS")]
     status: Option<String>,
     /// Match the service tag, e.g. `gmail`, `drive`.
-    #[arg(help = "Match the service tag, e.g. gmail, drive", long_help = None)]
+    #[arg(help = "Match the service tag, e.g. gmail, drive")]
     #[arg(long, value_name = "NAME")]
     service: Option<String>,
     /// Match the resolved command path prefix, e.g. `"gmail read"`.
-    #[arg(help = "Match the resolved command path prefix, e.g. \"gmail read\"", long_help = None)]
+    #[arg(help = "Match the resolved command path prefix, e.g. \"gmail read\"")]
     #[arg(long, value_name = "PATH")]
     command: Option<String>,
     /// Match a substring of the request URL.
@@ -84,18 +90,20 @@ pub struct LogCommand {
     /// AND-ed together. A field that is not built in is looked up in the
     /// record's context, and a warning names it if no record has it. Quote a
     /// word to search for it as text, e.g. `--query '"not"'`.
-    #[arg(help = "A query expression (AND/OR/NOT, field:value, bare tokens); repeatable, AND-ed together. A field that is not built in is looked up in the record's context, and a warning names it if no record has it. Quote a word to search for it as text, e.g. --query '\"not\"'", long_help = None)]
+    #[arg(
+        help = "A query expression (AND/OR/NOT, field:value, bare tokens); repeatable, AND-ed together. A field that is not built in is looked up in the record's context, and a warning names it if no record has it. Quote a word to search for it as text, e.g. --query '\"not\"'"
+    )]
     #[arg(long, value_name = "EXPR")]
     query: Vec<String>,
     /// Match this record `id` or `invocation_id` (pulls a run and its requests).
-    #[arg(help = "Match this record id or invocation_id (pulls a run and its requests)", long_help = None)]
+    #[arg(help = "Match this record id or invocation_id (pulls a run and its requests)")]
     #[arg(long, value_name = "ID")]
     id: Option<String>,
     /// Output format.
     #[arg(short = 'o', long, value_enum, default_value_t = Format::Oneline)]
     output: Format,
     /// Deprecated: use `-o`/`--output` instead.
-    #[arg(help = "Deprecated: use -o/--output instead", long_help = None)]
+    #[arg(help = "Deprecated: use -o/--output instead")]
     #[arg(long = "format", hide = true)]
     format: Option<Format>,
     /// Show at most N (most recent) matching records.
@@ -114,7 +122,9 @@ pub struct LogCommand {
     /// `GWI_LOG_DISABLE`, rotation or `prune`. Every filter, the
     /// `--query` mini-language and all three output formats apply
     /// unchanged; only the file being read differs.
-    #[arg(help = "Read the fail-closed audit log (audit.jsonl) instead of the best-effort request log — the leased-write lifecycle and refusal trail (ADR-0080 §11), not subject to GWI_LOG_DISABLE, rotation or prune. Every filter, the --query mini-language and all three output formats apply unchanged; only the file being read differs", long_help = None)]
+    #[arg(
+        help = "Read the fail-closed audit log (audit.jsonl) instead of the best-effort request log — the leased-write lifecycle and refusal trail (ADR-0080 §11), not subject to GWI_LOG_DISABLE, rotation or prune. Every filter, the --query mini-language and all three output formats apply unchanged; only the file being read differs"
+    )]
     #[arg(long)]
     audit: bool,
 }

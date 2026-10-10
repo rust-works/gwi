@@ -34,17 +34,19 @@ pub struct CreateCommand {
 
     /// Optional initial values, written to `Sheet1!A1` onwards: a local file
     /// path, or `-` to read stdin.
-    #[arg(help = "Optional initial values, written to Sheet1!A1 onwards: a local file path, or - to read stdin", long_help = None)]
+    #[arg(
+        help = "Optional initial values, written to Sheet1!A1 onwards: a local file path, or - to read stdin"
+    )]
     #[arg(long, value_name = "PATH|-")]
     pub values: Option<String>,
 
     /// How to parse `--values`. `auto` infers from the file extension.
-    #[arg(help = "How to parse --values. auto infers from the file extension", long_help = None)]
+    #[arg(help = "How to parse --values. auto infers from the file extension")]
     #[arg(long = "values-format", value_enum, default_value_t = ValuesFormat::Auto)]
     pub values_format: ValuesFormat,
 
     /// How the API interprets the values (see `drive sheets write`).
-    #[arg(help = "How the API interprets the values (see drive sheets write)", long_help = None)]
+    #[arg(help = "How the API interprets the values (see drive sheets write)")]
     #[arg(long, value_enum, default_value_t = InputArg::UserEntered)]
     pub input: InputArg,
 

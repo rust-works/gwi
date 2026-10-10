@@ -19,7 +19,9 @@ const DEFAULT_FILE_MIME_TYPE: &str = "application/octet-stream";
 /// folder write-permission rules (issue #1574). Requires the `drive.file`
 /// or `drive` scope (`drive auth login --write-file`/`--write-full`).
 #[derive(Parser)]
-#[command(about = "Creates a new file or folder, gated by the account's configured folder write-permission rules (issue #1574). Requires the drive.file or drive scope (drive auth login --write-file/--write-full)", long_about = None)]
+#[command(
+    about = "Creates a new file or folder, gated by the account's configured folder write-permission rules (issue #1574). Requires the drive.file or drive scope (drive auth login --write-file/--write-full)"
+)]
 pub struct CreateCommand {
     /// The new file/folder's display name.
     #[arg(long)]
@@ -30,18 +32,20 @@ pub struct CreateCommand {
     pub parent: String,
 
     /// Create a folder instead of a plain file. Conflicts with `--mime-type`.
-    #[arg(help = "Create a folder instead of a plain file. Conflicts with --mime-type", long_help = None)]
+    #[arg(help = "Create a folder instead of a plain file. Conflicts with --mime-type")]
     #[arg(long, conflicts_with = "mime_type")]
     pub folder: bool,
 
     /// MIME type for a plain file. Defaults to `application/octet-stream`
     /// when omitted. Conflicts with `--folder`.
-    #[arg(help = "MIME type for a plain file. Defaults to application/octet-stream when omitted. Conflicts with --folder", long_help = None)]
+    #[arg(
+        help = "MIME type for a plain file. Defaults to application/octet-stream when omitted. Conflicts with --folder"
+    )]
     #[arg(long = "mime-type", value_name = "TYPE")]
     pub mime_type: Option<String>,
 
     /// Reports the gate verdict without calling `files.create`.
-    #[arg(help = "Reports the gate verdict without calling files.create", long_help = None)]
+    #[arg(help = "Reports the gate verdict without calling files.create")]
     #[arg(long)]
     pub dry_run: bool,
 

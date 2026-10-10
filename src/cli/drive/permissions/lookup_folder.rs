@@ -20,7 +20,9 @@ const DEFAULT_LIMIT: usize = 20;
 /// Searches Drive for candidate folders and prints their ids and full
 /// paths, for pasting into `write_permissions.rules` config.
 #[derive(Parser)]
-#[command(about = "Searches Drive for candidate folders and prints their ids and full paths, for pasting into write_permissions.rules config", long_about = None)]
+#[command(
+    about = "Searches Drive for candidate folders and prints their ids and full paths, for pasting into write_permissions.rules config"
+)]
 pub struct LookupFolderCommand {
     /// Folder name (or fragment) to search for.
     pub query: String,

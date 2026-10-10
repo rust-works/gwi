@@ -68,7 +68,7 @@ pub struct AppendCommand {
     pub text: Option<String>,
 
     /// Read the text to append from a file, or `-` for stdin.
-    #[arg(help = "Read the text to append from a file, or - for stdin", long_help = None)]
+    #[arg(help = "Read the text to append from a file, or - for stdin")]
     #[arg(long, value_name = "PATH")]
     pub text_file: Option<String>,
 
@@ -104,7 +104,7 @@ pub struct InsertCommand {
     )]
     pub text: Option<String>,
     /// Read insertion text from a file, or `-` for stdin.
-    #[arg(help = "Read insertion text from a file, or - for stdin", long_help = None)]
+    #[arg(help = "Read insertion text from a file, or - for stdin")]
     #[arg(long, value_name = "PATH")]
     pub text_file: Option<String>,
     /// Existing header, footer or footnote ID (from docs read); omit for tab bodies.

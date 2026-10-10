@@ -27,25 +27,27 @@ pub struct SetBasicFilterCommand {
     pub spreadsheet_id: String,
 
     /// Sheet (tab) title. Supplies the prefix for a bare `--range`.
-    #[arg(help = "Sheet (tab) title. Supplies the prefix for a bare --range", long_help = None)]
+    #[arg(help = "Sheet (tab) title. Supplies the prefix for a bare --range")]
     #[arg(long, value_name = "NAME")]
     pub sheet: String,
 
     /// A1 range to filter, optionally carrying its own `Sheet!` prefix.
-    #[arg(help = "A1 range to filter, optionally carrying its own Sheet! prefix", long_help = None)]
+    #[arg(help = "A1 range to filter, optionally carrying its own Sheet! prefix")]
     #[arg(long, value_name = "A1")]
     pub range: String,
 
     /// A `COLUMN:asc|desc` sort spec, in priority order. Repeatable. Physically
     /// reorders the range's rows (the reorder outlives `clear-basic-filter`), so it
     /// also needs the `sheets-write` operation (issue rust-works/omni-dev#1940).
-    #[arg(help = "A COLUMN:asc|desc sort spec, in priority order. Repeatable. Physically reorders the range's rows (the reorder outlives clear-basic-filter), so it also needs the sheets-write operation (issue rust-works/omni-dev#1940)", long_help = None)]
+    #[arg(
+        help = "A COLUMN:asc|desc sort spec, in priority order. Repeatable. Physically reorders the range's rows (the reorder outlives clear-basic-filter), so it also needs the sheets-write operation (issue rust-works/omni-dev#1940)"
+    )]
     #[arg(long = "sort-by", value_name = "COLUMN:asc|desc")]
     pub sort_by: Vec<String>,
 
     /// A `COLUMN:VALUE[,VALUE...]` hidden-value criterion, one per column.
     /// Repeatable.
-    #[arg(help = "A COLUMN:VALUE[,VALUE...] hidden-value criterion, one per column. Repeatable", long_help = None)]
+    #[arg(help = "A COLUMN:VALUE[,VALUE...] hidden-value criterion, one per column. Repeatable")]
     #[arg(long = "hide-values", value_name = "COLUMN:VALUES")]
     pub hide_values: Vec<String>,
 
@@ -109,12 +111,12 @@ pub struct AddFilterViewCommand {
     pub spreadsheet_id: String,
 
     /// Sheet (tab) title. Supplies the prefix for a bare `--range`.
-    #[arg(help = "Sheet (tab) title. Supplies the prefix for a bare --range", long_help = None)]
+    #[arg(help = "Sheet (tab) title. Supplies the prefix for a bare --range")]
     #[arg(long, value_name = "NAME")]
     pub sheet: String,
 
     /// A1 range to filter, optionally carrying its own `Sheet!` prefix.
-    #[arg(help = "A1 range to filter, optionally carrying its own Sheet! prefix", long_help = None)]
+    #[arg(help = "A1 range to filter, optionally carrying its own Sheet! prefix")]
     #[arg(long, value_name = "A1")]
     pub range: String,
 
@@ -123,13 +125,13 @@ pub struct AddFilterViewCommand {
     pub title: Option<String>,
 
     /// A `COLUMN:asc|desc` sort spec, in priority order. Repeatable.
-    #[arg(help = "A COLUMN:asc|desc sort spec, in priority order. Repeatable", long_help = None)]
+    #[arg(help = "A COLUMN:asc|desc sort spec, in priority order. Repeatable")]
     #[arg(long = "sort-by", value_name = "COLUMN:asc|desc")]
     pub sort_by: Vec<String>,
 
     /// A `COLUMN:VALUE[,VALUE...]` hidden-value criterion, one per column.
     /// Repeatable.
-    #[arg(help = "A COLUMN:VALUE[,VALUE...] hidden-value criterion, one per column. Repeatable", long_help = None)]
+    #[arg(help = "A COLUMN:VALUE[,VALUE...] hidden-value criterion, one per column. Repeatable")]
     #[arg(long = "hide-values", value_name = "COLUMN:VALUES")]
     pub hide_values: Vec<String>,
 
@@ -176,13 +178,15 @@ pub struct UpdateFilterViewCommand {
 
     /// Sheet (tab) title, when changing the filtered range. Supplies the
     /// prefix for a bare `--range`.
-    #[arg(help = "Sheet (tab) title, when changing the filtered range. Supplies the prefix for a bare --range", long_help = None)]
+    #[arg(
+        help = "Sheet (tab) title, when changing the filtered range. Supplies the prefix for a bare --range"
+    )]
     #[arg(long, value_name = "NAME")]
     pub sheet: Option<String>,
 
     /// The new A1 range, when changing it, optionally carrying its own
     /// `Sheet!` prefix.
-    #[arg(help = "The new A1 range, when changing it, optionally carrying its own Sheet! prefix", long_help = None)]
+    #[arg(help = "The new A1 range, when changing it, optionally carrying its own Sheet! prefix")]
     #[arg(long, value_name = "A1")]
     pub range: Option<String>,
 
@@ -192,23 +196,27 @@ pub struct UpdateFilterViewCommand {
 
     /// A `COLUMN:asc|desc` sort spec to merge in, replacing any existing
     /// entry for that column (else appending). Repeatable.
-    #[arg(help = "A COLUMN:asc|desc sort spec to merge in, replacing any existing entry for that column (else appending). Repeatable", long_help = None)]
+    #[arg(
+        help = "A COLUMN:asc|desc sort spec to merge in, replacing any existing entry for that column (else appending). Repeatable"
+    )]
     #[arg(long = "sort-by", value_name = "COLUMN:asc|desc")]
     pub sort_by: Vec<String>,
 
     /// A `COLUMN:VALUE[,VALUE...]` hidden-value criterion to merge in,
     /// replacing any existing entry for that column. Repeatable.
-    #[arg(help = "A COLUMN:VALUE[,VALUE...] hidden-value criterion to merge in, replacing any existing entry for that column. Repeatable", long_help = None)]
+    #[arg(
+        help = "A COLUMN:VALUE[,VALUE...] hidden-value criterion to merge in, replacing any existing entry for that column. Repeatable"
+    )]
     #[arg(long = "hide-values", value_name = "COLUMN:VALUES")]
     pub hide_values: Vec<String>,
 
     /// Reset the sort order to empty before applying `--sort-by`.
-    #[arg(help = "Reset the sort order to empty before applying --sort-by", long_help = None)]
+    #[arg(help = "Reset the sort order to empty before applying --sort-by")]
     #[arg(long)]
     pub clear_sort: bool,
 
     /// Reset the criteria to empty before applying `--hide-values`.
-    #[arg(help = "Reset the criteria to empty before applying --hide-values", long_help = None)]
+    #[arg(help = "Reset the criteria to empty before applying --hide-values")]
     #[arg(long)]
     pub clear_criteria: bool,
 
@@ -242,7 +250,9 @@ impl UpdateFilterViewCommand {
 /// Removes a filter view. The target is addressed directly by
 /// `--filter-view-id`, discovered via `drive sheets list-filter-views`.
 #[derive(Parser)]
-#[command(about = "Removes a filter view. The target is addressed directly by --filter-view-id, discovered via drive sheets list-filter-views", long_about = None)]
+#[command(
+    about = "Removes a filter view. The target is addressed directly by --filter-view-id, discovered via drive sheets list-filter-views"
+)]
 pub struct DeleteFilterViewCommand {
     /// Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL).
     #[arg(help = "Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).")]

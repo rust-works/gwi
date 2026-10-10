@@ -102,7 +102,9 @@ impl ReadOutputFormat {
 pub struct MessageOutputArgs {
     /// Output file (writes to stdout if omitted). With `--detail raw`, the
     /// message's exact RFC 2822 bytes, i.e. an `.eml` file.
-    #[arg(help = "Output file (writes to stdout if omitted). With --detail raw, the message's exact RFC 2822 bytes, i.e. an .eml file", long_help = None)]
+    #[arg(
+        help = "Output file (writes to stdout if omitted). With --detail raw, the message's exact RFC 2822 bytes, i.e. an .eml file"
+    )]
     #[arg(long = "out-file", value_name = "PATH")]
     pub out_file: Option<String>,
 
@@ -120,7 +122,9 @@ pub struct MessageOutputArgs {
     /// ignored elsewhere). Off by default: verbatim rendering is fully
     /// information-preserving, and the full text is one re-render away without this
     /// flag.
-    #[arg(help = "Collapses '>'-quoted reply history nested more than one level deep into a one-line '*(N quoted lines omitted)*' marker (rust-works/omni-dev#1514). Only affects -o markdown, mirroring --detail's reverse asymmetry (it is silently ignored elsewhere). Off by default: verbatim rendering is fully information-preserving, and the full text is one re-render away without this flag", long_help = None)]
+    #[arg(
+        help = "Collapses '>'-quoted reply history nested more than one level deep into a one-line '*(N quoted lines omitted)*' marker (rust-works/omni-dev#1514). Only affects -o markdown, mirroring --detail's reverse asymmetry (it is silently ignored elsewhere). Off by default: verbatim rendering is fully information-preserving, and the full text is one re-render away without this flag"
+    )]
     #[arg(long)]
     pub fold_quotes: bool,
 }

@@ -29,25 +29,31 @@ pub struct TrimWhitespaceCommand {
 
     /// Sheet (tab) title. Supplies the prefix for a bare `--range`, and is
     /// required with `--whole-sheet`.
-    #[arg(help = "Sheet (tab) title. Supplies the prefix for a bare --range, and is required with --whole-sheet", long_help = None)]
+    #[arg(
+        help = "Sheet (tab) title. Supplies the prefix for a bare --range, and is required with --whole-sheet"
+    )]
     #[arg(long, value_name = "NAME")]
     pub sheet: Option<String>,
 
     /// A1 range to trim, optionally carrying its own `Sheet!` prefix (for
     /// example `A2:D100`). An open-ended range (`A:A`) is completed from
     /// the sheet's current grid extent.
-    #[arg(help = "A1 range to trim, optionally carrying its own Sheet! prefix (for example A2:D100). An open-ended range (A:A) is completed from the sheet's current grid extent", long_help = None)]
+    #[arg(
+        help = "A1 range to trim, optionally carrying its own Sheet! prefix (for example A2:D100). An open-ended range (A:A) is completed from the sheet's current grid extent"
+    )]
     #[arg(long, value_name = "A1", conflicts_with = "whole_sheet")]
     pub range: Option<String>,
 
     /// Trim every cell of the sheet named by `--sheet`.
-    #[arg(help = "Trim every cell of the sheet named by --sheet", long_help = None)]
+    #[arg(help = "Trim every cell of the sheet named by --sheet")]
     #[arg(long, requires = "sheet")]
     pub whole_sheet: bool,
 
     /// Reports the gate verdict and the cells that may be trimmed, without
     /// calling `spreadsheets.batchUpdate`.
-    #[arg(help = "Reports the gate verdict and the cells that may be trimmed, without calling spreadsheets.batchUpdate", long_help = None)]
+    #[arg(
+        help = "Reports the gate verdict and the cells that may be trimmed, without calling spreadsheets.batchUpdate"
+    )]
     #[arg(long)]
     pub dry_run: bool,
 

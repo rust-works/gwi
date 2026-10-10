@@ -24,7 +24,7 @@ pub struct AddCommand {
     pub message_ids: Vec<String>,
 
     /// Label id to add (see `gmail label list` for ids).
-    #[arg(help = "Label id to add (see gmail label list for ids)", long_help = None)]
+    #[arg(help = "Label id to add (see gmail label list for ids)")]
     #[arg(long)]
     pub label: String,
 }

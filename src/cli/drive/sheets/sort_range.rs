@@ -27,13 +27,15 @@ pub struct SortRangeCommand {
     pub spreadsheet_id: String,
 
     /// Sheet (tab) title. Supplies the prefix for a bare `--range`.
-    #[arg(help = "Sheet (tab) title. Supplies the prefix for a bare --range", long_help = None)]
+    #[arg(help = "Sheet (tab) title. Supplies the prefix for a bare --range")]
     #[arg(long, value_name = "NAME")]
     pub sheet: Option<String>,
 
     /// Fully bounded A1 range to sort, optionally carrying its own `Sheet!`
     /// prefix (for example `A2:D100`).
-    #[arg(help = "Fully bounded A1 range to sort, optionally carrying its own Sheet! prefix (for example A2:D100)", long_help = None)]
+    #[arg(
+        help = "Fully bounded A1 range to sort, optionally carrying its own Sheet! prefix (for example A2:D100)"
+    )]
     #[arg(long, value_name = "A1")]
     pub range: String,
 
@@ -41,13 +43,17 @@ pub struct SortRangeCommand {
     /// zero-based absolute sheet column index (`0` is column A, whatever
     /// the range's first column), and must fall inside the range. Repeat to
     /// add lower-precedence keys.
-    #[arg(help = "A column sort key, as COLUMN:asc or COLUMN:desc. COLUMN is a zero-based absolute sheet column index (0 is column A, whatever the range's first column), and must fall inside the range. Repeat to add lower-precedence keys", long_help = None)]
+    #[arg(
+        help = "A column sort key, as COLUMN:asc or COLUMN:desc. COLUMN is a zero-based absolute sheet column index (0 is column A, whatever the range's first column), and must fall inside the range. Repeat to add lower-precedence keys"
+    )]
     #[arg(long, value_name = "COLUMN:ORDER", required = true)]
     pub sort_by: Vec<String>,
 
     /// Reports the gate verdict and request shape without calling
     /// `spreadsheets.batchUpdate` or reading cell values.
-    #[arg(help = "Reports the gate verdict and request shape without calling spreadsheets.batchUpdate or reading cell values", long_help = None)]
+    #[arg(
+        help = "Reports the gate verdict and request shape without calling spreadsheets.batchUpdate or reading cell values"
+    )]
     #[arg(long)]
     pub dry_run: bool,
 

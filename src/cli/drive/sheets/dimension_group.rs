@@ -83,7 +83,9 @@ impl AddDimensionGroupCommand {
 /// existing one); `--depth` disambiguates, discovered via
 /// `drive sheets list-dimension-groups`.
 #[derive(Parser)]
-#[command(about = "Changes an existing group's collapsed state — the only field this crate ever updates, since the span is the group's identity and the depth is server-derived. The target span may match more than one group (the API creates this when a group is added over a span equal to an existing one); --depth disambiguates, discovered via drive sheets list-dimension-groups", long_about = None)]
+#[command(
+    about = "Changes an existing group's collapsed state — the only field this crate ever updates, since the span is the group's identity and the depth is server-derived. The target span may match more than one group (the API creates this when a group is added over a span equal to an existing one); --depth disambiguates, discovered via drive sheets list-dimension-groups"
+)]
 pub struct UpdateDimensionGroupCommand {
     /// Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL).
     #[arg(help = "Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).")]
@@ -99,7 +101,7 @@ pub struct UpdateDimensionGroupCommand {
 
     /// 1-based first row/column, inclusive — identifies the group together
     /// with `--end`.
-    #[arg(help = "1-based first row/column, inclusive — identifies the group together with --end", long_help = None)]
+    #[arg(help = "1-based first row/column, inclusive — identifies the group together with --end")]
     #[arg(long, value_name = "N")]
     pub start: i64,
 
@@ -114,7 +116,7 @@ pub struct UpdateDimensionGroupCommand {
 
     /// The new collapsed state: `true` hides the group's rows/columns,
     /// `false` shows them.
-    #[arg(help = "The new collapsed state: true hides the group's rows/columns, false shows them", long_help = None)]
+    #[arg(help = "The new collapsed state: true hides the group's rows/columns, false shows them")]
     // Required, unlike `format-cells`' optional `--bold`-style flags:
     // `update-dimension-group` changes nothing else, so there is no
     // "leave it unset" case. `bool` with `ArgAction::Set`, not
@@ -153,7 +155,9 @@ impl UpdateDimensionGroupCommand {
 /// delete (which decrements an overlapping group's depth rather than
 /// removing anything) is not exposed.
 #[derive(Parser)]
-#[command(about = "Removes an outline group. Requires an exact span match among the groups list-dimension-groups would show — the API's own partial-span delete (which decrements an overlapping group's depth rather than removing anything) is not exposed", long_about = None)]
+#[command(
+    about = "Removes an outline group. Requires an exact span match among the groups list-dimension-groups would show — the API's own partial-span delete (which decrements an overlapping group's depth rather than removing anything) is not exposed"
+)]
 pub struct DeleteDimensionGroupCommand {
     /// Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL).
     #[arg(help = "Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).")]
@@ -169,7 +173,7 @@ pub struct DeleteDimensionGroupCommand {
 
     /// 1-based first row/column, inclusive — identifies the group together
     /// with `--end`.
-    #[arg(help = "1-based first row/column, inclusive — identifies the group together with --end", long_help = None)]
+    #[arg(help = "1-based first row/column, inclusive — identifies the group together with --end")]
     #[arg(long, value_name = "N")]
     pub start: i64,
 

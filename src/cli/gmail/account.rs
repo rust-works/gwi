@@ -11,7 +11,7 @@ use clap::{Parser, Subcommand};
 
 /// Manages named Gmail accounts configured in `~/.gwi/settings.json`.
 #[derive(Parser)]
-#[command(about = "Manages named Gmail accounts configured in ~/.gwi/settings.json", long_about = None)]
+#[command(about = "Manages named Gmail accounts configured in ~/.gwi/settings.json")]
 pub struct AccountCommand {
     /// The account subcommand to execute.
     #[command(subcommand)]
@@ -24,10 +24,12 @@ pub enum AccountSubcommands {
     /// Lists configured Gmail accounts (name/email/scope/default only — no secrets, no network).
     List(list::ListCommand),
     /// Sets the account resolved when `--account`/`GWI_GMAIL_ACCOUNT` is not given.
-    #[command(about = "Sets the account resolved when --account/GWI_GMAIL_ACCOUNT is not given", long_about = None)]
+    #[command(about = "Sets the account resolved when --account/GWI_GMAIL_ACCOUNT is not given")]
     SetDefault(set_default::SetDefaultCommand),
     /// Migrates today's legacy (profile/base `env`) Gmail credentials into a named account.
-    #[command(about = "Migrates today's legacy (profile/base env) Gmail credentials into a named account", long_about = None)]
+    #[command(
+        about = "Migrates today's legacy (profile/base env) Gmail credentials into a named account"
+    )]
     ImportLegacy(import_legacy::ImportLegacyCommand),
 }
 

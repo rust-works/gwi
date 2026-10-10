@@ -32,13 +32,17 @@ const SNIPPET_TRUNCATE_AT: usize = 60;
 pub struct SearchCommand {
     /// Gmail search query (same syntax as the Gmail search box, e.g.
     /// `label:finance after:2026/01/01`).
-    #[arg(help = "Gmail search query (same syntax as the Gmail search box, e.g. label:finance after:2026/01/01)", long_help = None)]
+    #[arg(
+        help = "Gmail search query (same syntax as the Gmail search box, e.g. label:finance after:2026/01/01)"
+    )]
     #[arg(long)]
     pub query: String,
 
     /// Maximum results to return. `0` means "fetch every match" (capped at a
     /// hard ceiling to bound run time and quota).
-    #[arg(help = "Maximum results to return. 0 means \"fetch every match\" (capped at a hard ceiling to bound run time and quota)", long_help = None)]
+    #[arg(
+        help = "Maximum results to return. 0 means \"fetch every match\" (capped at a hard ceiling to bound run time and quota)"
+    )]
     #[arg(long, default_value_t = DEFAULT_SEARCH_LIMIT)]
     pub limit: usize,
 
@@ -46,14 +50,18 @@ pub struct SearchCommand {
     /// `messages.get` request per hit. Without this flag, `search` returns
     /// only `id`/`threadId` — the cheaper default. Combined with
     /// `--limit 0` this can issue thousands of requests; use deliberately.
-    #[arg(help = "Enrich each hit with From/Subject/Date/snippet via one extra messages.get request per hit. Without this flag, search returns only id/threadId — the cheaper default. Combined with --limit 0 this can issue thousands of requests; use deliberately", long_help = None)]
+    #[arg(
+        help = "Enrich each hit with From/Subject/Date/snippet via one extra messages.get request per hit. Without this flag, search returns only id/threadId — the cheaper default. Combined with --limit 0 this can issue thousands of requests; use deliberately"
+    )]
     #[arg(long)]
     pub enrich: bool,
 
     /// Bounds concurrent `messages.get` calls when `--enrich` is set (has
     /// no effect otherwise). Clamped to 1..=5, based on a 100-units/second pacing
     /// budget and 20 units per get. Bounds fan-out, not request rate.
-    #[arg(help = "Bounds concurrent messages.get calls when --enrich is set (has no effect otherwise). Clamped to 1..=5, based on a 100-units/second pacing budget and 20 units per get. Bounds fan-out, not request rate", long_help = None)]
+    #[arg(
+        help = "Bounds concurrent messages.get calls when --enrich is set (has no effect otherwise). Clamped to 1..=5, based on a 100-units/second pacing budget and 20 units per get. Bounds fan-out, not request rate"
+    )]
     #[arg(long, default_value_t = DEFAULT_ENRICH_CONCURRENCY)]
     pub concurrency: usize,
 

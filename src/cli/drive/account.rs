@@ -9,7 +9,7 @@ use clap::{Parser, Subcommand};
 
 /// Manages named Drive accounts configured in `~/.gwi/settings.json`.
 #[derive(Parser)]
-#[command(about = "Manages named Drive accounts configured in ~/.gwi/settings.json", long_about = None)]
+#[command(about = "Manages named Drive accounts configured in ~/.gwi/settings.json")]
 pub struct AccountCommand {
     /// The account subcommand to execute.
     #[command(subcommand)]
@@ -23,7 +23,7 @@ pub enum AccountSubcommands {
     /// Lists configured Drive accounts (name/email/scope/default only — no secrets, no network).
     List(list::ListCommand),
     /// Sets the account resolved when `--account`/`GWI_DRIVE_ACCOUNT` is not given.
-    #[command(about = "Sets the account resolved when --account/GWI_DRIVE_ACCOUNT is not given", long_about = None)]
+    #[command(about = "Sets the account resolved when --account/GWI_DRIVE_ACCOUNT is not given")]
     SetDefault(set_default::SetDefaultCommand),
 }
 

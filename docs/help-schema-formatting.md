@@ -39,3 +39,9 @@ Keep explicit text synchronized with its rustdoc source as required by
 [STYLE-0008](STYLE_GUIDE.md#style-0008-doc-comments). This presentation pass does not repeat
 [the MCP prose-quality audit](mcp-description-audit.md), change nested schemas or introduce
 a global Markdown renderer.
+
+The explicit short descriptions for single-paragraph docs omit redundant
+`long_help = None` / `long_about = None` resets. Each reset adds another builder
+temporary to clap's generated code and can overflow the Windows process's
+1 MiB startup stack in debug builds. A command-tree regression exercises that
+stack budget, while the help snapshot verifies identical output.

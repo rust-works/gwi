@@ -96,7 +96,9 @@ impl From<OperationArg> for DriveOperation {
 /// `create`/`upload`/`edit`/`sheets write` engine modules call, so this
 /// diagnostic can never drift from actual enforcement.
 #[derive(Parser)]
-#[command(about = "Evaluates the configured write-permission rules against a real target and prints the verdict — the same [folder_ancestry::resolve_decision]/ [folder_ancestry::resolve_decision_for_file_target] the real create/upload/edit/sheets write engine modules call, so this diagnostic can never drift from actual enforcement", long_about = None)]
+#[command(
+    about = "Evaluates the configured write-permission rules against a real target and prints the verdict — the same [folder_ancestry::resolve_decision]/ [folder_ancestry::resolve_decision_for_file_target] the real create/upload/edit/sheets write engine modules call, so this diagnostic can never drift from actual enforcement"
+)]
 pub struct CheckCommand {
     /// The folder or file id to evaluate.
     pub id: String,

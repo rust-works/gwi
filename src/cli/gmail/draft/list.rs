@@ -39,13 +39,17 @@ const HEADERS: [&str; 7] = [
 pub struct ListCommand {
     /// Only list drafts matching this Gmail search query (same syntax as
     /// the Gmail search box, e.g. `to:alice subject:report`).
-    #[arg(help = "Only list drafts matching this Gmail search query (same syntax as the Gmail search box, e.g. to:alice subject:report)", long_help = None)]
+    #[arg(
+        help = "Only list drafts matching this Gmail search query (same syntax as the Gmail search box, e.g. to:alice subject:report)"
+    )]
     #[arg(long)]
     pub query: Option<String>,
 
     /// Maximum drafts to return. `0` means "every draft" (capped at the
     /// same hard ceiling as `gmail search`).
-    #[arg(help = "Maximum drafts to return. 0 means \"every draft\" (capped at the same hard ceiling as gmail search)", long_help = None)]
+    #[arg(
+        help = "Maximum drafts to return. 0 means \"every draft\" (capped at the same hard ceiling as gmail search)"
+    )]
     #[arg(long, default_value_t = DEFAULT_SEARCH_LIMIT)]
     pub limit: usize,
 

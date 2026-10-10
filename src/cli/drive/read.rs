@@ -22,13 +22,15 @@ pub(crate) const GOOGLE_SHORTCUT: &str = "application/vnd.google-apps.shortcut";
 pub struct ReadCommand {
     /// Drive file id (from `drive search`, or the `id` segment of a Drive
     /// URL).
-    #[arg(help = "Drive file id (from drive search, or the id segment of a Drive URL)", long_help = None)]
+    #[arg(help = "Drive file id (from drive search, or the id segment of a Drive URL)")]
     pub file_id: String,
 
     /// Fetches the file's actual content instead of its metadata.
     /// Google-native files (Docs/Sheets/Slides/...) are exported (see
     /// `--export-mime-type`); every other file is downloaded as-is.
-    #[arg(help = "Fetches the file's actual content instead of its metadata. Google-native files (Docs/Sheets/Slides/...) are exported (see --export-mime-type); every other file is downloaded as-is", long_help = None)]
+    #[arg(
+        help = "Fetches the file's actual content instead of its metadata. Google-native files (Docs/Sheets/Slides/...) are exported (see --export-mime-type); every other file is downloaded as-is"
+    )]
     #[arg(long)]
     pub content: bool,
 
@@ -40,13 +42,17 @@ pub struct ReadCommand {
     /// every other Google-native type (Forms, Drawings, Apps Script, Sites,
     /// ...); the error names the file's actually supported export MIME
     /// types.
-    #[arg(help = "Export MIME type for a Google-native file's content (only relevant with --content; ignored for non-Google-native files, which are downloaded as-is regardless). Defaults: Google Docs -> text/markdown, Google Sheets -> text/csv (first sheet only — Drive's export API has no multi-sheet CSV format), Google Slides -> text/plain. Required for every other Google-native type (Forms, Drawings, Apps Script, Sites, ...); the error names the file's actually supported export MIME types", long_help = None)]
+    #[arg(
+        help = "Export MIME type for a Google-native file's content (only relevant with --content; ignored for non-Google-native files, which are downloaded as-is regardless). Defaults: Google Docs -> text/markdown, Google Sheets -> text/csv (first sheet only — Drive's export API has no multi-sheet CSV format), Google Slides -> text/plain. Required for every other Google-native type (Forms, Drawings, Apps Script, Sites, ...); the error names the file's actually supported export MIME types"
+    )]
     #[arg(long = "export-mime-type", value_name = "MIME_TYPE")]
     pub export_mime_type: Option<String>,
 
     /// Writes fetched content to this path instead of stdout. Only valid
     /// with `--content` — metadata always renders via `-o/--output`.
-    #[arg(help = "Writes fetched content to this path instead of stdout. Only valid with --content — metadata always renders via -o/--output", long_help = None)]
+    #[arg(
+        help = "Writes fetched content to this path instead of stdout. Only valid with --content — metadata always renders via -o/--output"
+    )]
     #[arg(long = "out-file", value_name = "PATH")]
     pub out_file: Option<String>,
 
@@ -57,7 +63,9 @@ pub struct ReadCommand {
     /// on a Google-native file rather than exporting first. Prints a
     /// one-line confirmation on success; fails with a clear error on a
     /// mismatch or a missing checksum.
-    #[arg(help = "Locally recomputes the SHA-256 checksum of the downloaded bytes and checks it against Drive's reported sha256Checksum. Only valid with --content, and only for non-Google-native files — Drive never returns a checksum for exported content, so this errors immediately on a Google-native file rather than exporting first. Prints a one-line confirmation on success; fails with a clear error on a mismatch or a missing checksum", long_help = None)]
+    #[arg(
+        help = "Locally recomputes the SHA-256 checksum of the downloaded bytes and checks it against Drive's reported sha256Checksum. Only valid with --content, and only for non-Google-native files — Drive never returns a checksum for exported content, so this errors immediately on a Google-native file rather than exporting first. Prints a one-line confirmation on success; fails with a clear error on a mismatch or a missing checksum"
+    )]
     #[arg(long)]
     pub verify: bool,
 

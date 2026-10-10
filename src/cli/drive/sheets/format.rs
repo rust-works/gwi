@@ -216,12 +216,12 @@ pub struct FormatCellsCommand {
     pub spreadsheet_id: String,
 
     /// A1 range to format, optionally carrying its own `Sheet!` prefix.
-    #[arg(help = "A1 range to format, optionally carrying its own Sheet! prefix", long_help = None)]
+    #[arg(help = "A1 range to format, optionally carrying its own Sheet! prefix")]
     #[arg(long, value_name = "A1")]
     pub range: Option<String>,
 
     /// Sheet (tab) title. Supplies the prefix for a bare `--range`.
-    #[arg(help = "Sheet (tab) title. Supplies the prefix for a bare --range", long_help = None)]
+    #[arg(help = "Sheet (tab) title. Supplies the prefix for a bare --range")]
     #[arg(long, value_name = "NAME")]
     pub sheet: Option<String>,
 
@@ -241,11 +241,11 @@ pub struct FormatCellsCommand {
     #[arg(long, value_name = "N")]
     pub font_size: Option<i64>,
     /// Text color, `#RRGGBB`.
-    #[arg(help = "Text color, #RRGGBB", long_help = None)]
+    #[arg(help = "Text color, #RRGGBB")]
     #[arg(long, value_name = "HEX")]
     pub text_color: Option<String>,
     /// Cell background color, `#RRGGBB`.
-    #[arg(help = "Cell background color, #RRGGBB", long_help = None)]
+    #[arg(help = "Cell background color, #RRGGBB")]
     #[arg(long, value_name = "HEX")]
     pub background: Option<String>,
     /// Horizontal alignment.
@@ -256,23 +256,27 @@ pub struct FormatCellsCommand {
     pub vertical_align: Option<VerticalAlign>,
     /// Display number format pattern, e.g. `"#,##0.00"`. Requires
     /// `--number-format-type`.
-    #[arg(help = "Display number format pattern, e.g. \"#,##0.00\". Requires --number-format-type", long_help = None)]
+    #[arg(
+        help = "Display number format pattern, e.g. \"#,##0.00\". Requires --number-format-type"
+    )]
     #[arg(long, value_name = "PATTERN")]
     pub number_format: Option<String>,
     /// The number format's type. Requires `--number-format`.
-    #[arg(help = "The number format's type. Requires --number-format", long_help = None)]
+    #[arg(help = "The number format's type. Requires --number-format")]
     #[arg(long, value_enum, value_name = "TYPE")]
     pub number_format_type: Option<NumberFormatType>,
     /// Text wrap behavior.
     #[arg(long, value_enum, value_name = "WRAP")]
     pub wrap: Option<WrapStrategy>,
     /// Font family name, e.g. `"Arial"`.
-    #[arg(help = "Font family name, e.g. \"Arial\"", long_help = None)]
+    #[arg(help = "Font family name, e.g. \"Arial\"")]
     #[arg(long, value_name = "NAME")]
     pub font_family: Option<String>,
     /// Rotation angle in degrees, -90 to 90. Mutually exclusive with
     /// `--text-rotation-vertical`.
-    #[arg(help = "Rotation angle in degrees, -90 to 90. Mutually exclusive with --text-rotation-vertical", long_help = None)]
+    #[arg(
+        help = "Rotation angle in degrees, -90 to 90. Mutually exclusive with --text-rotation-vertical"
+    )]
     #[arg(
         long,
         value_name = "DEGREES",
@@ -282,7 +286,9 @@ pub struct FormatCellsCommand {
     pub text_rotation_angle: Option<i64>,
     /// Stack text vertically instead of rotating it. Mutually exclusive
     /// with `--text-rotation-angle`.
-    #[arg(help = "Stack text vertically instead of rotating it. Mutually exclusive with --text-rotation-angle", long_help = None)]
+    #[arg(
+        help = "Stack text vertically instead of rotating it. Mutually exclusive with --text-rotation-angle"
+    )]
     #[arg(long, conflicts_with = "text_rotation_angle")]
     pub text_rotation_vertical: bool,
     /// How a cell containing a hyperlink is displayed.
@@ -375,12 +381,12 @@ pub struct UpdateBordersCommand {
     pub spreadsheet_id: String,
 
     /// A1 range to border, optionally carrying its own `Sheet!` prefix.
-    #[arg(help = "A1 range to border, optionally carrying its own Sheet! prefix", long_help = None)]
+    #[arg(help = "A1 range to border, optionally carrying its own Sheet! prefix")]
     #[arg(long, value_name = "A1")]
     pub range: Option<String>,
 
     /// Sheet (tab) title. Supplies the prefix for a bare `--range`.
-    #[arg(help = "Sheet (tab) title. Supplies the prefix for a bare --range", long_help = None)]
+    #[arg(help = "Sheet (tab) title. Supplies the prefix for a bare --range")]
     #[arg(long, value_name = "NAME")]
     pub sheet: Option<String>,
 
@@ -400,7 +406,9 @@ pub struct UpdateBordersCommand {
     /// `--top`/`--bottom`/`--left`/`--right`. Does **not** include
     /// `--inner-horizontal`/`--inner-vertical`, which need to be named
     /// explicitly.
-    #[arg(help = "Set all four edges. Equivalent to passing all of --top/--bottom/--left/--right. Does not include --inner-horizontal/--inner-vertical, which need to be named explicitly", long_help = None)]
+    #[arg(
+        help = "Set all four edges. Equivalent to passing all of --top/--bottom/--left/--right. Does not include --inner-horizontal/--inner-vertical, which need to be named explicitly"
+    )]
     #[arg(long)]
     pub all: bool,
     /// Set the horizontal grid lines between rows within the range.
@@ -414,7 +422,7 @@ pub struct UpdateBordersCommand {
     #[arg(long, value_enum, default_value_t = BorderStyle::Solid)]
     pub style: BorderStyle,
     /// Line color, `#RRGGBB`. Omitted takes solid black.
-    #[arg(help = "Line color, #RRGGBB. Omitted takes solid black", long_help = None)]
+    #[arg(help = "Line color, #RRGGBB. Omitted takes solid black")]
     #[arg(long, value_name = "HEX")]
     pub color: Option<String>,
 
@@ -467,12 +475,14 @@ pub struct MergeCellsCommand {
 
     /// A1 range to merge, optionally carrying its own `Sheet!` prefix. Must
     /// be fully bounded (e.g. `A1:D20`) and at most 50,000 cells.
-    #[arg(help = "A1 range to merge, optionally carrying its own Sheet! prefix. Must be fully bounded (e.g. A1:D20) and at most 50,000 cells", long_help = None)]
+    #[arg(
+        help = "A1 range to merge, optionally carrying its own Sheet! prefix. Must be fully bounded (e.g. A1:D20) and at most 50,000 cells"
+    )]
     #[arg(long, value_name = "A1")]
     pub range: Option<String>,
 
     /// Sheet (tab) title. Supplies the prefix for a bare `--range`.
-    #[arg(help = "Sheet (tab) title. Supplies the prefix for a bare --range", long_help = None)]
+    #[arg(help = "Sheet (tab) title. Supplies the prefix for a bare --range")]
     #[arg(long, value_name = "NAME")]
     pub sheet: Option<String>,
 
@@ -484,7 +494,9 @@ pub struct MergeCellsCommand {
     /// Reports the gate verdict and, critically, every cell value the merge
     /// would discard — see `drive sheets merge-cells --help` before running
     /// without this flag first.
-    #[arg(help = "Reports the gate verdict and, critically, every cell value the merge would discard — see drive sheets merge-cells --help before running without this flag first", long_help = None)]
+    #[arg(
+        help = "Reports the gate verdict and, critically, every cell value the merge would discard — see drive sheets merge-cells --help before running without this flag first"
+    )]
     #[arg(long)]
     pub dry_run: bool,
 
@@ -522,12 +534,12 @@ pub struct UnmergeCellsCommand {
     pub spreadsheet_id: String,
 
     /// A1 range to unmerge, optionally carrying its own `Sheet!` prefix.
-    #[arg(help = "A1 range to unmerge, optionally carrying its own Sheet! prefix", long_help = None)]
+    #[arg(help = "A1 range to unmerge, optionally carrying its own Sheet! prefix")]
     #[arg(long, value_name = "A1")]
     pub range: Option<String>,
 
     /// Sheet (tab) title. Supplies the prefix for a bare `--range`.
-    #[arg(help = "Sheet (tab) title. Supplies the prefix for a bare --range", long_help = None)]
+    #[arg(help = "Sheet (tab) title. Supplies the prefix for a bare --range")]
     #[arg(long, value_name = "NAME")]
     pub sheet: Option<String>,
 

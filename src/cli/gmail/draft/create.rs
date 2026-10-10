@@ -81,7 +81,9 @@ pub struct CreateCommand {
     /// or its primary address, as `addr@example.com` or
     /// `"Name <addr@example.com>"`. Without a name, Gmail's name for the
     /// address is used.
-    #[arg(help = "Send as this address: one of the account's verified send-as aliases, or its primary address, as addr@example.com or \"Name <addr@example.com>\". Without a name, Gmail's name for the address is used", long_help = None)]
+    #[arg(
+        help = "Send as this address: one of the account's verified send-as aliases, or its primary address, as addr@example.com or \"Name <addr@example.com>\". Without a name, Gmail's name for the address is used"
+    )]
     #[arg(long, value_name = "ADDR")]
     pub from: Option<String>,
 
@@ -89,23 +91,27 @@ pub struct CreateCommand {
     /// Repeat the flag (or list several after it) for more recipients.
     /// Required unless `--reply-to` is given, which defaults it from the
     /// original.
-    #[arg(help = "A To recipient: addr@example.com or \"Name <addr@example.com>\". Repeat the flag (or list several after it) for more recipients. Required unless --reply-to is given, which defaults it from the original", long_help = None)]
+    #[arg(
+        help = "A To recipient: addr@example.com or \"Name <addr@example.com>\". Repeat the flag (or list several after it) for more recipients. Required unless --reply-to is given, which defaults it from the original"
+    )]
     #[arg(long, value_name = "ADDR", num_args = 1.., required_unless_present_any = ["raw", "reply_to"])]
     pub to: Vec<String>,
 
     /// A `Cc` recipient, in the same form as `--to`.
-    #[arg(help = "A Cc recipient, in the same form as --to", long_help = None)]
+    #[arg(help = "A Cc recipient, in the same form as --to")]
     #[arg(long, value_name = "ADDR", num_args = 1..)]
     pub cc: Vec<String>,
 
     /// A `Bcc` recipient, in the same form as `--to`.
-    #[arg(help = "A Bcc recipient, in the same form as --to", long_help = None)]
+    #[arg(help = "A Bcc recipient, in the same form as --to")]
     #[arg(long, value_name = "ADDR", num_args = 1..)]
     pub bcc: Vec<String>,
 
     /// The subject. Required unless `--reply-to` is given, which defaults
     /// it to `Re: <original subject>`.
-    #[arg(help = "The subject. Required unless --reply-to is given, which defaults it to Re: <original subject>", long_help = None)]
+    #[arg(
+        help = "The subject. Required unless --reply-to is given, which defaults it to Re: <original subject>"
+    )]
     #[arg(long, required_unless_present_any = ["raw", "reply_to"])]
     pub subject: Option<String>,
 
@@ -119,7 +125,9 @@ pub struct CreateCommand {
 
     /// An HTML body, sent alongside the plain-text one. Without `--body` or
     /// `--body-file`, the plain text is derived from the HTML.
-    #[arg(help = "An HTML body, sent alongside the plain-text one. Without --body or --body-file, the plain text is derived from the HTML", long_help = None)]
+    #[arg(
+        help = "An HTML body, sent alongside the plain-text one. Without --body or --body-file, the plain text is derived from the HTML"
+    )]
     #[arg(long, value_name = "HTML", conflicts_with = "html_body_file")]
     pub html_body: Option<String>,
 
@@ -134,20 +142,26 @@ pub struct CreateCommand {
     /// Reply to this Gmail message id, filing the draft in its thread.
     /// Without `--to`, replies to the original's `Reply-To`, else its `From`
     /// (or, for a message you sent, its `To`).
-    #[arg(help = "Reply to this Gmail message id, filing the draft in its thread. Without --to, replies to the original's Reply-To, else its From (or, for a message you sent, its To)", long_help = None)]
+    #[arg(
+        help = "Reply to this Gmail message id, filing the draft in its thread. Without --to, replies to the original's Reply-To, else its From (or, for a message you sent, its To)"
+    )]
     #[arg(long, value_name = "MESSAGE_ID")]
     pub reply_to: Option<String>,
 
     /// With `--reply-to`, also address the original's other `To` and `Cc`
     /// recipients, leaving out your own addresses. `--to`/`--cc` still
     /// replace the defaults for their header.
-    #[arg(help = "With --reply-to, also address the original's other To and Cc recipients, leaving out your own addresses. --to/--cc still replace the defaults for their header", long_help = None)]
+    #[arg(
+        help = "With --reply-to, also address the original's other To and Cc recipients, leaving out your own addresses. --to/--cc still replace the defaults for their header"
+    )]
     #[arg(long, requires = "reply_to")]
     pub reply_all: bool,
 
     /// Upload this complete RFC 5322 message (`.eml`) byte for byte instead
     /// of composing one.
-    #[arg(help = "Upload this complete RFC 5322 message (.eml) byte for byte instead of composing one", long_help = None)]
+    #[arg(
+        help = "Upload this complete RFC 5322 message (.eml) byte for byte instead of composing one"
+    )]
     #[arg(long, value_name = "FILE", conflicts_with_all = COMPOSE_ARGS)]
     pub raw: Option<PathBuf>,
 

@@ -23,12 +23,16 @@ use crate::drive::types::DriveFile;
 pub struct SearchCommand {
     /// Drive search query, passed verbatim to `files.list`'s `q` parameter
     /// (e.g. `name contains 'report' and mimeType = 'application/pdf'`).
-    #[arg(help = "Drive search query, passed verbatim to files.list's q parameter (e.g. name contains 'report' and mimeType = 'application/pdf')", long_help = None)]
+    #[arg(
+        help = "Drive search query, passed verbatim to files.list's q parameter (e.g. name contains 'report' and mimeType = 'application/pdf')"
+    )]
     pub query: String,
 
     /// Maximum results to return. `0` means "fetch every match" (capped at
     /// a hard ceiling to bound run time).
-    #[arg(help = "Maximum results to return. 0 means \"fetch every match\" (capped at a hard ceiling to bound run time)", long_help = None)]
+    #[arg(
+        help = "Maximum results to return. 0 means \"fetch every match\" (capped at a hard ceiling to bound run time)"
+    )]
     #[arg(long, default_value_t = DEFAULT_SEARCH_LIMIT)]
     pub limit: usize,
 

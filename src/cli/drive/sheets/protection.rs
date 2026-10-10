@@ -21,7 +21,7 @@ use crate::drive::sheets::render_grid_range;
 
 /// Protects a range (or, with `--whole-sheet`, an entire sheet).
 #[derive(Parser)]
-#[command(about = "Protects a range (or, with --whole-sheet, an entire sheet)", long_about = None)]
+#[command(about = "Protects a range (or, with --whole-sheet, an entire sheet)")]
 pub struct ProtectRangeCommand {
     /// Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL).
     #[arg(help = "Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).")]
@@ -29,19 +29,23 @@ pub struct ProtectRangeCommand {
 
     /// A1 range to protect, optionally carrying its own `Sheet!` prefix.
     /// Mutually exclusive with `--whole-sheet`.
-    #[arg(help = "A1 range to protect, optionally carrying its own Sheet! prefix. Mutually exclusive with --whole-sheet", long_help = None)]
+    #[arg(
+        help = "A1 range to protect, optionally carrying its own Sheet! prefix. Mutually exclusive with --whole-sheet"
+    )]
     #[arg(long, value_name = "A1")]
     pub range: Option<String>,
 
     /// Sheet (tab) title. Supplies the prefix for a bare `--range`, or the
     /// target sheet directly with `--whole-sheet`.
-    #[arg(help = "Sheet (tab) title. Supplies the prefix for a bare --range, or the target sheet directly with --whole-sheet", long_help = None)]
+    #[arg(
+        help = "Sheet (tab) title. Supplies the prefix for a bare --range, or the target sheet directly with --whole-sheet"
+    )]
     #[arg(long, value_name = "NAME")]
     pub sheet: Option<String>,
 
     /// Protect the entire sheet named by `--sheet`, rather than a range
     /// within it.
-    #[arg(help = "Protect the entire sheet named by --sheet, rather than a range within it", long_help = None)]
+    #[arg(help = "Protect the entire sheet named by --sheet, rather than a range within it")]
     #[arg(long)]
     pub whole_sheet: bool,
 
@@ -86,7 +90,9 @@ impl ProtectRangeCommand {
 /// or editor list. The target protection is resolved by exact range match
 /// — see `drive sheets list-protections` to find it.
 #[derive(Parser)]
-#[command(about = "Changes an existing protected range's description, warning-only flag, or editor list. The target protection is resolved by exact range match — see drive sheets list-protections to find it", long_about = None)]
+#[command(
+    about = "Changes an existing protected range's description, warning-only flag, or editor list. The target protection is resolved by exact range match — see drive sheets list-protections to find it"
+)]
 pub struct UpdateProtectionCommand {
     /// Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL).
     #[arg(help = "Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).")]
@@ -96,13 +102,17 @@ pub struct UpdateProtectionCommand {
     /// its own `Sheet!` prefix. Must match exactly — see
     /// `drive sheets list-protections`. Mutually exclusive with
     /// `--whole-sheet`.
-    #[arg(help = "A1 range identifying the existing protection, optionally carrying its own Sheet! prefix. Must match exactly — see drive sheets list-protections. Mutually exclusive with --whole-sheet", long_help = None)]
+    #[arg(
+        help = "A1 range identifying the existing protection, optionally carrying its own Sheet! prefix. Must match exactly — see drive sheets list-protections. Mutually exclusive with --whole-sheet"
+    )]
     #[arg(long, value_name = "A1")]
     pub range: Option<String>,
 
     /// Sheet (tab) title. Supplies the prefix for a bare `--range`, or the
     /// target sheet directly with `--whole-sheet`.
-    #[arg(help = "Sheet (tab) title. Supplies the prefix for a bare --range, or the target sheet directly with --whole-sheet", long_help = None)]
+    #[arg(
+        help = "Sheet (tab) title. Supplies the prefix for a bare --range, or the target sheet directly with --whole-sheet"
+    )]
     #[arg(long, value_name = "NAME")]
     pub sheet: Option<String>,
 
@@ -110,7 +120,9 @@ pub struct UpdateProtectionCommand {
     /// covering a range within it — the only way to reach a protection
     /// created with `protect-range --whole-sheet`, which has no range of
     /// its own to match against.
-    #[arg(help = "Target the whole-sheet protection on --sheet, rather than one covering a range within it — the only way to reach a protection created with protect-range --whole-sheet, which has no range of its own to match against", long_help = None)]
+    #[arg(
+        help = "Target the whole-sheet protection on --sheet, rather than one covering a range within it — the only way to reach a protection created with protect-range --whole-sheet, which has no range of its own to match against"
+    )]
     #[arg(long)]
     pub whole_sheet: bool,
 
@@ -159,7 +171,9 @@ impl UpdateProtectionCommand {
 /// Removes a protected range. The target is resolved by exact range match
 /// — see `drive sheets list-protections` to find it.
 #[derive(Parser)]
-#[command(about = "Removes a protected range. The target is resolved by exact range match — see drive sheets list-protections to find it", long_about = None)]
+#[command(
+    about = "Removes a protected range. The target is resolved by exact range match — see drive sheets list-protections to find it"
+)]
 pub struct UnprotectRangeCommand {
     /// Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL).
     #[arg(help = "Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).")]
@@ -168,13 +182,17 @@ pub struct UnprotectRangeCommand {
     /// A1 range identifying the protection to remove, optionally carrying
     /// its own `Sheet!` prefix. Must match exactly. Mutually exclusive with
     /// `--whole-sheet`.
-    #[arg(help = "A1 range identifying the protection to remove, optionally carrying its own Sheet! prefix. Must match exactly. Mutually exclusive with --whole-sheet", long_help = None)]
+    #[arg(
+        help = "A1 range identifying the protection to remove, optionally carrying its own Sheet! prefix. Must match exactly. Mutually exclusive with --whole-sheet"
+    )]
     #[arg(long, value_name = "A1")]
     pub range: Option<String>,
 
     /// Sheet (tab) title. Supplies the prefix for a bare `--range`, or the
     /// target sheet directly with `--whole-sheet`.
-    #[arg(help = "Sheet (tab) title. Supplies the prefix for a bare --range, or the target sheet directly with --whole-sheet", long_help = None)]
+    #[arg(
+        help = "Sheet (tab) title. Supplies the prefix for a bare --range, or the target sheet directly with --whole-sheet"
+    )]
     #[arg(long, value_name = "NAME")]
     pub sheet: Option<String>,
 
@@ -182,7 +200,9 @@ pub struct UnprotectRangeCommand {
     /// covering a range within it — the only way to reach a protection
     /// created with `protect-range --whole-sheet`, which has no range of
     /// its own to match against.
-    #[arg(help = "Target the whole-sheet protection on --sheet, rather than one covering a range within it — the only way to reach a protection created with protect-range --whole-sheet, which has no range of its own to match against", long_help = None)]
+    #[arg(
+        help = "Target the whole-sheet protection on --sheet, rather than one covering a range within it — the only way to reach a protection created with protect-range --whole-sheet, which has no range of its own to match against"
+    )]
     #[arg(long)]
     pub whole_sheet: bool,
 
