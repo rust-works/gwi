@@ -43,5 +43,8 @@ a global Markdown renderer.
 The explicit short descriptions for single-paragraph docs omit redundant
 `long_help = None` / `long_about = None` resets. Each reset adds another builder
 temporary to clap's generated code and can overflow the Windows process's
-1 MiB startup stack in debug builds. A command-tree regression exercises that
-stack budget, while the help snapshot verifies identical output.
+1 MiB startup stack in debug builds. Windows generated frames still need more
+room, so build.rs reserves 8 MiB for the CLI executable (pages commit on demand).
+A command-tree regression exercises the Windows reserve and a tighter 1 MiB
+budget elsewhere; binary smoke tests verify actual startup, and the help snapshot
+verifies identical output.
