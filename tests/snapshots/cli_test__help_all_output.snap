@@ -8419,9 +8419,15 @@ Options:
           Conflicts are reported as part of the preview and do not make a dry run fail: it exits 0 unless the import itself fails. A real run exits 1 on a conflict.
 
       --force
-          Overwrite items and leases that gwi already has with a different value.
+          Replace conflicting settings items and entire conflicting unreleased lease rows.
           
-          Without it such items are reported as conflicts and left as they are.
+          Settings imports replace individual conflicting items, not the entire settings file. Without this flag, conflicts are reported and left unchanged.
+          
+          For a conflicting unreleased lease, this replaces gwi's entire row with the source row, including version, modified_time, expiry, file binding, backup/restore metadata and unknown fields. Import does not check which copy is current against Drive; replacing the stored version may restore write authority to a stale token.
+          
+          Locally released leases are never revived. When token and file ID match, source release propagation takes precedence and preserves gwi's non-release fields, even with --force.
+          
+          Preview with gwi import --dry-run first. When switching tools after a write, release the old lease in omni-dev and run gwi import to propagate its release when token and file ID match (or release gwi's copy with gwi drive lease release TOKEN). Then acquire a fresh authorized lease with gwi drive lease acquire FILE_ID. Releasing gwi's copy alone does not release omni-dev's copy; stop using the old lease in the other tool.
 
   -h, --help
           Print help (see a summary with '-h')
