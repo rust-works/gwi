@@ -1,4 +1,11 @@
 //! Source tripwires for caller-chosen MCP paths; not a Rust parser or alias analysis.
+//!
+//! Covers fs reads/writes/copy/rename/removal, File open/create/create_new, and
+//! OpenOptions with std/tokio or imported fs/File spellings. Direct imports of
+//! guarded functions (including renamed, nested/grouped and glob imports) are
+//! rejected at the import. Module/type aliases, macros, and comments/strings are
+//! not resolved. Only tool files are scanned; policy helpers and trailing tests
+//! remain outside the production scan.
 
 use std::collections::BTreeSet;
 use std::path::Path;
@@ -59,16 +66,79 @@ fn unchecked_params(file: &str, source: &str) -> Vec<String> {
         .collect()
 }
 
+// Expand conventional use trees without resolving aliases. Renamed function imports
+// are checked by their original path, so the local name cannot hide direct I/O.
+fn imported_paths(tree: &str, prefix: &str, paths: &mut Vec<String>) {
+    let mut depth = 0;
+    let mut start = 0;
+    for (index, character) in tree.char_indices() {
+        match character {
+            '{' => depth += 1,
+            '}' => depth -= 1,
+            ',' if depth == 0 => {
+                imported_paths(&tree[start..index], prefix, paths);
+                start = index + 1;
+            }
+            _ => {}
+        }
+    }
+    if start > 0 {
+        imported_paths(&tree[start..], prefix, paths);
+        return;
+    }
+    let tree = tree.trim();
+    if tree.is_empty() {
+        return;
+    }
+    if let Some((parent, children)) = tree.split_once('{') {
+        let parent: String = parent.chars().filter(|c| !c.is_whitespace()).collect();
+        imported_paths(
+            children.trim_end().strip_suffix('}').unwrap_or(children),
+            &format!("{prefix}{parent}"),
+            paths,
+        );
+    } else {
+        let original = tree.split_whitespace().take_while(|part| *part != "as");
+        paths.push(format!("{prefix}{}", original.collect::<String>()));
+    }
+}
+
 fn direct_filesystem_calls(source: &str) -> Vec<String> {
-    // Include imported fs/File spellings and async fs, and tolerate formatting. Banning
-    // OpenOptions itself also catches imported/aliased builders before a method call.
+    // Retain read* coverage (including read_dir), plus operations that can replace
+    // or remove caller-chosen files. OpenOptions also catches aliased builders.
     let calls = Regex::new(
-        r"\b(?:(?:(?:std|tokio)\s*::\s*)?fs\s*::\s*(?:write|read\w*)\s*\(|File\s*::\s*open\s*\(|OpenOptions\b)",
+        r"\b(?:(?:(?:std|tokio)\s*::\s*)?fs\s*::\s*(?:write|read\w*|copy|rename|remove_file|remove_dir|remove_dir_all)\s*\(|File\s*::\s*(?:open|create|create_new)\s*\(|OpenOptions\b)",
     )
     .unwrap();
-    calls
-        .find_iter(production(source))
+    let source = production(source);
+    let mut found: Vec<_> = calls
+        .find_iter(source)
         .map(|call| call.as_str().to_owned())
+        .collect();
+    let imports = Regex::new(r"\buse\s+([^;]+);").unwrap();
+    let forbidden = Regex::new(
+        r"^(?:std|tokio)::fs::(?:write|read\w*|copy|rename|remove_file|remove_dir|remove_dir_all|\*)$",
+    )
+    .unwrap();
+    for import in imports.captures_iter(source) {
+        let mut paths = Vec::new();
+        imported_paths(&import[1], "", &mut paths);
+        if paths
+            .iter()
+            .any(|path| forbidden.is_match(path.trim_start_matches("::")))
+        {
+            found.push(import[0].to_owned());
+        }
+    }
+    found
+}
+
+fn filesystem_policy_errors(file: &str, source: &str) -> Vec<String> {
+    direct_filesystem_calls(source)
+        .into_iter()
+        .map(|call| {
+            format!("{file}: direct filesystem access {call:?}; use the PathPolicy helpers in content_input.rs or output_file.rs")
+        })
         .collect()
 }
 
@@ -88,11 +158,8 @@ fn mcp_tool_paths_require_policy_review() {
         for (owner, field) in path_params(&source) {
             found.insert((file.to_owned(), owner, field));
         }
-        let calls = direct_filesystem_calls(&source);
-        assert!(
-            calls.is_empty(),
-            "{file}: direct filesystem access {calls:?}; use the PathPolicy helpers in content_input.rs or output_file.rs"
-        );
+        let errors = filesystem_policy_errors(file, &source);
+        assert!(errors.is_empty(), "{}", errors.join("\n"));
     }
     let expected = POLICY_CHECKED_PARAMS
         .iter()
@@ -147,12 +214,110 @@ fn direct_filesystem_access_is_detected() {
 }
 
 #[test]
+fn additional_filesystem_calls_name_the_tool_and_policy() {
+    for namespace in ["fs", "std::fs", "tokio::fs"] {
+        for operation in [
+            "write",
+            "read",
+            "read_to_string",
+            "read_dir",
+            "copy",
+            "rename",
+            "remove_file",
+            "remove_dir",
+            "remove_dir_all",
+        ] {
+            assert_filesystem_rejected(&format!("{namespace}::{operation}(path, output)"));
+        }
+    }
+    for namespace in ["File", "std::fs::File", "tokio::fs::File"] {
+        for operation in ["open", "create", "create_new"] {
+            assert_filesystem_rejected(&format!("{namespace}::{operation}(path)"));
+        }
+    }
+    assert_filesystem_rejected("tokio :: fs :: File :: create_new (path).await");
+    assert_filesystem_rejected("std :: fs :: copy (source, output)");
+}
+
+fn assert_filesystem_rejected(source: &str) {
+    let errors = filesystem_policy_errors("gmail_tools.rs", source);
+    assert!(!errors.is_empty(), "{source}");
+    for error in errors {
+        assert!(error.contains("gmail_tools.rs"), "{error}");
+        assert!(error.contains("PathPolicy"), "{error}");
+    }
+}
+
+#[test]
+fn imported_filesystem_functions_are_rejected() {
+    for namespace in ["std", "tokio"] {
+        for operation in [
+            "write",
+            "read",
+            "read_to_string",
+            "read_dir",
+            "copy",
+            "rename",
+            "remove_file",
+            "remove_dir",
+            "remove_dir_all",
+            "*",
+        ] {
+            for tree in [
+                format!("{namespace}::fs::{operation}"),
+                format!("{namespace}::fs::{{self, {operation}, File}}"),
+                format!("{namespace}::{{path::Path, fs::{{File, {operation}, self}}}}"),
+                format!("{{{namespace}::fs::{operation}, other::Thing}}"),
+            ] {
+                assert_filesystem_rejected(&format!("use {tree};"));
+            }
+        }
+        assert_filesystem_rejected(&format!(
+            "use {namespace}::fs::read_to_string as load; load(path);"
+        ));
+        assert_filesystem_rejected(&format!(
+            "use {namespace}::{{ fs :: {{ read as load, write as save, }}, }};"
+        ));
+    }
+    assert_filesystem_rejected("use ::std :: fs :: read_to_string; read_to_string(path);");
+    assert_filesystem_rejected(
+        "use std::{\n path::Path,\n fs::{\n read_to_string as load,\n },\n};",
+    );
+}
+
+#[test]
+fn allowlisted_parameter_does_not_allow_direct_filesystem_access() {
+    let source = "pub struct GmailMessageReadParams { pub output_file: Option<String> }
+        fn execute(params: GmailMessageReadParams) { std::fs::File::create(params.output_file); }";
+    assert!(unchecked_params("gmail_tools.rs", source).is_empty());
+    assert_filesystem_rejected(source);
+}
+
+#[test]
+fn module_and_unrelated_function_imports_are_permitted() {
+    for source in [
+        "use std::fs; use tokio::fs::File;",
+        "use std::{fs::{self, File}, path::Path};",
+        "use other::{read, write, copy, rename, remove_file};",
+        "use std::fs::{metadata, canonicalize};",
+        "PathPolicy::check_read(path); check_output_file(path);",
+    ] {
+        assert!(direct_filesystem_calls(source).is_empty(), "{source}");
+    }
+}
+
+#[test]
 fn test_fixture_io_is_excluded() {
     let source = "pub struct Params { pub query: Option<String> }
         #[cfg(test)]
         mod tests {
             pub struct Fixture { pub fixture_path: Option<String> }
-            fn fixture() { std::fs::write(path, bytes); }
+            use std::fs::{read_to_string, copy};
+            fn fixture() {
+                std::fs::write(path, bytes);
+                tokio::fs::File::create(path);
+                std::fs::remove_file(path);
+            }
         }";
     assert!(path_params(source).is_empty());
     assert!(direct_filesystem_calls(source).is_empty());
