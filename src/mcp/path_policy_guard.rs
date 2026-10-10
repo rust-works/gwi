@@ -356,11 +356,7 @@ fn allowlisted_parameter_does_not_allow_aliased_filesystem_access() {
             assert!(unchecked_params("gmail_tools.rs", &source).is_empty());
             let errors = filesystem_policy_errors("gmail_tools.rs", &source);
             assert_eq!(errors.len(), 1, "{source}");
-            assert!(
-                errors[0].contains(&format!("use {import};")),
-                "{}",
-                errors[0]
-            );
+            assert!(errors[0].contains(&format!("use {import};")));
             assert!(errors[0].contains("gmail_tools.rs"));
             assert!(errors[0].contains("PathPolicy"));
         }
