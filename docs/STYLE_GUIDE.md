@@ -388,22 +388,24 @@ with the scope definitions in `.omni-dev/scopes.yaml`:
    exceptions.
 2. **Examples** — every `<scope>` used in the `## Examples` section must be a scope that
    exists in `scopes.yaml`. Do not use scopes from other projects or hypothetical scopes.
-3. **Tree coverage** — every tracked file under `src/` and `.github/` must be
+3. **Tree coverage** — every tracked file under `src/`, `.github/`, `tests/` and `scripts/` must be
    matched by some scope's `file_patterns` (or listed in the `allow:` list for files that
-   legitimately belong to no subsystem). When a new subsystem or module facade lands,
-   `scopes.yaml` must gain a pattern for it in the same change. Coverage is checked against
-   the project scopes only, never the ecosystem `lib` scope's `src/**` catch-all, which would
-   make the check vacuously true. Each `allow:` entry carries a one-line justification
-   comment. The list can rot — an entry added to silence a failure looks just like a correct
+   legitimately belong to no subsystem). When adding or moving files under these roots,
+   ensure they remain covered, adding a scope or pattern to `scopes.yaml` in the same change
+   if needed. Coverage is checked against the project scopes only, never the ecosystem `lib`
+   scope's `src/**` catch-all, which would make the check vacuously true. Each `allow:` entry
+   carries a one-line justification comment. The list can rot — an entry added to silence a
+   failure looks just like a correct
    one — so keep it small and prefer a scope or a `file_patterns` entry; growing it is at
    least a visible diff in review, unlike a catch-all that absorbs new subsystems silently.
 
 Commit subjects are checked on every pull request by
 [`commit-lint.yml`](../.github/workflows/commit-lint.yml), which runs
 `omni-dev git commit message lint` against these guidelines and `scopes.yaml`. Clause 3 is
-checked with `omni-dev config scopes lint --root src --root .github`; that command is not yet
-a CI step (#50), so run it by hand when a change adds or moves files under `src/` or
-`.github/`.
+checked in the same CI workflow with
+`omni-dev config scopes lint --root src --root .github --root tests --root scripts`.
+Run this command locally when a change adds or moves files under `src/`, `.github/`,
+`tests/` or `scripts/`.
 
 ### Motivation
 
