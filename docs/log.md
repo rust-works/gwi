@@ -333,9 +333,18 @@ backlog scan: even entirely new records already in the replacement at the next p
 are skipped, including any partial trailing record present at detection. Only subsequent
 complete records are printed. `--limit` bounds the initial backlog;
 replacements print zero records regardless of that limit. A log first created after a
-missing initial file is read from the beginning. On other platforms, only shrinkage
-reveals a replacement. Truncation followed by regrowth past the saved offset between
-polls cannot be detected by size alone.
+missing initial file is read from the beginning.
+
+On every platform, follow also checks up to 256 raw bytes immediately before its saved
+byte offset on each poll. Changed bytes reveal an in-place truncation and rewrite even
+if the file regrows to the same or a larger length before the next poll. It applies the
+same skip-existing-contents policy. The checkpoint uses bounded memory and reads at most
+256 bytes per idle poll; advancing the offset refreshes it with another bounded read.
+On platforms other than Unix and Windows, shrinkage and checkpoint changes are the only
+replacement signals. A rewrite that preserves the checkpoint bytes (including an
+identical rewrite, or changes only earlier in the file) cannot be detected this way.
+An offset of zero has no preceding bytes to check. Reads and checkpoint capture are not
+an atomic snapshot: concurrent rewrites during a scan or drain can still escape detection.
 
 ### The `--query` language
 
