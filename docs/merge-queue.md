@@ -74,3 +74,54 @@ Link the queue head SHA, Actions job, and queue/rule evaluation for each case.
 Keep policy readback distinct from observed queue behavior. The issue-to-pr run
 did not enqueue or merge a PR, inject failures into another session's checks, or
 remove administrator bypass to manufacture this evidence.
+
+## Empty HOME required context
+
+[Issue #179](https://github.com/rust-works/gwi/issues/179) added `Empty HOME Test`
+from GitHub Actions (integration ID `15368`) to the same active ruleset on
+10 October 2026 at 16:31:11 AEDT. This live settings change applies to ordinary
+PRs targeting main and merge-queue entries immediately; merging this document
+is not what enables it. The existing administrator bypass remains available.
+
+The exact job name in [ci.yml](../.github/workflows/ci.yml) is unconditional and
+reports on both `pull_request` and `merge_group`. It runs the
+[runner regression tests](../scripts/test_home_write_test.py) and the
+[empty-HOME guard](../scripts/home-write-test.py) for default and `mcp` features.
+Keep the job name stable so required checks do not wait for a renamed context.
+
+A fresh ruleset snapshot immediately preceded the rules-only update. Structural
+comparison of the readback showed exactly one appended required check and the
+server's changed timestamp. `Doc links`, `Commit Message Lint`, all queue
+parameters, branch conditions, enforcement, and bypass actors were preserved.
+Classic branch protection matched its original snapshot exactly. Effective
+rules for `main` reported `Empty HOME Test` with integration ID `15368`.
+The read-only policy commands above inspect these settings.
+
+### Context compatibility evidence
+
+- [PR #165's successful job](https://github.com/rust-works/gwi/actions/runs/38003919303/job/114068231124)
+  reported `Empty HOME Test` for a pull request.
+- [Successful merge-group job](https://github.com/rust-works/gwi/actions/runs/38025989795/job/114136835188)
+  reported the same exact context from app `15368` on queue head
+  `d272035a7b42fe8e90625676c1e658eadd9bad21`.
+
+Both results predate this required-context update. They prove that both events
+produce the configured context and that a passing queue result is compatible
+with the requirement; they do not demonstrate post-update queue enforcement.
+Inspect the queue job's provenance with:
+
+```bash
+gh api repos/rust-works/gwi/check-runs/114136835188
+gh run view 38025989795 --repo rust-works/gwi --json event,headSha,jobs,conclusion,url
+gh api repos/rust-works/gwi/rulesets/rule-suites
+```
+
+### Remaining live acceptance evidence
+
+Direct evidence of a failed or missing `Empty HOME Test` preventing a merge,
+and of a passing merge group satisfying the updated policy, is still needed.
+Record the queue head, check result, and rule evaluation that attributes the
+block or pass to this required context. A required-check readback alone does
+not prove observed blocking. The issue-to-pr run does not enqueue or merge a
+PR, modify another session's checks, or exercise administrator bypass to
+manufacture this evidence.
