@@ -100,6 +100,7 @@ pub struct InsertRowsCommand {
 
     /// Insert before this row, 1-based — the row number the spreadsheet
     /// itself shows. `--at 5` puts the new rows above the current row 5.
+    #[arg(help = "Insert before this row, 1-based — the row number the spreadsheet itself shows. --at 5 puts the new rows above the current row 5", long_help = None)]
     #[arg(long, value_name = "ROW")]
     pub at: i64,
 
@@ -158,6 +159,7 @@ pub struct MoveRowsCommand {
     /// past the sheet's last row moves the block to the end. A `--before`
     /// inside or immediately after the block being moved is refused (it
     /// would move nothing).
+    #[arg(help = "Move the block to before this row, numbered as the sheet stands *before* the move — the same numbering --at uses. --before one past the sheet's last row moves the block to the end. A --before inside or immediately after the block being moved is refused (it would move nothing)", long_help = None)]
     #[arg(long, value_name = "ROW")]
     pub before: i64,
 
@@ -190,6 +192,7 @@ pub struct MoveColumnsCommand {
     /// `--before` one past the sheet's last column moves the block to the
     /// end. A `--before` inside or immediately after the block being moved
     /// is refused (it would move nothing).
+    #[arg(help = "Move the block to before this column, numbered as the sheet stands *before* the move — the same numbering --at uses (column A is 1). --before one past the sheet's last column moves the block to the end. A --before inside or immediately after the block being moved is refused (it would move nothing)", long_help = None)]
     #[arg(long, value_name = "COLUMN")]
     pub before: i64,
 
@@ -208,6 +211,10 @@ pub struct MoveColumnsCommand {
 /// — is the primary recovery path. A rule that opts out with
 /// `require_lease: false` takes no backup, and the message then says so.
 #[derive(Parser)]
+#[command(
+    about = "Deletes an entire sheet from a spreadsheet",
+    long_about = "Deletes an entire sheet from a spreadsheet.\n\nGated by the folder write-permission rules' sheets-delete operation (issue #1623) — distinct from sheets-structure, so an existing allow: [\"sheets-structure\"] rule does not also grant this. This cannot be undone through gwi; the --lease this delete requires (ADR-0080 §9) backed the whole spreadsheet up when it was acquired, and that copy — named in the real-run message, not Google Drive's own version history — is the primary recovery path. A rule that opts out with require_lease: false takes no backup, and the message then says so."
+)]
 pub struct DeleteSheetCommand {
     #[command(flatten)]
     pub target: SpreadsheetIdArg,
@@ -225,6 +232,10 @@ pub struct DeleteSheetCommand {
 /// Gated by `sheets-delete` (issue #1623); see [`DeleteSheetCommand`]'s doc
 /// comment.
 #[derive(Parser)]
+#[command(
+    about = "Deletes whole rows, shifting the remainder up to close the gap",
+    long_about = "Deletes whole rows, shifting the remainder up to close the gap.\n\nGated by sheets-delete (issue #1623); see [DeleteSheetCommand]'s doc comment."
+)]
 pub struct DeleteRowsCommand {
     #[command(flatten)]
     pub target: SpreadsheetIdArg,
@@ -251,6 +262,10 @@ pub struct DeleteRowsCommand {
 /// Gated by `sheets-delete` (issue #1623); see [`DeleteSheetCommand`]'s doc
 /// comment.
 #[derive(Parser)]
+#[command(
+    about = "Deletes whole columns, shifting the remainder left to close the gap",
+    long_about = "Deletes whole columns, shifting the remainder left to close the gap.\n\nGated by sheets-delete (issue #1623); see [DeleteSheetCommand]'s doc comment."
+)]
 pub struct DeleteColumnsCommand {
     #[command(flatten)]
     pub target: SpreadsheetIdArg,
@@ -330,6 +345,10 @@ pub struct GridRangeArgs {
 /// (issue #1838). Cells shifted past the sheet's grid extent are dropped by
 /// the Sheets API.
 #[derive(Parser)]
+#[command(
+    about = "Inserts empty cells into a rectangular range, shifting existing cells down or right within the same grid",
+    long_about = "Inserts empty cells into a rectangular range, shifting existing cells down or right within the same grid.\n\nGated by the folder write-permission rules' sheets-structure operation (issue #1838). Cells shifted past the sheet's grid extent are dropped by the Sheets API."
+)]
 pub struct InsertRangeCommand {
     #[command(flatten)]
     pub target: SpreadsheetIdArg,
@@ -353,6 +372,10 @@ pub struct InsertRangeCommand {
 /// open-ended span; `delete-rows`/`delete-columns` cover the whole-dimension
 /// case.
 #[derive(Parser)]
+#[command(
+    about = "Deletes a rectangular cell range, shifting the remainder along one axis to close the gap",
+    long_about = "Deletes a rectangular cell range, shifting the remainder along one axis to close the gap.\n\nGated by sheets-delete (issue #1623); see [DeleteSheetCommand]'s doc comment. All four bounds are required together — a rectangle, not an open-ended span; delete-rows/delete-columns cover the whole-dimension case."
+)]
 pub struct DeleteRangeCommand {
     #[command(flatten)]
     pub target: SpreadsheetIdArg,
@@ -388,6 +411,7 @@ pub struct DuplicateSheetCommand {
     /// — confirmed against the live API to be the *front* of the workbook
     /// (index 0), not the end: unlike `add-sheet`, `duplicateSheetRequest`
     /// does not default to appending.
+    #[arg(help = "Zero-based position for the copy. Omitted takes Sheets' own default — confirmed against the live API to be the *front* of the workbook (index 0), not the end: unlike add-sheet, duplicateSheetRequest does not default to appending", long_help = None)]
     #[arg(long, value_name = "N")]
     pub index: Option<i64>,
 
@@ -467,6 +491,7 @@ pub struct UpdateSheetPropertiesCommand {
     pub freeze_columns: Option<i64>,
 
     /// The new tab color, `#RRGGBB`.
+    #[arg(help = "The new tab color, #RRGGBB", long_help = None)]
     #[arg(long, value_name = "HEX", conflicts_with = "clear_tab_color")]
     pub tab_color: Option<String>,
 
@@ -546,16 +571,22 @@ impl From<IterativeCalculationArg> for IterativeCalculationToggle {
 /// reports the same refusal a real run would
 /// (`structure.rs::validate_verb_args`).
 #[derive(Parser)]
+#[command(
+    about = "Changes workbook-level properties: locale, time zone, automatic recalculation, and iterative calculation (issue #1836)",
+    long_about = "Changes workbook-level properties: locale, time zone, automatic recalculation, and iterative calculation (issue #1836).\n\nDeliberately omits spreadsheetTheme — a large nested type (font family plus a full color palette) left for a future issue, matching this crate's established pattern of shipping a documented subset. At least one of --locale/--time-zone/--auto-recalc/--iterative-calculation is required; --iterative-calculation-max-iterations/ --iterative-calculation-convergence-threshold are only valid alongside --iterative-calculation on — both checked by the engine so a --dry-run reports the same refusal a real run would (structure.rs::validate_verb_args)."
+)]
 pub struct UpdateWorkbookPropertiesCommand {
     #[command(flatten)]
     pub target: SpreadsheetIdArg,
 
     /// The workbook's new locale, e.g. `en_US`. Omitted leaves it unchanged.
+    #[arg(help = "The workbook's new locale, e.g. en_US. Omitted leaves it unchanged", long_help = None)]
     #[arg(long, value_name = "LOCALE")]
     pub locale: Option<String>,
 
     /// The workbook's new IANA time zone, e.g. `America/New_York`. Omitted
     /// leaves it unchanged.
+    #[arg(help = "The workbook's new IANA time zone, e.g. America/New_York. Omitted leaves it unchanged", long_help = None)]
     #[arg(long, value_name = "TIME_ZONE")]
     pub time_zone: Option<String>,
 
@@ -570,12 +601,14 @@ pub struct UpdateWorkbookPropertiesCommand {
 
     /// Maximum calculation rounds per recalculation. Only valid alongside
     /// `--iterative-calculation on`; omitted takes Sheets' own default.
+    #[arg(help = "Maximum calculation rounds per recalculation. Only valid alongside --iterative-calculation on; omitted takes Sheets' own default", long_help = None)]
     #[arg(long, value_name = "N")]
     pub iterative_calculation_max_iterations: Option<i64>,
 
     /// The maximum change between two consecutive rounds that still counts
     /// as converged. Only valid alongside `--iterative-calculation on`;
     /// omitted takes Sheets' own default.
+    #[arg(help = "The maximum change between two consecutive rounds that still counts as converged. Only valid alongside --iterative-calculation on; omitted takes Sheets' own default", long_help = None)]
     #[arg(long, value_name = "THRESHOLD")]
     pub iterative_calculation_convergence_threshold: Option<f64>,
 

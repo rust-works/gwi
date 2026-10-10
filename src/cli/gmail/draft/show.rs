@@ -16,8 +16,13 @@ use crate::gmail::drafts_api::DraftsApi;
 /// goes stale; the draft id does not. Output is `gmail read`'s, with the
 /// draft id added. Works with a `gmail.readonly` account.
 #[derive(Parser)]
+#[command(
+    about = "Shows one Gmail draft by its draft id",
+    long_about = "Shows one Gmail draft by its draft id.\n\nTakes the draft id from gmail draft list, not a message id. A draft's message id changes every time the draft is saved, so one saved earlier goes stale; the draft id does not. Output is gmail read's, with the draft id added. Works with a gmail.readonly account."
+)]
 pub struct ShowCommand {
     /// Gmail draft id (the `DRAFT_ID` column of `gmail draft list`).
+    #[arg(help = "Gmail draft id (the DRAFT_ID column of gmail draft list)", long_help = None)]
     pub draft_id: String,
 
     /// Output flags shared with `gmail read`.

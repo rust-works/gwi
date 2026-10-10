@@ -64,12 +64,26 @@ macro_rules! account_param_doc {
          when account is supplied. Call `drive_account_list` to discover configured names."
     };
 }
+
+macro_rules! account_param_plain {
+    () => {
+        "Selects a named Drive account, e.g. work, overriding ambient \
+         --account/GWI_DRIVE_ACCOUNT. Omit to use the ambient selection, then the \
+         configured default or sole account; multiple accounts without a default require \
+         a selection. With no named accounts, uses unconfigured/legacy credentials. \
+         A complete process-environment DRIVE_CLIENT_ID/DRIVE_CLIENT_SECRET/\
+         DRIVE_REFRESH_TOKEN credential set bypasses named-account selection, even \
+         when account is supplied. Call drive_account_list to discover configured names."
+    };
+}
 pub(crate) use account_param_doc;
+pub(crate) use account_param_plain;
 
 /// Parameters for `drive_auth_status`.
 #[derive(Debug, Default, Deserialize, schemars::JsonSchema)]
 pub struct DriveAuthStatusParams {
     #[doc = account_param_doc!()]
+    #[schemars(description = account_param_plain!())]
     #[serde(default)]
     pub account: Option<String>,
 }
@@ -79,12 +93,19 @@ pub struct DriveAuthStatusParams {
 pub struct DriveSearchParams {
     /// Drive query, same syntax as `drive search`'s query argument (e.g.
     /// `name contains 'report' and mimeType = 'application/pdf'`). Required.
+    #[schemars(
+        description = "Drive query, same syntax as drive search's query argument (e.g. name contains 'report' and mimeType = 'application/pdf'). Required."
+    )]
     pub query: String,
     /// Maximum results. Defaults to 50 when omitted; `0` explicitly means
     /// fetch every match up to the hard cap (10000).
+    #[schemars(
+        description = "Maximum results. Defaults to 50 when omitted; 0 explicitly means fetch every match up to the hard cap (10000)."
+    )]
     #[serde(default)]
     pub limit: Option<usize>,
     #[doc = account_param_doc!()]
+    #[schemars(description = account_param_plain!())]
     #[serde(default)]
     pub account: Option<String>,
 }
@@ -95,12 +116,19 @@ pub struct DriveDedupeParams {
     /// Drive query, same syntax as `drive search`'s query argument (e.g.
     /// `'1a2B3c4D' in parents` to dedupe within one folder; obtain the folder
     /// id from `drive_search`). Required.
+    #[schemars(
+        description = "Drive query, same syntax as drive search's query argument (e.g. '1a2B3c4D' in parents to dedupe within one folder; obtain the folder id from drive_search). Required."
+    )]
     pub query: String,
     /// Maximum results to scan. Defaults to 50 when omitted; `0` explicitly
     /// means scan every match up to the hard cap (10000).
+    #[schemars(
+        description = "Maximum results to scan. Defaults to 50 when omitted; 0 explicitly means scan every match up to the hard cap (10000)."
+    )]
     #[serde(default)]
     pub limit: Option<usize>,
     #[doc = account_param_doc!()]
+    #[schemars(description = account_param_plain!())]
     #[serde(default)]
     pub account: Option<String>,
 }
@@ -110,10 +138,16 @@ pub struct DriveDedupeParams {
 pub struct DriveFileReadParams {
     /// Drive file id, e.g. `1a2B3c4D`, from `drive_search`'s `id` field or
     /// the file id in a Drive URL. Pass the id, not the whole URL. Required.
+    #[schemars(
+        description = "Drive file id, e.g. 1a2B3c4D, from drive_search's id field or the file id in a Drive URL. Pass the id, not the whole URL. Required."
+    )]
     pub file_id: String,
     /// `metadata` (default) returns only the file's metadata; `content`
     /// additionally fetches its actual content — exported for Google-native
     /// files (Docs/Sheets/Slides/...), downloaded as-is otherwise.
+    #[schemars(
+        description = "metadata (default) returns only the file's metadata; content additionally fetches its actual content — exported for Google-native files (Docs/Sheets/Slides/...), downloaded as-is otherwise."
+    )]
     #[serde(default)]
     pub format: Option<String>,
     /// Export MIME type, e.g. `text/markdown`, for a Google-native file's
@@ -123,6 +157,9 @@ pub struct DriveFileReadParams {
     /// text/plain. Required for every other Google-native type (Forms,
     /// Drawings, Apps Script, Sites, ...); the error names the file's
     /// actually supported export MIME types.
+    #[schemars(
+        description = "Export MIME type, e.g. text/markdown, for a Google-native file's content — only relevant with format: \"content\", ignored otherwise. Defaults: Google Docs -> text/markdown, Sheets -> text/csv (first sheet only), Slides -> text/plain. Required for every other Google-native type (Forms, Drawings, Apps Script, Sites, ...); the error names the file's actually supported export MIME types."
+    )]
     #[serde(default)]
     pub export_mime_type: Option<String>,
     /// Local output path, e.g. `/tmp/report.pdf`. Omit for inline text.
@@ -133,17 +170,24 @@ pub struct DriveFileReadParams {
     /// the response size limit.
     /// Must be inside the operator's allowed directories (`mcp.allowed_paths`) and outside
     /// credential locations.
+    #[schemars(
+        description = "Local output path, e.g. /tmp/report.pdf. Omit for inline text. Only valid with format: \"content\". When set, writes the fetched content to this path and returns a short YAML summary instead of the inline body — required for binary content (this tool refuses to return it inline), and recommended for large files that would exceed the response size limit. Must be inside the operator's allowed directories (mcp.allowed_paths) and outside credential locations."
+    )]
     #[serde(default)]
     pub output_file: Option<String>,
     /// Only valid with `format: "content"`. When true, locally recomputes
     /// the SHA-256 checksum of the fetched bytes and checks it against
-    /// Drive's reported `sha256Checksum`. Only supported for non-Google-
-    /// native files — Drive never returns a checksum for exported content,
-    /// so this errors immediately on a Google-native file. Fails clearly on
+    /// Drive's reported `sha256Checksum`. Only supported for non-Google-native
+    /// files — Drive never returns a checksum for exported content, so this
+    /// errors immediately on a Google-native file. Fails clearly on
     /// a mismatch or a missing checksum. Omit or pass `false` to skip verification.
+    #[schemars(
+        description = "Only valid with format: \"content\". When true, locally recomputes the SHA-256 checksum of the fetched bytes and checks it against Drive's reported sha256Checksum. Only supported for non-Google-native files — Drive never returns a checksum for exported content, so this errors immediately on a Google-native file. Fails clearly on a mismatch or a missing checksum. Omit or pass false to skip verification."
+    )]
     #[serde(default)]
     pub verify: Option<bool>,
     #[doc = account_param_doc!()]
+    #[schemars(description = account_param_plain!())]
     #[serde(default)]
     pub account: Option<String>,
 }

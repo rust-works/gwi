@@ -16,12 +16,17 @@ use crate::gmail::messages_api::MessagesApi;
 /// skip it, `--dry-run` to preview — removal can lose information the user
 /// didn't explicitly restate, unlike `label add`.
 #[derive(Parser)]
+#[command(
+    about = "Removes a label from one or more messages",
+    long_about = "Removes a label from one or more messages.\n\nGuarded per ADR-0027: interactive confirmation by default, --force to skip it, --dry-run to preview — removal can lose information the user didn't explicitly restate, unlike label add."
+)]
 pub struct RemoveCommand {
     /// Gmail message ids to remove the label from.
     #[arg(required = true)]
     pub message_ids: Vec<String>,
 
     /// Label id to remove (see `gmail label list` for ids).
+    #[arg(help = "Label id to remove (see gmail label list for ids)", long_help = None)]
     #[arg(long)]
     pub label: String,
 

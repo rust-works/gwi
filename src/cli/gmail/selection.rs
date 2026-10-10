@@ -38,11 +38,13 @@ pub struct SelectionArgs {
 
     /// Selects messages with an internal date on or after this UTC date
     /// (`YYYY-MM-DD`).
+    #[arg(help = "Selects messages with an internal date on or after this UTC date (YYYY-MM-DD)", long_help = None)]
     #[arg(long, value_name = "DATE")]
     pub since: Option<String>,
 
     /// Selects messages with an internal date on or before this UTC date
     /// (`YYYY-MM-DD`), inclusive of the whole day.
+    #[arg(help = "Selects messages with an internal date on or before this UTC date (YYYY-MM-DD), inclusive of the whole day", long_help = None)]
     #[arg(long, value_name = "DATE")]
     pub until: Option<String>,
 
@@ -53,12 +55,14 @@ pub struct SelectionArgs {
     /// Selects message ids listed one per line in FILE (`-` for stdin);
     /// blank lines and `#`-prefixed comments are skipped — the same shape a
     /// `--dry-run` report's ids can be piped back through.
+    #[arg(help = "Selects message ids listed one per line in FILE (- for stdin); blank lines and #-prefixed comments are skipped — the same shape a --dry-run report's ids can be piped back through", long_help = None)]
     #[arg(long, value_name = "FILE")]
     pub ids_from: Option<PathBuf>,
 
     /// Selects messages carrying this Gmail label id in the archived
     /// manifest (a raw label id, e.g. `Label_1` — not the destination
     /// `--label` tag `gmail insert` itself applies).
+    #[arg(help = "Selects messages carrying this Gmail label id in the archived manifest (a raw label id, e.g. Label_1 — not the destination --label tag gmail insert itself applies)", long_help = None)]
     #[arg(long, value_name = "LABEL_ID")]
     pub source_label: Option<String>,
 }

@@ -53,18 +53,21 @@ pub struct LoginCommand {
     /// Request the `drive.metadata` scope (needed for `rename`/`move`) in
     /// addition to `drive.readonly`. Without any `--write*` flag, only read
     /// access is granted.
+    #[arg(help = "Request the drive.metadata scope (needed for rename/move) in addition to drive.readonly. Without any --write* flag, only read access is granted", long_help = None)]
     #[arg(long)]
     pub write: bool,
     /// Request the `drive.file` scope (needed for `create`/`upload`, and `edit` of
     /// files `gwi` itself created) in addition to `drive.readonly`. Independent of and
     /// combinable with `--write` and `--write-full` — Google just grants the union
     /// (issue rust-works/omni-dev#1574).
+    #[arg(help = "Request the drive.file scope (needed for create/upload, and edit of files gwi itself created) in addition to drive.readonly. Independent of and combinable with --write and --write-full — Google just grants the union (issue rust-works/omni-dev#1574)", long_help = None)]
     #[arg(long)]
     pub write_file: bool,
     /// Request the unrestricted `drive` scope (needed for `edit` of any pre-existing
     /// file's content) in addition to `drive.readonly`. The largest privilege grant
     /// this integration has ever requested — combine with `--write`/`--write-file`
     /// freely (issue rust-works/omni-dev#1574).
+    #[arg(help = "Request the unrestricted drive scope (needed for edit of any pre-existing file's content) in addition to drive.readonly. The largest privilege grant this integration has ever requested — combine with --write/--write-file freely (issue rust-works/omni-dev#1574)", long_help = None)]
     #[arg(long)]
     pub write_full: bool,
 }

@@ -49,16 +49,22 @@ impl From<BandingAxisArg> for BandingAxis {
 /// via the modern `*ColorStyle` fields — never the deprecated plain
 /// `Color` fields, never a theme color.
 #[derive(Parser)]
+#[command(
+    about = "Adds a new banded range — alternating row or column colors",
+    long_about = "Adds a new banded range — alternating row or column colors.\n\nv1 sets at most one of row/column banding per call, selected by --axis (default rows); the Sheets API allows both simultaneously on one range, which this crate does not expose. Colors are #RRGGBB, written via the modern *ColorStyle fields — never the deprecated plain Color fields, never a theme color."
+)]
 pub struct AddBandingCommand {
     /// Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL).
     #[arg(help = "Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).")]
     pub spreadsheet_id: String,
 
     /// Sheet (tab) title. Supplies the prefix for a bare `--range`.
+    #[arg(help = "Sheet (tab) title. Supplies the prefix for a bare --range", long_help = None)]
     #[arg(long, value_name = "NAME")]
     pub sheet: String,
 
     /// A1 range to band, optionally carrying its own `Sheet!` prefix.
+    #[arg(help = "A1 range to band, optionally carrying its own Sheet! prefix", long_help = None)]
     #[arg(long, value_name = "A1")]
     pub range: String,
 
@@ -68,19 +74,23 @@ pub struct AddBandingCommand {
 
     /// The header row/column's color, `#RRGGBB`, if distinct from the
     /// alternating bands.
+    #[arg(help = "The header row/column's color, #RRGGBB, if distinct from the alternating bands", long_help = None)]
     #[arg(long, value_name = "HEX")]
     pub header_color: Option<String>,
 
     /// The first band's color, `#RRGGBB`.
+    #[arg(help = "The first band's color, #RRGGBB", long_help = None)]
     #[arg(long, value_name = "HEX")]
     pub first_band_color: String,
 
     /// The second (alternating) band's color, `#RRGGBB`.
+    #[arg(help = "The second (alternating) band's color, #RRGGBB", long_help = None)]
     #[arg(long, value_name = "HEX")]
     pub second_band_color: String,
 
     /// The footer row/column's color, `#RRGGBB`, if distinct from the
     /// alternating bands.
+    #[arg(help = "The footer row/column's color, #RRGGBB, if distinct from the alternating bands", long_help = None)]
     #[arg(long, value_name = "HEX")]
     pub footer_color: Option<String>,
 
@@ -129,32 +139,39 @@ pub struct UpdateBandingCommand {
 
     /// Sheet (tab) title, when changing the banded range. Supplies the
     /// prefix for a bare `--range`.
+    #[arg(help = "Sheet (tab) title, when changing the banded range. Supplies the prefix for a bare --range", long_help = None)]
     #[arg(long, value_name = "NAME")]
     pub sheet: Option<String>,
 
     /// The new A1 range, when changing it, optionally carrying its own
     /// `Sheet!` prefix.
+    #[arg(help = "The new A1 range, when changing it, optionally carrying its own Sheet! prefix", long_help = None)]
     #[arg(long, value_name = "A1")]
     pub range: Option<String>,
 
     /// Which axis's colors `--header-color`/`--first-band-color`/`--second-band-color`/`--footer-color`
     /// change.
+    #[arg(help = "Which axis's colors --header-color/--first-band-color/--second-band-color/--footer-color change", long_help = None)]
     #[arg(long, value_enum, default_value_t = BandingAxisArg::Rows)]
     pub axis: BandingAxisArg,
 
     /// The new header color, `#RRGGBB`, when changing it.
+    #[arg(help = "The new header color, #RRGGBB, when changing it", long_help = None)]
     #[arg(long, value_name = "HEX")]
     pub header_color: Option<String>,
 
     /// The new first-band color, `#RRGGBB`, when changing it.
+    #[arg(help = "The new first-band color, #RRGGBB, when changing it", long_help = None)]
     #[arg(long, value_name = "HEX")]
     pub first_band_color: Option<String>,
 
     /// The new second-band color, `#RRGGBB`, when changing it.
+    #[arg(help = "The new second-band color, #RRGGBB, when changing it", long_help = None)]
     #[arg(long, value_name = "HEX")]
     pub second_band_color: Option<String>,
 
     /// The new footer color, `#RRGGBB`, when changing it.
+    #[arg(help = "The new footer color, #RRGGBB, when changing it", long_help = None)]
     #[arg(long, value_name = "HEX")]
     pub footer_color: Option<String>,
 
@@ -188,6 +205,7 @@ impl UpdateBandingCommand {
 /// Removes a banded range. The target is addressed directly by
 /// `--banded-range-id`, discovered via `drive sheets list-bandings`.
 #[derive(Parser)]
+#[command(about = "Removes a banded range. The target is addressed directly by --banded-range-id, discovered via drive sheets list-bandings", long_about = None)]
 pub struct DeleteBandingCommand {
     /// Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL).
     #[arg(help = "Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).")]
@@ -223,6 +241,10 @@ impl DeleteBandingCommand {
 /// `update-banding`/`delete-banding` are usable at all, since a banded
 /// range's numeric id is otherwise invisible from the CLI.
 #[derive(Parser)]
+#[command(
+    about = "Lists the banded ranges in a spreadsheet",
+    long_about = "Lists the banded ranges in a spreadsheet.\n\nRead-only and ungated, like sheets info/list-protections — needed so update-banding/delete-banding are usable at all, since a banded range's numeric id is otherwise invisible from the CLI."
+)]
 pub struct ListBandingsCommand {
     /// Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL).
     #[arg(help = "Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).")]

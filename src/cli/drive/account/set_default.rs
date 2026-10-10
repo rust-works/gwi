@@ -9,6 +9,7 @@ use crate::utils::settings::Settings;
 /// Sets the account resolved when `--account`/`GWI_DRIVE_ACCOUNT` is
 /// not given and more than one account is configured.
 #[derive(Parser)]
+#[command(about = "Sets the account resolved when --account/GWI_DRIVE_ACCOUNT is not given and more than one account is configured", long_about = None)]
 pub struct SetDefaultCommand {
     /// The account name to make the default. Must already be configured.
     pub name: String,

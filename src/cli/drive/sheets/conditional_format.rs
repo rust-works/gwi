@@ -110,16 +110,19 @@ pub struct ConditionalFormatRuleArgs {
     /// Restrict the trigger to a date after this one. Accepts an absolute
     /// date or a relative keyword (`today`, `tomorrow`, `yesterday`,
     /// `past-week`, `past-month`, `past-year`).
+    #[arg(help = "Restrict the trigger to a date after this one. Accepts an absolute date or a relative keyword (today, tomorrow, yesterday, past-week, past-month, past-year)", long_help = None)]
     #[arg(long, value_name = "DATE")]
     pub date_after: Option<String>,
 
     /// Restrict the trigger to a date before this one. Accepts an absolute
     /// date or a relative keyword (see `--date-after`).
+    #[arg(help = "Restrict the trigger to a date before this one. Accepts an absolute date or a relative keyword (see --date-after)", long_help = None)]
     #[arg(long, value_name = "DATE")]
     pub date_before: Option<String>,
 
     /// Restrict the trigger to a date equal to this one. Accepts an
     /// absolute date or a relative keyword (see `--date-after`).
+    #[arg(help = "Restrict the trigger to a date equal to this one. Accepts an absolute date or a relative keyword (see --date-after)", long_help = None)]
     #[arg(long, value_name = "DATE")]
     pub date_on: Option<String>,
 
@@ -142,10 +145,12 @@ pub struct ConditionalFormatRuleArgs {
 
     /// Cell background color to apply, `#RRGGBB`. Companion to a condition
     /// flag above, not part of the `rule_kind` group itself.
+    #[arg(help = "Cell background color to apply, #RRGGBB. Companion to a condition flag above, not part of the rule_kind group itself", long_help = None)]
     #[arg(long, value_name = "HEX")]
     pub background: Option<String>,
 
     /// Text color to apply, `#RRGGBB`.
+    #[arg(help = "Text color to apply, #RRGGBB", long_help = None)]
     #[arg(long, value_name = "HEX")]
     pub text_color: Option<String>,
 
@@ -155,15 +160,18 @@ pub struct ConditionalFormatRuleArgs {
 
     /// Build a gradient instead: the color at the low end of the scale
     /// (anchored `MIN`), `#RRGGBB`. Requires `--gradient-max-color`.
+    #[arg(help = "Build a gradient instead: the color at the low end of the scale (anchored MIN), #RRGGBB. Requires --gradient-max-color", long_help = None)]
     #[arg(long, value_name = "HEX", requires = "gradient_max_color")]
     pub gradient_min_color: Option<String>,
 
     /// The color at the high end of the scale (anchored `MAX`), `#RRGGBB`.
+    #[arg(help = "The color at the high end of the scale (anchored MAX), #RRGGBB", long_help = None)]
     #[arg(long, value_name = "HEX", requires = "gradient_min_color")]
     pub gradient_max_color: Option<String>,
 
     /// An optional midpoint's color, `#RRGGBB`. Requires
     /// `--gradient-mid-type`/`--gradient-mid-value`.
+    #[arg(help = "An optional midpoint's color, #RRGGBB. Requires --gradient-mid-type/--gradient-mid-value", long_help = None)]
     #[arg(
         long,
         value_name = "HEX",
@@ -299,6 +307,10 @@ impl ConditionalFormatRuleArgs {
 /// avoids resolving each `--range`'s own optional prefix against a
 /// possibly-different sheet.
 #[derive(Parser)]
+#[command(
+    about = "Adds a conditional format rule to one or more ranges on a sheet",
+    long_about = "Adds a conditional format rule to one or more ranges on a sheet.\n\nExactly one condition flag is required for a BooleanRule (the numeric comparators, the text conditions, the date conditions, --cell-empty/ --cell-not-empty, or --custom-formula), or --gradient-min-color for a GradientRule. Unlike set-data-validation, --sheet is required: a rule's ranges must all share one sheet, and requiring it up front avoids resolving each --range's own optional prefix against a possibly-different sheet."
+)]
 #[command(group(clap::ArgGroup::new("rule_kind")
     .args(ConditionalFormatRuleArgs::RULE_KIND_ARGS)
     .required(true)))]
@@ -308,11 +320,13 @@ pub struct AddConditionalFormatCommand {
     pub spreadsheet_id: String,
 
     /// Sheet (tab) title every `--range` belongs to.
+    #[arg(help = "Sheet (tab) title every --range belongs to", long_help = None)]
     #[arg(long, value_name = "NAME")]
     pub sheet: String,
 
     /// An A1 range (no `Sheet!` prefix — `--sheet` supplies it) the rule
     /// applies to. Repeatable; at least one is required.
+    #[arg(help = "An A1 range (no Sheet! prefix — --sheet supplies it) the rule applies to. Repeatable; at least one is required", long_help = None)]
     #[arg(long = "range", value_name = "A1", required = true)]
     pub ranges: Vec<String>,
 
@@ -351,6 +365,7 @@ impl AddConditionalFormatCommand {
 /// the index and confirm it's still current — deleting an earlier rule
 /// shifts every later one.
 #[derive(Parser)]
+#[command(about = "Replaces the rule at an index. Use list-conditional-formats to find the index and confirm it's still current — deleting an earlier rule shifts every later one", long_about = None)]
 #[command(group(clap::ArgGroup::new("rule_kind")
     .args(ConditionalFormatRuleArgs::RULE_KIND_ARGS)
     .required(true)))]
@@ -365,12 +380,14 @@ pub struct UpdateConditionalFormatCommand {
 
     /// Which rule, by 0-based ordinal position, to replace. See
     /// `list-conditional-formats`.
+    #[arg(help = "Which rule, by 0-based ordinal position, to replace. See list-conditional-formats", long_help = None)]
     #[arg(long, value_name = "N")]
     pub index: usize,
 
     /// The rule's new range(s) (no `Sheet!` prefix — `--sheet` supplies
     /// it). Repeatable; at least one is required. The whole rule is
     /// replaced, ranges included — this is not an incremental edit.
+    #[arg(help = "The rule's new range(s) (no Sheet! prefix — --sheet supplies it). Repeatable; at least one is required. The whole rule is replaced, ranges included — this is not an incremental edit", long_help = None)]
     #[arg(long = "range", value_name = "A1", required = true)]
     pub ranges: Vec<String>,
 
@@ -380,6 +397,7 @@ pub struct UpdateConditionalFormatCommand {
     /// Reports the gate verdict and the change that would be made
     /// (including the rule currently at `--index`), without calling
     /// `spreadsheets.batchUpdate`.
+    #[arg(help = "Reports the gate verdict and the change that would be made (including the rule currently at --index), without calling spreadsheets.batchUpdate", long_help = None)]
     #[arg(long)]
     pub dry_run: bool,
 
@@ -414,6 +432,7 @@ impl UpdateConditionalFormatCommand {
 /// index and confirm it's still current — deleting an earlier rule shifts
 /// every later one.
 #[derive(Parser)]
+#[command(about = "Removes the rule at an index. Use list-conditional-formats to find the index and confirm it's still current — deleting an earlier rule shifts every later one", long_about = None)]
 pub struct DeleteConditionalFormatCommand {
     /// Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL).
     #[arg(help = "Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).")]
@@ -425,11 +444,13 @@ pub struct DeleteConditionalFormatCommand {
 
     /// Which rule, by 0-based ordinal position, to remove. See
     /// `list-conditional-formats`.
+    #[arg(help = "Which rule, by 0-based ordinal position, to remove. See list-conditional-formats", long_help = None)]
     #[arg(long, value_name = "N")]
     pub index: usize,
 
     /// Reports the gate verdict and the rule currently at `--index`,
     /// without calling `spreadsheets.batchUpdate`.
+    #[arg(help = "Reports the gate verdict and the rule currently at --index, without calling spreadsheets.batchUpdate", long_help = None)]
     #[arg(long)]
     pub dry_run: bool,
 
@@ -466,6 +487,10 @@ impl DeleteConditionalFormatCommand {
 /// invisible from the CLI, and that index shifts whenever an earlier rule
 /// is deleted.
 #[derive(Parser)]
+#[command(
+    about = "Lists the conditional format rules in a spreadsheet",
+    long_about = "Lists the conditional format rules in a spreadsheet.\n\nRead-only and ungated, like list-protections — needed so update-conditional-format/delete-conditional-format are usable at all, since a rule's ordinal index (and current content) is otherwise invisible from the CLI, and that index shifts whenever an earlier rule is deleted."
+)]
 pub struct ListConditionalFormatsCommand {
     /// Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL).
     #[arg(help = "Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).")]

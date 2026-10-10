@@ -32,7 +32,7 @@ use crate::drive::docs::client::DocsClient;
 use crate::drive::docs::read::{read, ReadOptions};
 use crate::drive::docs::target;
 use crate::drive::files_api::FilesApi;
-use crate::mcp::drive_tools::account_param_doc;
+use crate::mcp::drive_tools::{account_param_doc, account_param_plain};
 
 use super::error::tool_error;
 use super::output_file;
@@ -52,6 +52,7 @@ pub struct DriveDocsInfoParams {
     )]
     pub document_id: String,
     #[doc = account_param_doc!()]
+    #[schemars(description = account_param_plain!())]
     #[serde(default)]
     pub account: Option<String>,
 }
@@ -68,6 +69,9 @@ pub struct DriveDocsReadParams {
     /// Restrict output to one tab id, e.g. `t.abc123` (copy the actual id from
     /// `drive_docs_info`'s `tabs[].tab_id`, not the tab title).
     /// Omit to read every tab.
+    #[schemars(
+        description = "Restrict output to one tab id, e.g. t.abc123 (copy the actual id from drive_docs_info's tabs[].tab_id, not the tab title). Omit to read every tab."
+    )]
     #[serde(default)]
     pub tab: Option<String>,
     /// Which suggestion view the text and `[start,end)` indices are reported
@@ -77,6 +81,9 @@ pub struct DriveDocsReadParams {
     /// suggestion were accepted), or `without` (as if every suggestion were
     /// rejected). Indices from one view are only meaningful for a later edit
     /// made under that same view — a different view can shift every index.
+    #[schemars(
+        description = "Which suggestion view the text and [start,end) indices are reported against: default (whatever the caller's access implies — inline for an editor, accepted for a reader; the default when omitted), inline (suggestions shown as tracked changes), accepted (as if every suggestion were accepted), or without (as if every suggestion were rejected). Indices from one view are only meaningful for a later edit made under that same view — a different view can shift every index."
+    )]
     #[serde(default)]
     pub suggestions_view: Option<String>,
     /// Local output path, e.g. `/tmp/document.yaml`. Omit for inline YAML.
@@ -85,9 +92,13 @@ pub struct DriveDocsReadParams {
     /// that would exceed the response size limit.
     /// Must be inside the operator's allowed directories (`mcp.allowed_paths`) and outside
     /// credential locations.
+    #[schemars(
+        description = "Local output path, e.g. /tmp/document.yaml. Omit for inline YAML. When set, writes the result (YAML) to this path and returns a short summary instead of the inline body — recommended for a large document that would exceed the response size limit. Must be inside the operator's allowed directories (mcp.allowed_paths) and outside credential locations."
+    )]
     #[serde(default)]
     pub output_file: Option<String>,
     #[doc = account_param_doc!()]
+    #[schemars(description = account_param_plain!())]
     #[serde(default)]
     pub account: Option<String>,
 }

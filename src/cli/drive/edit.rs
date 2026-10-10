@@ -29,20 +29,28 @@ const DEFAULT_CONTENT_MIME_TYPE: &str = "application/octet-stream";
 /// (Docs/Sheets/Slides/...) — there is no meaningful raw "content" to
 /// replace via a media PATCH for those.
 #[derive(Parser)]
+#[command(
+    about = "Replaces an existing file's content, gated by the account's configured write-permission rules (issues #1574, #1612). Requires the drive.file scope if gwi created the file, or the unrestricted drive scope for any pre-existing file (drive auth login --write-file or --write-full)",
+    long_about = "Replaces an existing file's content, gated by the account's configured write-permission rules (issues #1574, #1612). Requires the drive.file scope if gwi created the file, or the unrestricted drive scope for any pre-existing file (drive auth login --write-file or --write-full).\n\nRefuses, client-side, any target that is a Google-native document (Docs/Sheets/Slides/...) — there is no meaningful raw \"content\" to replace via a media PATCH for those."
+)]
 pub struct EditCommand {
     /// Drive file id (from `drive search`, or the `id` segment of a Drive
     /// URL).
+    #[arg(help = "Drive file id (from drive search, or the id segment of a Drive URL)", long_help = None)]
     pub file_id: String,
 
     /// New content: a local file path, or `-` to read from stdin.
+    #[arg(help = "New content: a local file path, or - to read from stdin", long_help = None)]
     #[arg(long, value_name = "LOCAL_PATH|-")]
     pub content: String,
 
     /// MIME type for the content. Defaults to `application/octet-stream`.
+    #[arg(help = "MIME type for the content. Defaults to application/octet-stream", long_help = None)]
     #[arg(long = "mime-type", value_name = "TYPE")]
     pub mime_type: Option<String>,
 
     /// Reports the gate verdict without calling `files.update`.
+    #[arg(help = "Reports the gate verdict without calling files.update", long_help = None)]
     #[arg(long)]
     pub dry_run: bool,
 

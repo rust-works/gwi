@@ -130,10 +130,12 @@ fn validate_accounts(settings: &Settings, accounts: &[GmailSyncAccountEntry]) ->
 /// `gmail sync`'s own doc comment; the same bulk-filesystem-operation
 /// reasoning applies doubly here).
 #[derive(Parser)]
+#[command(about = "Maintains durable local archives for every account configured in .gwi/gmail-sync.yaml, concurrently (no MCP equivalent — see gmail sync's own doc comment; the same bulk-filesystem-operation reasoning applies doubly here)", long_about = None)]
 pub struct SyncAllCommand {
     /// Overrides the standard `.gwi/` discovery (walk-up from CWD,
     /// `GWI_CONFIG_DIR`, `local/` shadow) used to locate
     /// `gmail-sync.yaml`.
+    #[arg(help = "Overrides the standard .gwi/ discovery (walk-up from CWD, GWI_CONFIG_DIR, local/ shadow) used to locate gmail-sync.yaml", long_help = None)]
     #[arg(long, value_name = "PATH")]
     pub context_dir: Option<PathBuf>,
 
@@ -141,16 +143,19 @@ pub struct SyncAllCommand {
     /// shared across every configured account this run. Left unset, the
     /// YAML value applies; if that's unset too, falls back to the same
     /// default as `gmail sync --concurrency`.
+    #[arg(help = "Overrides gmail-sync.yaml's concurrency — a fetch-request cap shared across every configured account this run. Left unset, the YAML value applies; if that's unset too, falls back to the same default as gmail sync --concurrency", long_help = None)]
     #[arg(long, value_name = "N")]
     pub concurrency: Option<usize>,
 
     /// Forces a full backfill/reconciliation pass for every account, same
     /// as `gmail sync --full`.
+    #[arg(help = "Forces a full backfill/reconciliation pass for every account, same as gmail sync --full", long_help = None)]
     #[arg(long)]
     pub full: bool,
 
     /// Retries every account's pending failed fetches now, ignoring their retry
     /// backoff, same as `gmail sync --retry-pending` (rust-works/omni-dev#1790).
+    #[arg(help = "Retries every account's pending failed fetches now, ignoring their retry backoff, same as gmail sync --retry-pending (rust-works/omni-dev#1790)", long_help = None)]
     #[arg(long)]
     pub retry_pending: bool,
 

@@ -14,12 +14,17 @@ use crate::gmail::messages_api::MessagesApi;
 /// precedent), unlike `label remove` which can lose information the user
 /// didn't explicitly restate.
 #[derive(Parser)]
+#[command(
+    about = "Adds a label to one or more messages",
+    long_about = "Adds a label to one or more messages.\n\nUnconditional, no confirmation guard — adding a label is a safe, instantly undoable mutation (matching the Confluence label add precedent), unlike label remove which can lose information the user didn't explicitly restate."
+)]
 pub struct AddCommand {
     /// Gmail message ids to add the label to.
     #[arg(required = true)]
     pub message_ids: Vec<String>,
 
     /// Label id to add (see `gmail label list` for ids).
+    #[arg(help = "Label id to add (see gmail label list for ids)", long_help = None)]
     #[arg(long)]
     pub label: String,
 }

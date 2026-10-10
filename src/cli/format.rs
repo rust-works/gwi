@@ -28,6 +28,7 @@ pub enum OutputFormat {
     /// YAML (single document).
     Yaml,
     /// YAML stream (`---`-separated multi-document).
+    #[value(help = "YAML stream ('---'-separated multi-document)")]
     Yamls,
     /// JSON Lines: one compact JSON object per line, streaming-friendly.
     Jsonl,

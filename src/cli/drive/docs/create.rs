@@ -27,6 +27,7 @@ pub struct CreateCommand {
     pub text: Option<String>,
 
     /// Read the initial body text from a file, or `-` for stdin.
+    #[arg(help = "Read the initial body text from a file, or - for stdin", long_help = None)]
     #[arg(long, value_name = "PATH")]
     pub text_file: Option<String>,
 

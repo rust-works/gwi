@@ -25,17 +25,23 @@ use crate::drive::sheets::delete_duplicates::{
 /// Content outside the range stays in place; selecting fewer than all sheet
 /// columns can misalign records.
 #[derive(Parser)]
+#[command(
+    about = "Removes duplicate row cells within a bounded range",
+    long_about = "Removes duplicate row cells within a bounded range.\n\nThe API decides which rows go: it keeps the first instance of each duplicate, treats rows differing only in letter case, formatting or formulas as duplicates, and removes filter-hidden rows too. So --dry-run names the range and the compared columns and states that rule — it cannot list the rows, and deliberately does not guess.\n\nThe range must be fully bounded. Blank rows between data rows duplicate one another, so every such blank row after the first is removed; blank rows after the last data row are left alone. Content outside the range stays in place; selecting fewer than all sheet columns can misalign records."
+)]
 pub struct DeleteDuplicatesCommand {
     /// Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL).
     #[arg(help = "Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).")]
     pub spreadsheet_id: String,
 
     /// Sheet (tab) title. Supplies the prefix for a bare `--range`.
+    #[arg(help = "Sheet (tab) title. Supplies the prefix for a bare --range", long_help = None)]
     #[arg(long, value_name = "NAME")]
     pub sheet: Option<String>,
 
     /// Fully bounded A1 range to dedupe, optionally carrying its own
     /// `Sheet!` prefix (for example `A2:D100`).
+    #[arg(help = "Fully bounded A1 range to dedupe, optionally carrying its own Sheet! prefix (for example A2:D100)", long_help = None)]
     #[arg(long, value_name = "A1")]
     pub range: String,
 
@@ -47,6 +53,7 @@ pub struct DeleteDuplicatesCommand {
     /// Reports the gate verdict and the request scope without calling
     /// `spreadsheets.batchUpdate`. Which rows are duplicates is computed
     /// by Sheets only when the request executes.
+    #[arg(help = "Reports the gate verdict and the request scope without calling spreadsheets.batchUpdate. Which rows are duplicates is computed by Sheets only when the request executes", long_help = None)]
     #[arg(long)]
     pub dry_run: bool,
 

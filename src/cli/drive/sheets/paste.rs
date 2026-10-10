@@ -72,6 +72,7 @@ impl From<OrientationArg> for PasteOrientation {
 /// operations, whatever `--paste-type` names: the source is cleared in
 /// full regardless of what is pasted (ADR-0083 §4).
 #[derive(Parser)]
+#[command(about = "Moves a range to a destination cell, clearing the source. Gated by both the sheets-write and sheets-structure write-permission operations, whatever --paste-type names: the source is cleared in full regardless of what is pasted (ADR-0083 §4)", long_about = None)]
 pub struct CutPasteCommand {
     /// Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL).
     #[arg(help = "Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).")]
@@ -79,15 +80,18 @@ pub struct CutPasteCommand {
 
     /// Default sheet for `--source`/`--destination` when either lacks its
     /// own `Sheet!` prefix.
+    #[arg(help = "Default sheet for --source/--destination when either lacks its own Sheet! prefix", long_help = None)]
     #[arg(long, value_name = "NAME")]
     pub sheet: Option<String>,
 
     /// The range to move. May carry its own `Sheet!` prefix. Must be a
     /// bounded rectangle.
+    #[arg(help = "The range to move. May carry its own Sheet! prefix. Must be a bounded rectangle", long_help = None)]
     #[arg(long, value_name = "[SHEET!]A1_RANGE")]
     pub source: String,
 
     /// The single-cell destination. May carry its own `Sheet!` prefix.
+    #[arg(help = "The single-cell destination. May carry its own Sheet! prefix", long_help = None)]
     #[arg(long, value_name = "[SHEET!]A1")]
     pub destination: String,
 
@@ -99,6 +103,7 @@ pub struct CutPasteCommand {
     /// Reports the gate verdict, the region that would be overwritten at
     /// the destination, and the cells that would be cleared at the
     /// source, without calling `spreadsheets.batchUpdate`.
+    #[arg(help = "Reports the gate verdict, the region that would be overwritten at the destination, and the cells that would be cleared at the source, without calling spreadsheets.batchUpdate", long_help = None)]
     #[arg(long)]
     pub dry_run: bool,
 
@@ -136,6 +141,7 @@ impl CutPasteCommand {
 /// alone, a presentation-only type `sheets-structure` alone, and `normal`
 /// (the default) needs both.
 #[derive(Parser)]
+#[command(about = "Copies a range to a destination, spilling a larger source past the destination's end or repeating a smaller one to fill it (the API's own rule; see crate::drive::sheets::paste::copy_paste_extent). Gated by --paste-type (ADR-0083 §4): a value-only type needs sheets-write alone, a presentation-only type sheets-structure alone, and normal (the default) needs both", long_about = None)]
 pub struct CopyPasteCommand {
     /// Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL).
     #[arg(help = "Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).")]
@@ -143,16 +149,19 @@ pub struct CopyPasteCommand {
 
     /// Default sheet for `--source`/`--destination` when either lacks its
     /// own `Sheet!` prefix.
+    #[arg(help = "Default sheet for --source/--destination when either lacks its own Sheet! prefix", long_help = None)]
     #[arg(long, value_name = "NAME")]
     pub sheet: Option<String>,
 
     /// The range to copy from. May carry its own `Sheet!` prefix. Must be
     /// a bounded rectangle.
+    #[arg(help = "The range to copy from. May carry its own Sheet! prefix. Must be a bounded rectangle", long_help = None)]
     #[arg(long, value_name = "[SHEET!]A1_RANGE")]
     pub source: String,
 
     /// The destination range (a single cell is a valid anchor). May carry
     /// its own `Sheet!` prefix. Must be a bounded rectangle.
+    #[arg(help = "The destination range (a single cell is a valid anchor). May carry its own Sheet! prefix. Must be a bounded rectangle", long_help = None)]
     #[arg(long, value_name = "[SHEET!]A1_RANGE")]
     pub destination: String,
 
@@ -161,6 +170,7 @@ pub struct CopyPasteCommand {
     /// `copy-paste` under a `sheets-write`-only grant is refused; pass
     /// `--paste-type values` for a values-only copy that grant already
     /// covers.
+    #[arg(help = "What to carry over. normal (the default) needs both the sheets-write and sheets-structure operations — a bare copy-paste under a sheets-write-only grant is refused; pass --paste-type values for a values-only copy that grant already covers", long_help = None)]
     #[arg(long, value_enum, default_value_t = PasteTypeArg::Normal)]
     pub paste_type: PasteTypeArg,
 
@@ -170,6 +180,7 @@ pub struct CopyPasteCommand {
 
     /// Reports the gate verdict and the region that would be overwritten
     /// at the destination, without calling `spreadsheets.batchUpdate`.
+    #[arg(help = "Reports the gate verdict and the region that would be overwritten at the destination, without calling spreadsheets.batchUpdate", long_help = None)]
     #[arg(long)]
     pub dry_run: bool,
 
@@ -206,6 +217,7 @@ impl CopyPasteCommand {
 /// alternative is a documented cut (ADR-0083 §4); see
 /// `crate::drive::sheets::paste`'s module doc.
 #[derive(Parser)]
+#[command(about = "Pastes delimited text into a range anchored at a destination cell, as if pasted from the clipboard. delimiter-form only — the API's html alternative is a documented cut (ADR-0083 §4); see crate::drive::sheets::paste's module doc", long_about = None)]
 pub struct PasteDataCommand {
     /// Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL).
     #[arg(help = "Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).")]
@@ -213,21 +225,25 @@ pub struct PasteDataCommand {
 
     /// Default sheet for `--destination` when it lacks its own `Sheet!`
     /// prefix.
+    #[arg(help = "Default sheet for --destination when it lacks its own Sheet! prefix", long_help = None)]
     #[arg(long, value_name = "NAME")]
     pub sheet: Option<String>,
 
     /// The single-cell destination. May carry its own `Sheet!` prefix.
+    #[arg(help = "The single-cell destination. May carry its own Sheet! prefix", long_help = None)]
     #[arg(long, value_name = "[SHEET!]A1")]
     pub destination: String,
 
     /// The delimited text to paste, given literally. Sent verbatim —
     /// never parsed into cells locally. Mutually exclusive with
     /// `--data-file`; exactly one of the two is required.
+    #[arg(help = "The delimited text to paste, given literally. Sent verbatim — never parsed into cells locally. Mutually exclusive with --data-file; exactly one of the two is required", long_help = None)]
     #[arg(long, value_name = "TEXT", required_unless_present = "data_file")]
     pub data: Option<String>,
 
     /// The delimited text to paste, read from a local file, or `-` to read
     /// stdin. Sent verbatim — never parsed into cells locally.
+    #[arg(help = "The delimited text to paste, read from a local file, or - to read stdin. Sent verbatim — never parsed into cells locally", long_help = None)]
     #[arg(long, value_name = "PATH|-", conflicts_with = "data")]
     pub data_file: Option<String>,
 
@@ -241,11 +257,13 @@ pub struct PasteDataCommand {
     /// paste of delimited text as doing anything beyond values — and
     /// resolves both operations. `values` does not keep text literal:
     /// the API still parses pasted text such as `=1+1` into a formula.
+    #[arg(help = "What to carry over. Defaults to values, not normal: delimited text carries no formats, merges or validation for normal to add. normal is still selectable — the API does not document a normal paste of delimited text as doing anything beyond values — and resolves both operations. values does not keep text literal: the API still parses pasted text such as =1+1 into a formula", long_help = None)]
     #[arg(long, value_enum, default_value_t = PasteTypeArg::Values)]
     pub paste_type: PasteTypeArg,
 
     /// Reports the gate verdict and the region that would be overwritten
     /// at the destination, without calling `spreadsheets.batchUpdate`.
+    #[arg(help = "Reports the gate verdict and the region that would be overwritten at the destination, without calling spreadsheets.batchUpdate", long_help = None)]
     #[arg(long)]
     pub dry_run: bool,
 

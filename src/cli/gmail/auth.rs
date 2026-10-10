@@ -31,6 +31,7 @@ pub struct AuthCommand {
 #[derive(Subcommand)]
 pub enum AuthSubcommands {
     /// Imports an OAuth2 client id/secret from a downloaded `client_secret.json`.
+    #[command(about = "Imports an OAuth2 client id/secret from a downloaded client_secret.json", long_about = None)]
     Import(ImportCommand),
     /// Runs the Gmail OAuth2 login flow (opens a browser). Interactive-only —
     /// login has no MCP equivalent.
@@ -38,6 +39,7 @@ pub enum AuthSubcommands {
     /// Removes the stored Gmail refresh token from settings.json.
     Logout(LogoutCommand),
     /// Shows the current authentication status (mirrors the `gmail_auth_status` MCP tool).
+    #[command(about = "Shows the current authentication status (mirrors the gmail_auth_status MCP tool)", long_about = None)]
     Status(StatusCommand),
 }
 
@@ -55,6 +57,7 @@ impl AuthCommand {
 
 /// Imports an OAuth2 client id/secret from `client_secret.json`.
 #[derive(Parser)]
+#[command(about = "Imports an OAuth2 client id/secret from client_secret.json", long_about = None)]
 pub struct ImportCommand {
     /// Explicit path to client_secret.json. Omit to auto-discover via
     /// $GMAIL_CLIENT_SECRET_FILE, ~/.config/gws/client_secret.json, or
@@ -85,6 +88,7 @@ pub struct LoginCommand {
     /// is needed by every command that changes the mailbox:
     /// `label add`/`remove`, `draft create`/`update` and `insert`. Without
     /// this flag, only read access is granted.
+    #[arg(help = "Request the gmail.modify scope in addition to gmail.readonly. It is needed by every command that changes the mailbox: label add/remove, draft create/update and insert. Without this flag, only read access is granted", long_help = None)]
     #[arg(long)]
     pub modify: bool,
 }

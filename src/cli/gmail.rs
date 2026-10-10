@@ -25,6 +25,7 @@ use crate::gmail::client::GmailClient;
 /// Gmail: read Gmail messages, threads, and labels (and, with `gmail.modify`,
 /// change labels, drafts and restored messages).
 #[derive(Parser)]
+#[command(about = "Gmail: read Gmail messages, threads, and labels (and, with gmail.modify, change labels, drafts and restored messages)", long_about = None)]
 pub struct GmailCommand {
     /// Selects a named Gmail account configured in
     /// `~/.gwi/settings.json` (AWS-CLI style, mirrors the top-level
@@ -37,6 +38,10 @@ pub struct GmailCommand {
     /// after it (`gmail --account NAME <cmd>` or `gmail <cmd> --account NAME`),
     /// so it can't collide with another product's own `--account` flag (Drive
     /// has the same one) as more command trees are added.
+    #[arg(
+        help = "Selects a named Gmail account configured in ~/.gwi/settings.json (AWS-CLI style, mirrors the top-level --profile) for this invocation",
+        long_help = "Selects a named Gmail account configured in ~/.gwi/settings.json (AWS-CLI style, mirrors the top-level --profile) for this invocation.\n\nOrthogonal to --profile: switching the Gmail account never changes which profile is active, and vice versa (see ADR-0066). Overrides GWI_GMAIL_ACCOUNT. Scoped to the gmail subtree — unlike --profile it is not usable before the gmail subcommand name, only after it (gmail --account NAME <cmd> or gmail <cmd> --account NAME), so it can't collide with another product's own --account flag (Drive has the same one) as more command trees are added."
+    )]
     #[arg(long, global = true, value_name = "NAME")]
     pub account: Option<String>,
     /// The Gmail subcommand to execute.
@@ -48,26 +53,34 @@ pub struct GmailCommand {
 #[derive(Subcommand)]
 pub enum GmailSubcommands {
     /// Manages Gmail OAuth2 credentials (mirrors the `gmail_auth_status` MCP tool for `status`).
+    #[command(about = "Manages Gmail OAuth2 credentials (mirrors the gmail_auth_status MCP tool for status)", long_about = None)]
     Auth(auth::AuthCommand),
     /// Manages named Gmail accounts (mirrors the `gmail_account_list` MCP tool for `list`).
+    #[command(about = "Manages named Gmail accounts (mirrors the gmail_account_list MCP tool for list)", long_about = None)]
     Account(account::AccountCommand),
     /// Searches Gmail messages (mirrors the `gmail_search` MCP tool).
+    #[command(about = "Searches Gmail messages (mirrors the gmail_search MCP tool)", long_about = None)]
     Search(search::SearchCommand),
     /// Reads a single Gmail message (mirrors the `gmail_message_read` MCP tool).
+    #[command(about = "Reads a single Gmail message (mirrors the gmail_message_read MCP tool)", long_about = None)]
     Read(read::ReadCommand),
     /// Reads a Gmail thread (mirrors the `gmail_thread_read` MCP tool).
+    #[command(about = "Reads a Gmail thread (mirrors the gmail_thread_read MCP tool)", long_about = None)]
     Thread(thread::ThreadCommand),
     /// Manages Gmail labels (mirrors the `gmail_label_list` MCP tool; `add`/`remove` are CLI-only in Phase 1).
+    #[command(about = "Manages Gmail labels (mirrors the gmail_label_list MCP tool; add/remove are CLI-only in Phase 1)", long_about = None)]
     Label(label::LabelCommand),
     /// Manages Gmail drafts; never sends or deletes one (mirrors the
     /// `gmail_draft_list`/`gmail_draft_show` MCP tools for `list`/`show`;
     /// `create`/`update` are CLI-only; rust-works/omni-dev#1920).
+    #[command(about = "Manages Gmail drafts; never sends or deletes one (mirrors the gmail_draft_list/gmail_draft_show MCP tools for list/show; create/update are CLI-only; rust-works/omni-dev#1920)", long_about = None)]
     Draft(draft::DraftCommand),
     /// Maintains a durable local archive of a mailbox (CLI-only; no MCP equivalent).
     Sync(sync::SyncCommand),
     /// Maintains durable local archives for every account in
     /// `.gwi/gmail-sync.yaml`, concurrently (CLI-only; no MCP
     /// equivalent; ADR-0068).
+    #[command(about = "Maintains durable local archives for every account in .gwi/gmail-sync.yaml, concurrently (CLI-only; no MCP equivalent; ADR-0068)", long_about = None)]
     SyncAll(sync_all::SyncAllCommand),
     /// Retroactively extracts attachments for already-archived messages, without
     /// re-fetching from Gmail (CLI-only; no MCP equivalent; purely local, no
@@ -76,9 +89,11 @@ pub enum GmailSubcommands {
     /// Renders one or more archived `.eml` files as human-readable Markdown (CLI-only;
     /// no MCP equivalent; purely local, no client/credentials needed;
     /// rust-works/omni-dev#1513).
+    #[command(about = "Renders one or more archived .eml files as human-readable Markdown (CLI-only; no MCP equivalent; purely local, no client/credentials needed; rust-works/omni-dev#1513)", long_about = None)]
     Render(render::RenderCommand),
     /// Restores archived `.eml` messages into a mailbox (needs `gmail.modify`;
     /// CLI-only; no MCP equivalent; rust-works/omni-dev#1655).
+    #[command(about = "Restores archived .eml messages into a mailbox (needs gmail.modify; CLI-only; no MCP equivalent; rust-works/omni-dev#1655)", long_about = None)]
     Insert(insert::InsertCommand),
 }
 

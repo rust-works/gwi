@@ -68,28 +68,37 @@ const EDIT_ARGS: [&str; 11] = [
 /// Needs the `gmail.modify` scope (`gmail auth login --modify`). Nothing is
 /// ever sent.
 #[derive(Parser)]
+#[command(
+    about = "Updates a Gmail draft in place, keeping its draft id and its thread",
+    long_about = "Updates a Gmail draft in place, keeping its draft id and its thread.\n\nGmail replaces a draft's whole message on every update, so this fetches the stored message, changes only what the flags name, and uploads the result. Every other header, the body, each attachment and the thread membership are kept exactly as they were. --to, --cc and --bcc replace that header's whole list. --from replaces From with one of the account's send-as addresses, checked (users.settings.sendAs.list) before the draft is read, so an unknown or unverified alias changes nothing. --body replaces the body with plain text; a draft written in Gmail loses its HTML version, with a warning. --html-body replaces the body with HTML plus a plain-text alternative, which is --body when given and otherwise derived from the HTML (never kept from the old body, so the two versions can't disagree).\n\n--raw replaces the whole message with a .eml file instead, such as one written by draft show --detail raw --out-file. The draft still keeps its thread.\n\nDrafts have no version check, so an update overwrites the draft. To avoid overwriting an edit made meanwhile (in Gmail, say), the draft is read again just before the upload and the update is refused if it changed. --if-message-id extends that check back to whenever you read it.\n\nNeeds the gmail.modify scope (gmail auth login --modify). Nothing is ever sent."
+)]
 #[command(group(ArgGroup::new("edit").required(true).multiple(true).args(EDIT_ARGS).arg("raw")))]
 pub struct UpdateCommand {
     /// Gmail draft id (the `DRAFT_ID` column of `gmail draft list`).
+    #[arg(help = "Gmail draft id (the DRAFT_ID column of gmail draft list)", long_help = None)]
     pub draft_id: String,
 
     /// Send as this address: one of the account's verified send-as aliases,
     /// or its primary address, as `addr@example.com` or
     /// `"Name <addr@example.com>"`. Without a name, Gmail's name for the
     /// address is used.
+    #[arg(help = "Send as this address: one of the account's verified send-as aliases, or its primary address, as addr@example.com or \"Name <addr@example.com>\". Without a name, Gmail's name for the address is used", long_help = None)]
     #[arg(long, value_name = "ADDR")]
     pub from: Option<String>,
 
     /// Replace the `To` recipients: `addr@example.com` or
     /// `"Name <addr@example.com>"`. Repeat the flag for more recipients.
+    #[arg(help = "Replace the To recipients: addr@example.com or \"Name <addr@example.com>\". Repeat the flag for more recipients", long_help = None)]
     #[arg(long, value_name = "ADDR", action = clap::ArgAction::Append)]
     pub to: Vec<String>,
 
     /// Replace the `Cc` recipients, in the same form as `--to`.
+    #[arg(help = "Replace the Cc recipients, in the same form as --to", long_help = None)]
     #[arg(long, value_name = "ADDR", action = clap::ArgAction::Append)]
     pub cc: Vec<String>,
 
     /// Replace the `Bcc` recipients, in the same form as `--to`.
+    #[arg(help = "Replace the Bcc recipients, in the same form as --to", long_help = None)]
     #[arg(long, value_name = "ADDR", action = clap::ArgAction::Append)]
     pub bcc: Vec<String>,
 
@@ -99,6 +108,7 @@ pub struct UpdateCommand {
 
     /// Replace the body with this plain text (with `--html-body`, its
     /// plain-text version).
+    #[arg(help = "Replace the body with this plain text (with --html-body, its plain-text version)", long_help = None)]
     #[arg(long, conflicts_with = "body_file")]
     pub body: Option<String>,
 
@@ -108,10 +118,12 @@ pub struct UpdateCommand {
 
     /// Replace the body with this HTML and a plain-text version of it: the
     /// `--body` text when given, else one derived from the HTML.
+    #[arg(help = "Replace the body with this HTML and a plain-text version of it: the --body text when given, else one derived from the HTML", long_help = None)]
     #[arg(long, value_name = "HTML", conflicts_with = "html_body_file")]
     pub html_body: Option<String>,
 
     /// Replace the body with the HTML in this UTF-8 file, as `--html-body`.
+    #[arg(help = "Replace the body with the HTML in this UTF-8 file, as --html-body", long_help = None)]
     #[arg(long, value_name = "PATH")]
     pub html_body_file: Option<PathBuf>,
 
@@ -121,16 +133,19 @@ pub struct UpdateCommand {
 
     /// Remove the attachment `gmail draft show` lists under this name (or
     /// the one stored under it, when only one is). Repeat the flag for more.
+    #[arg(help = "Remove the attachment gmail draft show lists under this name (or the one stored under it, when only one is). Repeat the flag for more", long_help = None)]
     #[arg(long, value_name = "NAME", action = clap::ArgAction::Append)]
     pub remove_attachment: Vec<String>,
 
     /// Replace the whole message with this RFC 5322 file (`.eml`), uploaded
     /// byte for byte.
+    #[arg(help = "Replace the whole message with this RFC 5322 file (.eml), uploaded byte for byte", long_help = None)]
     #[arg(long, value_name = "FILE", conflicts_with_all = EDIT_ARGS)]
     pub raw: Option<PathBuf>,
 
     /// Refuse the update unless the draft's current message id is this one,
     /// e.g. the `MESSAGE_ID` from when you last read the draft.
+    #[arg(help = "Refuse the update unless the draft's current message id is this one, e.g. the MESSAGE_ID from when you last read the draft", long_help = None)]
     #[arg(long, value_name = "ID")]
     pub if_message_id: Option<String>,
 

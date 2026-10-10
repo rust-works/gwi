@@ -13,6 +13,7 @@ use crate::drive::write_gate::FolderPermissionRule;
 /// folders and needs metadata write access (`drive auth login --write`).
 /// Recovery is available until Drive purges the file, normally after 30 days.
 #[derive(Parser)]
+#[command(about = "Changes a file's trashed state under the trash permission. Refuses folders and needs metadata write access (drive auth login --write). Recovery is available until Drive purges the file, normally after 30 days", long_about = None)]
 pub struct TrashCommand {
     /// Drive file ID.
     pub file_id: String,

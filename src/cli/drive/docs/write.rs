@@ -33,6 +33,10 @@ pub struct ReplaceCommand {
     /// Matching is **case-sensitive by default**, which inverts the Docs
     /// API's own default. Under Google's default, `--search it` also
     /// rewrites `It` and `IT` — in a verb with no undo.
+    #[arg(
+        help = "Match case-insensitively",
+        long_help = "Match case-insensitively.\n\nMatching is case-sensitive by default, which inverts the Docs API's own default. Under Google's default, --search it also rewrites It and IT — in a verb with no undo."
+    )]
     #[arg(long)]
     pub ignore_case: bool,
 
@@ -64,6 +68,7 @@ pub struct AppendCommand {
     pub text: Option<String>,
 
     /// Read the text to append from a file, or `-` for stdin.
+    #[arg(help = "Read the text to append from a file, or - for stdin", long_help = None)]
     #[arg(long, value_name = "PATH")]
     pub text_file: Option<String>,
 
@@ -99,6 +104,7 @@ pub struct InsertCommand {
     )]
     pub text: Option<String>,
     /// Read insertion text from a file, or `-` for stdin.
+    #[arg(help = "Read insertion text from a file, or - for stdin", long_help = None)]
     #[arg(long, value_name = "PATH")]
     pub text_file: Option<String>,
     /// Existing header, footer or footnote ID (from docs read); omit for tab bodies.
@@ -158,48 +164,63 @@ pub struct DeleteCommand {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
 pub enum BulletPresetArg {
     /// Google `BULLET_DISC_CIRCLE_SQUARE` preset.
+    #[value(help = "Google BULLET_DISC_CIRCLE_SQUARE preset")]
     #[value(name = "bullet-disc-circle-square")]
     BulletDiscCircleSquare,
     /// Google `BULLET_DIAMONDX_ARROW3D_SQUARE` preset.
+    #[value(help = "Google BULLET_DIAMONDX_ARROW3D_SQUARE preset")]
     #[value(name = "bullet-diamondx-arrow3d-square")]
     BulletDiamondxArrow3DSquare,
     /// Google `BULLET_CHECKBOX` preset.
+    #[value(help = "Google BULLET_CHECKBOX preset")]
     #[value(name = "bullet-checkbox")]
     BulletCheckbox,
     /// Google `BULLET_ARROW_DIAMOND_DISC` preset.
+    #[value(help = "Google BULLET_ARROW_DIAMOND_DISC preset")]
     #[value(name = "bullet-arrow-diamond-disc")]
     BulletArrowDiamondDisc,
     /// Google `BULLET_STAR_CIRCLE_SQUARE` preset.
+    #[value(help = "Google BULLET_STAR_CIRCLE_SQUARE preset")]
     #[value(name = "bullet-star-circle-square")]
     BulletStarCircleSquare,
     /// Google `BULLET_ARROW3D_CIRCLE_SQUARE` preset.
+    #[value(help = "Google BULLET_ARROW3D_CIRCLE_SQUARE preset")]
     #[value(name = "bullet-arrow3d-circle-square")]
     BulletArrow3DCircleSquare,
     /// Google `BULLET_LEFTTRIANGLE_DIAMOND_DISC` preset.
+    #[value(help = "Google BULLET_LEFTTRIANGLE_DIAMOND_DISC preset")]
     #[value(name = "bullet-lefttriangle-diamond-disc")]
     BulletLefttriangleDiamondDisc,
     /// Google `BULLET_DIAMONDX_HOLLOWDIAMOND_SQUARE` preset.
+    #[value(help = "Google BULLET_DIAMONDX_HOLLOWDIAMOND_SQUARE preset")]
     #[value(name = "bullet-diamondx-hollowdiamond-square")]
     BulletDiamondxHollowdiamondSquare,
     /// Google `BULLET_DIAMOND_CIRCLE_SQUARE` preset.
+    #[value(help = "Google BULLET_DIAMOND_CIRCLE_SQUARE preset")]
     #[value(name = "bullet-diamond-circle-square")]
     BulletDiamondCircleSquare,
     /// Google `NUMBERED_DECIMAL_ALPHA_ROMAN` preset.
+    #[value(help = "Google NUMBERED_DECIMAL_ALPHA_ROMAN preset")]
     #[value(name = "numbered-decimal-alpha-roman")]
     NumberedDecimalAlphaRoman,
     /// Google `NUMBERED_DECIMAL_ALPHA_ROMAN_PARENS` preset.
+    #[value(help = "Google NUMBERED_DECIMAL_ALPHA_ROMAN_PARENS preset")]
     #[value(name = "numbered-decimal-alpha-roman-parens")]
     NumberedDecimalAlphaRomanParens,
     /// Google `NUMBERED_DECIMAL_NESTED` preset.
+    #[value(help = "Google NUMBERED_DECIMAL_NESTED preset")]
     #[value(name = "numbered-decimal-nested")]
     NumberedDecimalNested,
     /// Google `NUMBERED_UPPERALPHA_ALPHA_ROMAN` preset.
+    #[value(help = "Google NUMBERED_UPPERALPHA_ALPHA_ROMAN preset")]
     #[value(name = "numbered-upperalpha-alpha-roman")]
     NumberedUpperalphaAlphaRoman,
     /// Google `NUMBERED_UPPERROMAN_UPPERALPHA_DECIMAL` preset.
+    #[value(help = "Google NUMBERED_UPPERROMAN_UPPERALPHA_DECIMAL preset")]
     #[value(name = "numbered-upperroman-upperalpha-decimal")]
     NumberedUpperromanUpperalphaDecimal,
     /// Google `NUMBERED_ZERODECIMAL_ALPHA_ROMAN` preset.
+    #[value(help = "Google NUMBERED_ZERODECIMAL_ALPHA_ROMAN preset")]
     #[value(name = "numbered-zerodecimal-alpha-roman")]
     NumberedZerodecimalAlphaRoman,
 }

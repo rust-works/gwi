@@ -30,8 +30,10 @@ use report::{ExtractAction, ExtractAttachmentsReport, ExtractError, ExtractSumma
 /// `.eml` files already on disk under `--archive-dir`; never contacts
 /// Gmail, so no credentials or `--account` are needed.
 #[derive(Parser)]
+#[command(about = "Retroactively extracts attachments for messages already archived by gmail sync/sync-all (CLI-only; no MCP equivalent — a bulk filesystem operation is a poor fit for a synchronous MCP tool call, mirroring sync's own no-MCP rationale). Purely local: reads the manifest and .eml files already on disk under --archive-dir; never contacts Gmail, so no credentials or --account are needed", long_about = None)]
 pub struct ExtractAttachmentsCommand {
     /// Archive directory previously populated by `gmail sync`/`sync-all`.
+    #[arg(help = "Archive directory previously populated by gmail sync/sync-all", long_help = None)]
     #[arg(long, value_name = "PATH")]
     pub archive_dir: PathBuf,
 

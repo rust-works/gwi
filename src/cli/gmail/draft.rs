@@ -26,15 +26,19 @@ pub struct DraftCommand {
 pub enum DraftSubcommands {
     /// Lists drafts with their draft ids (`gmail.readonly` is enough; mirrors
     /// the `gmail_draft_list` MCP tool).
+    #[command(about = "Lists drafts with their draft ids (gmail.readonly is enough; mirrors the gmail_draft_list MCP tool)", long_about = None)]
     List(list::ListCommand),
     /// Shows one draft by its draft id (`gmail.readonly` is enough; mirrors
     /// the `gmail_draft_show` MCP tool).
+    #[command(about = "Shows one draft by its draft id (gmail.readonly is enough; mirrors the gmail_draft_show MCP tool)", long_about = None)]
     Show(show::ShowCommand),
     /// Creates a draft to review and send from Gmail (needs `gmail.modify`;
     /// CLI-only).
+    #[command(about = "Creates a draft to review and send from Gmail (needs gmail.modify; CLI-only)", long_about = None)]
     Create(create::CreateCommand),
     /// Updates a draft in place, keeping its id and thread (needs
     /// `gmail.modify`; CLI-only).
+    #[command(about = "Updates a draft in place, keeping its id and thread (needs gmail.modify; CLI-only)", long_about = None)]
     Update(update::UpdateCommand),
 }
 

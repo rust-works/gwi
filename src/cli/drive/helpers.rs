@@ -19,6 +19,7 @@ pub struct LeaseTokenArg {
     /// deciding write-permission rule sets `require_lease: false` — a
     /// token presented anyway is still validated and consumed
     /// (ADR-0080 §1/§9/§13). Never needed with `--dry-run`.
+    #[arg(help = "The lease token from drive lease acquire, required unless the deciding write-permission rule sets require_lease: false — a token presented anyway is still validated and consumed (ADR-0080 §1/§9/§13). Never needed with --dry-run", long_help = None)]
     #[arg(long, value_name = "TOKEN")]
     pub lease: Option<String>,
 }
@@ -37,6 +38,7 @@ pub struct LeaseTokenArg {
 pub struct StructureWriteArgs {
     /// Reports the gate verdict and the change that would be made, without
     /// calling `spreadsheets.batchUpdate`.
+    #[arg(help = "Reports the gate verdict and the change that would be made, without calling spreadsheets.batchUpdate", long_help = None)]
     #[arg(long)]
     pub dry_run: bool,
 

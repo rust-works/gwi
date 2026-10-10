@@ -22,7 +22,7 @@ use crate::drive::{
     },
     sheets::{api::ValueInputOption, client::SheetsClient, write as sheets_write},
 };
-use crate::mcp::drive_tools::account_param_doc;
+use crate::mcp::drive_tools::{account_param_doc, account_param_plain};
 
 /// Parameters for DocsReplace operations.
 #[derive(Debug, Clone, Deserialize, schemars::JsonSchema)]
@@ -50,6 +50,7 @@ pub struct DriveDocsReplaceParams {
     #[serde(default)]
     pub lease: Option<String>,
     #[doc = account_param_doc!()]
+    #[schemars(description = account_param_plain!())]
     #[serde(default)]
     pub account: Option<String>,
 }
@@ -70,6 +71,9 @@ pub struct DriveDocsAppendParams {
     /// Exactly one of text or text_path is required. Stdin (-) is unsupported.
     /// Must be inside the operator's allowed directories (`mcp.allowed_paths`) and outside
     /// credential locations.
+    #[schemars(
+        description = "Local UTF-8 text file, e.g. /tmp/paragraph.txt; omit when supplying text. Exactly one of text or text_path is required. Stdin (-) is unsupported. Must be inside the operator's allowed directories (mcp.allowed_paths) and outside credential locations."
+    )]
     #[serde(default)]
     pub text_path: Option<String>,
     /// Preview without mutating or requiring a lease. Default false; preview first.
@@ -82,6 +86,7 @@ pub struct DriveDocsAppendParams {
     #[serde(default)]
     pub lease: Option<String>,
     #[doc = account_param_doc!()]
+    #[schemars(description = account_param_plain!())]
     #[serde(default)]
     pub account: Option<String>,
 }
@@ -105,12 +110,18 @@ pub struct DriveSheetsWriteParams {
     pub sheet: Option<String>,
     /// Inline array of rows, e.g. `[["name", "score"], ["Ada", "42"]]`. Exactly one of values
     /// or values_path is required.
+    #[schemars(
+        description = "Inline array of rows, e.g. [[\"name\", \"score\"], [\"Ada\", \"42\"]]. Exactly one of values or values_path is required."
+    )]
     #[serde(default)]
     pub values: Option<Vec<Vec<String>>>,
     /// Local UTF-8 CSV/TSV/JSON file, e.g. `/tmp/rows.csv`; omit when supplying values.
     /// Exactly one of values or values_path is required. Stdin (-) is unsupported.
     /// Must be inside the operator's allowed directories (`mcp.allowed_paths`) and outside
     /// credential locations.
+    #[schemars(
+        description = "Local UTF-8 CSV/TSV/JSON file, e.g. /tmp/rows.csv; omit when supplying values. Exactly one of values or values_path is required. Stdin (-) is unsupported. Must be inside the operator's allowed directories (mcp.allowed_paths) and outside credential locations."
+    )]
     #[serde(default)]
     pub values_path: Option<String>,
     /// File format: auto (default; infer extension), csv, tsv, json.
@@ -130,6 +141,7 @@ pub struct DriveSheetsWriteParams {
     #[serde(default)]
     pub lease: Option<String>,
     #[doc = account_param_doc!()]
+    #[schemars(description = account_param_plain!())]
     #[serde(default)]
     pub account: Option<String>,
 }
@@ -161,6 +173,7 @@ pub struct DriveSheetsClearParams {
     #[serde(default)]
     pub lease: Option<String>,
     #[doc = account_param_doc!()]
+    #[schemars(description = account_param_plain!())]
     #[serde(default)]
     pub account: Option<String>,
 }
@@ -178,6 +191,7 @@ pub struct DriveLeaseAcquireParams {
     #[serde(default)]
     pub expiry_minutes: Option<i64>,
     #[doc = account_param_doc!()]
+    #[schemars(description = account_param_plain!())]
     #[serde(default)]
     pub account: Option<String>,
 }

@@ -20,6 +20,7 @@ const DEFAULT_CONTENT_MIME_TYPE: &str = "application/octet-stream";
 /// folder write-permission rules (issue #1574). Requires the `drive.file`
 /// or `drive` scope (`drive auth login --write-file`/`--write-full`).
 #[derive(Parser)]
+#[command(about = "Uploads local content as a new file, gated by the account's configured folder write-permission rules (issue #1574). Requires the drive.file or drive scope (drive auth login --write-file/--write-full)", long_about = None)]
 pub struct UploadCommand {
     /// Local file to upload.
     pub local_path: PathBuf,
@@ -29,14 +30,17 @@ pub struct UploadCommand {
     pub parent: String,
 
     /// The new file's display name. Defaults to `local_path`'s file name.
+    #[arg(help = "The new file's display name. Defaults to local_path's file name", long_help = None)]
     #[arg(long)]
     pub name: Option<String>,
 
     /// MIME type for the content. Defaults to `application/octet-stream`.
+    #[arg(help = "MIME type for the content. Defaults to application/octet-stream", long_help = None)]
     #[arg(long = "mime-type", value_name = "TYPE")]
     pub mime_type: Option<String>,
 
     /// Reports the gate verdict without calling `files.create`.
+    #[arg(help = "Reports the gate verdict without calling files.create", long_help = None)]
     #[arg(long)]
     pub dry_run: bool,
 

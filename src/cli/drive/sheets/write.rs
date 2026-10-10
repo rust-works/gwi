@@ -25,9 +25,13 @@ use crate::drive::sheets::write::{describe, write, WriteOptions, WriteVerb};
 pub enum InputArg {
     /// Parse values as if typed into the UI: `=SUM(A1:A3)` becomes a
     /// formula, `2026-09-06` a date, `1,234` a number.
+    #[value(
+        help = "Parse values as if typed into the UI: =SUM(A1:A3) becomes a formula, 2026-09-06 a date, 1,234 a number"
+    )]
     #[default]
     UserEntered,
     /// Store every value verbatim as text; a leading `=` stays literal.
+    #[value(help = "Store every value verbatim as text; a leading = stays literal")]
     Raw,
 }
 
@@ -45,32 +49,41 @@ impl From<InputArg> for ValueInputOption {
 /// Drops a cell's rich-text runs even when the value is unchanged; see
 /// `docs/drive.md`.
 #[derive(Parser)]
+#[command(
+    about = "Overwrites the cells of a range",
+    long_about = "Overwrites the cells of a range.\n\nDrops a cell's rich-text runs even when the value is unchanged; see docs/drive.md."
+)]
 pub struct WriteCommand {
     /// Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL).
     #[arg(help = "Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).")]
     pub spreadsheet_id: String,
 
     /// A1 range to write, optionally carrying its own `Sheet!` prefix.
+    #[arg(help = "A1 range to write, optionally carrying its own Sheet! prefix", long_help = None)]
     #[arg(long, value_name = "A1")]
     pub range: Option<String>,
 
     /// Sheet (tab) title. Supplies the prefix for a bare `--range`.
     /// Conflicts with a `--range` that already names a sheet.
+    #[arg(help = "Sheet (tab) title. Supplies the prefix for a bare --range. Conflicts with a --range that already names a sheet", long_help = None)]
     #[arg(long, value_name = "NAME")]
     pub sheet: Option<String>,
 
     /// Values to write: a local file path, or `-` to read stdin. CSV unless
     /// the path ends in `.json`/`.tsv` or `--values-format` says otherwise.
+    #[arg(help = "Values to write: a local file path, or - to read stdin. CSV unless the path ends in .json/.tsv or --values-format says otherwise", long_help = None)]
     #[arg(long, value_name = "PATH|-")]
     pub values: String,
 
     /// How to parse `--values`. `auto` infers from the file extension.
+    #[arg(help = "How to parse --values. auto infers from the file extension", long_help = None)]
     #[arg(long = "values-format", value_enum, default_value_t = ValuesFormat::Auto)]
     pub values_format: ValuesFormat,
 
     /// How the API interprets the values. `user-entered` (the default)
     /// parses formulas, dates and numbers the way typing them into the UI
     /// would; `raw` stores every value verbatim as text.
+    #[arg(help = "How the API interprets the values. user-entered (the default) parses formulas, dates and numbers the way typing them into the UI would; raw stores every value verbatim as text", long_help = None)]
     #[arg(long, value_enum, default_value_t = InputArg::UserEntered)]
     pub input: InputArg,
 
@@ -92,6 +105,10 @@ pub struct WriteCommand {
 /// Presumably drops rich-text runs on an existing cell like `sheets write`
 /// does, though this hasn't been measured; see `docs/drive.md`.
 #[derive(Parser)]
+#[command(
+    about = "Appends rows after the last row of a range's table",
+    long_about = "Appends rows after the last row of a range's table.\n\nPresumably drops rich-text runs on an existing cell like sheets write does, though this hasn't been measured; see docs/drive.md."
+)]
 pub struct AppendCommand {
     /// Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL).
     #[arg(help = "Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).")]
@@ -99,22 +116,27 @@ pub struct AppendCommand {
 
     /// A1 range identifying the table to append to, optionally carrying its
     /// own `Sheet!` prefix.
+    #[arg(help = "A1 range identifying the table to append to, optionally carrying its own Sheet! prefix", long_help = None)]
     #[arg(long, value_name = "A1")]
     pub range: Option<String>,
 
     /// Sheet (tab) title. Supplies the prefix for a bare `--range`.
+    #[arg(help = "Sheet (tab) title. Supplies the prefix for a bare --range", long_help = None)]
     #[arg(long, value_name = "NAME")]
     pub sheet: Option<String>,
 
     /// Rows to append: a local file path, or `-` to read stdin.
+    #[arg(help = "Rows to append: a local file path, or - to read stdin", long_help = None)]
     #[arg(long, value_name = "PATH|-")]
     pub values: String,
 
     /// How to parse `--values`. `auto` infers from the file extension.
+    #[arg(help = "How to parse --values. auto infers from the file extension", long_help = None)]
     #[arg(long = "values-format", value_enum, default_value_t = ValuesFormat::Auto)]
     pub values_format: ValuesFormat,
 
     /// How the API interprets the values (see `drive sheets write`).
+    #[arg(help = "How the API interprets the values (see drive sheets write)", long_help = None)]
     #[arg(long, value_enum, default_value_t = InputArg::UserEntered)]
     pub input: InputArg,
 
@@ -139,11 +161,13 @@ pub struct ClearCommand {
     pub spreadsheet_id: String,
 
     /// A1 range to clear, optionally carrying its own `Sheet!` prefix.
+    #[arg(help = "A1 range to clear, optionally carrying its own Sheet! prefix", long_help = None)]
     #[arg(long, value_name = "A1")]
     pub range: Option<String>,
 
     /// Sheet (tab) title. Supplies the prefix for a bare `--range`, or
     /// clears the whole tab on its own.
+    #[arg(help = "Sheet (tab) title. Supplies the prefix for a bare --range, or clears the whole tab on its own", long_help = None)]
     #[arg(long, value_name = "NAME")]
     pub sheet: Option<String>,
 

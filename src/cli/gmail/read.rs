@@ -26,6 +26,7 @@ use crate::gmail::types::{DraftDetail, Message};
 #[derive(Clone, Copy, Debug, Default, ValueEnum)]
 pub enum ReadDetail {
     /// Only `id`/`threadId`/`labelIds`/`sizeEstimate` — no headers or body.
+    #[value(help = "Only id/threadId/labelIds/sizeEstimate — no headers or body")]
     Minimal,
     /// Headers and snippet only, no body.
     Metadata,
@@ -66,12 +67,16 @@ pub enum ReadOutputFormat {
     /// YAML (single document).
     Yaml,
     /// YAML stream (`---`-separated multi-document).
+    #[value(help = "YAML stream ('---'-separated multi-document)")]
     Yamls,
     /// JSON Lines.
     Jsonl,
     /// Human-readable Markdown rendering of the full message (headers +
     /// body). Always fetches the complete raw MIME message regardless of
     /// `--detail`, since rendering needs the full message structure.
+    #[value(
+        help = "Human-readable Markdown rendering of the full message (headers + body). Always fetches the complete raw MIME message regardless of --detail, since rendering needs the full message structure"
+    )]
     Markdown,
 }
 
@@ -97,6 +102,7 @@ impl ReadOutputFormat {
 pub struct MessageOutputArgs {
     /// Output file (writes to stdout if omitted). With `--detail raw`, the
     /// message's exact RFC 2822 bytes, i.e. an `.eml` file.
+    #[arg(help = "Output file (writes to stdout if omitted). With --detail raw, the message's exact RFC 2822 bytes, i.e. an .eml file", long_help = None)]
     #[arg(long = "out-file", value_name = "PATH")]
     pub out_file: Option<String>,
 
@@ -114,6 +120,7 @@ pub struct MessageOutputArgs {
     /// ignored elsewhere). Off by default: verbatim rendering is fully
     /// information-preserving, and the full text is one re-render away without this
     /// flag.
+    #[arg(help = "Collapses '>'-quoted reply history nested more than one level deep into a one-line '*(N quoted lines omitted)*' marker (rust-works/omni-dev#1514). Only affects -o markdown, mirroring --detail's reverse asymmetry (it is silently ignored elsewhere). Off by default: verbatim rendering is fully information-preserving, and the full text is one re-render away without this flag", long_help = None)]
     #[arg(long)]
     pub fold_quotes: bool,
 }
@@ -122,6 +129,10 @@ pub struct MessageOutputArgs {
 ///
 /// (mirrors the `gmail_message_read` MCP tool)
 #[derive(Parser)]
+#[command(
+    about = "Reads a single Gmail message",
+    long_about = "Reads a single Gmail message.\n\n(mirrors the gmail_message_read MCP tool)"
+)]
 pub struct ReadCommand {
     /// Gmail message id.
     pub message_id: String,

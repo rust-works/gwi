@@ -56,6 +56,51 @@ fn help_has_no_markdown_links() {
     assert!(links.is_empty(), "markdown links in help: {links:#?}");
 }
 
+/// Every generated terminal help surface uses plain text, including summaries.
+#[test]
+fn short_and_long_help_have_no_markdown_delimiters() {
+    fn check(cmd: &mut clap::Command) {
+        for help in [cmd.render_help(), cmd.render_long_help()] {
+            let text = help.to_string();
+            assert!(
+                !text.contains('`') && !text.contains("](") && !text.contains("**"),
+                "Markdown in {} help: {text}",
+                cmd.get_name()
+            );
+        }
+        for sub in cmd.get_subcommands_mut() {
+            check(sub);
+        }
+    }
+    let mut root = Cli::command();
+    root.build();
+    check(&mut root);
+}
+
+/// Plain-text presentation preserves the examples and defaults in drive edit.
+#[test]
+fn edit_help_preserves_content_and_mime_hints() {
+    let mut root = Cli::command();
+    root.build();
+    let edit = root
+        .find_subcommand_mut("drive")
+        .unwrap()
+        .find_subcommand_mut("edit")
+        .unwrap();
+    for help in [edit.render_help(), edit.render_long_help()] {
+        let text = help.to_string();
+        for hint in [
+            "drive search",
+            "id segment",
+            "- to read from stdin",
+            "application/octet-stream",
+            "files.update",
+        ] {
+            assert!(text.contains(hint), "Missing {hint:?}: {text}");
+        }
+    }
+}
+
 /// URL identifier hints are plain text in both terminal help formats.
 #[test]
 fn identifier_hints_have_no_markdown() {

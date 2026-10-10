@@ -59,6 +59,10 @@ pub struct ImportCommand {
     /// The omni-dev settings file to read.
     ///
     /// Defaults to `~/.omni-dev/settings.json`. It is only read, never changed.
+    #[arg(
+        help = "The omni-dev settings file to read",
+        long_help = "The omni-dev settings file to read.\n\nDefaults to ~/.omni-dev/settings.json. It is only read, never changed."
+    )]
     #[arg(long, value_name = "PATH")]
     pub source: Option<PathBuf>,
 
@@ -66,6 +70,10 @@ pub struct ImportCommand {
     ///
     /// Defaults to `omni-dev/lease-ledger.jsonl` in the state directory. It is only read,
     /// never changed; a missing ledger is not an error.
+    #[arg(
+        help = "The omni-dev lease ledger to read",
+        long_help = "The omni-dev lease ledger to read.\n\nDefaults to omni-dev/lease-ledger.jsonl in the state directory. It is only read, never changed; a missing ledger is not an error."
+    )]
     #[arg(long, value_name = "PATH")]
     pub source_ledger: Option<PathBuf>,
 

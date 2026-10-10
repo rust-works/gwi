@@ -40,6 +40,10 @@ pub struct DriveCommand {
     /// Overrides `GWI_DRIVE_ACCOUNT`. Scoped to the `drive` subtree — not
     /// usable before the `drive` subcommand name, only after it, so it can't
     /// collide with an unrelated subcommand's own `--account` flag.
+    #[arg(
+        help = "Selects a named Drive account configured in ~/.gwi/settings.json (AWS-CLI style, mirrors the top-level --profile) for this invocation",
+        long_help = "Selects a named Drive account configured in ~/.gwi/settings.json (AWS-CLI style, mirrors the top-level --profile) for this invocation.\n\nOrthogonal to --profile: switching the Drive account never changes which profile is active, and vice versa (see ADR-0066, ADR-0069). Overrides GWI_DRIVE_ACCOUNT. Scoped to the drive subtree — not usable before the drive subcommand name, only after it, so it can't collide with an unrelated subcommand's own --account flag."
+    )]
     #[arg(long, global = true, value_name = "NAME")]
     pub account: Option<String>,
     /// The Drive subcommand to execute.
@@ -65,36 +69,45 @@ pub enum DriveSubcommands {
     /// Creates a new file or folder, gated by the folder write-permission rules (issue
     /// rust-works/omni-dev#1574). Requires the `drive.file` or `drive` scope (`drive
     /// auth login --write-file`/`--write-full`).
+    #[command(about = "Creates a new file or folder, gated by the folder write-permission rules (issue rust-works/omni-dev#1574). Requires the drive.file or drive scope (drive auth login --write-file/--write-full)", long_about = None)]
     Create(create::CreateCommand),
     /// Uploads local content as a new file, gated by the folder write-permission rules
     /// (issue rust-works/omni-dev#1574). Requires the `drive.file` or `drive` scope
     /// (`drive auth login --write-file`/`--write-full`).
+    #[command(about = "Uploads local content as a new file, gated by the folder write-permission rules (issue rust-works/omni-dev#1574). Requires the drive.file or drive scope (drive auth login --write-file/--write-full)", long_about = None)]
     Upload(upload::UploadCommand),
     /// Replaces an existing file's content, gated by the write-permission rules (issues
     /// rust-works/omni-dev#1574, rust-works/omni-dev#1612). Requires the `drive.file`
     /// scope if `gwi` created the file, or the unrestricted `drive` scope for any
     /// pre-existing file (`drive auth login --write-file` or `--write-full`).
+    #[command(about = "Replaces an existing file's content, gated by the write-permission rules (issues rust-works/omni-dev#1574, rust-works/omni-dev#1612). Requires the drive.file scope if gwi created the file, or the unrestricted drive scope for any pre-existing file (drive auth login --write-file or --write-full)", long_about = None)]
     Edit(edit::EditCommand),
     /// Moves an individual file to Drive Trash, gated by `trash` permission.
     /// Refuses folders; lease-exempt. Requires `drive auth login --write`.
+    #[command(about = "Moves an individual file to Drive Trash, gated by trash permission. Refuses folders; lease-exempt. Requires drive auth login --write", long_about = None)]
     Trash(trash::TrashCommand),
     /// Restores an individual file from Drive Trash under `trash` permission.
     /// Refuses folders; lease-exempt. Requires `drive auth login --write`.
+    #[command(about = "Restores an individual file from Drive Trash under trash permission. Refuses folders; lease-exempt. Requires drive auth login --write", long_about = None)]
     Untrash(trash::TrashCommand),
     /// Backs up a file and mints a Touch ID-authorised lease token,
     /// required by `drive edit` and (in later phases) every other
     /// content-mutating verb (ADR-0080).
+    #[command(about = "Backs up a file and mints a Touch ID-authorised lease token, required by drive edit and (in later phases) every other content-mutating verb (ADR-0080)", long_about = None)]
     Lease(lease::LeaseCommand),
     /// Renames a single Drive file. Requires the `drive.metadata` scope
     /// (`drive auth login --write`).
+    #[command(about = "Renames a single Drive file. Requires the drive.metadata scope (drive auth login --write)", long_about = None)]
     Rename(rename::RenameCommand),
     /// Moves one or more Drive files into a destination folder. Requires
     /// the `drive.metadata` scope (`drive auth login --write`).
+    #[command(about = "Moves one or more Drive files into a destination folder. Requires the drive.metadata scope (drive auth login --write)", long_about = None)]
     Move(move_file::MoveCommand),
     /// Inspects the write-permission rules gating `drive create`/`upload`/`edit`,
     /// `drive sheets write`/`append`/`clear`/`create` and `drive docs
     /// replace`/`append`/`create` (issues rust-works/omni-dev#1574,
     /// rust-works/omni-dev#1589, rust-works/omni-dev#1612, rust-works/omni-dev#1615).
+    #[command(about = "Inspects the write-permission rules gating drive create/upload/edit, drive sheets write/append/clear/create and drive docs replace/append/create (issues rust-works/omni-dev#1574, rust-works/omni-dev#1589, rust-works/omni-dev#1612, rust-works/omni-dev#1615)", long_about = None)]
     Permissions(permissions::PermissionsCommand),
     /// Reads the structure and text of a Google Doc via the Docs v1 API (issue
     /// rust-works/omni-dev#1615).

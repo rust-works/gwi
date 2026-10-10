@@ -50,17 +50,20 @@ impl From<ValueLayoutArg> for ValueLayout {
 /// write-permission operations (ADR-0081 §5): an operator must hold both
 /// for this to succeed.
 #[derive(Parser)]
+#[command(about = "Writes a new pivot table at --anchor, refused if one is already there — use list-pivot-tables first to check, or delete-pivot-table to clear it. Gated by both the sheets-write and sheets-structure write-permission operations (ADR-0081 §5): an operator must hold both for this to succeed", long_about = None)]
 pub struct AddPivotTableCommand {
     /// Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL).
     #[arg(help = "Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).")]
     pub spreadsheet_id: String,
 
     /// Sheet (tab) title `--anchor` lives on.
+    #[arg(help = "Sheet (tab) title --anchor lives on", long_help = None)]
     #[arg(long, value_name = "NAME")]
     pub sheet: String,
 
     /// A single-cell A1 reference (no `Sheet!` prefix — `--sheet` supplies
     /// it) the pivot table is anchored at.
+    #[arg(help = "A single-cell A1 reference (no Sheet! prefix — --sheet supplies it) the pivot table is anchored at", long_help = None)]
     #[arg(long, value_name = "A1")]
     pub anchor: String,
 
@@ -68,18 +71,21 @@ pub struct AddPivotTableCommand {
     /// pivot commonly sources from a different tab than it's anchored on);
     /// falls back to `--sheet` when it doesn't. Must be a bounded
     /// rectangle.
+    #[arg(help = "The pivot's source range. May carry its own Sheet! prefix (a pivot commonly sources from a different tab than it's anchored on); falls back to --sheet when it doesn't. Must be a bounded rectangle", long_help = None)]
     #[arg(long, value_name = "[SHEET!]A1_RANGE")]
     pub source: String,
 
     /// A row grouping, by 0-based column offset into `--source`, optionally
     /// followed by a sort order (default `asc`). Repeatable, outermost
     /// first.
+    #[arg(help = "A row grouping, by 0-based column offset into --source, optionally followed by a sort order (default asc). Repeatable, outermost first", long_help = None)]
     #[arg(long = "row", value_name = "COLUMN[:asc|desc]")]
     pub rows: Vec<String>,
 
     /// A column grouping, by 0-based column offset into `--source`,
     /// optionally followed by a sort order (default `asc`). Repeatable,
     /// outermost first.
+    #[arg(help = "A column grouping, by 0-based column offset into --source, optionally followed by a sort order (default asc). Repeatable, outermost first", long_help = None)]
     #[arg(long = "column", value_name = "COLUMN[:asc|desc]")]
     pub columns: Vec<String>,
 
@@ -88,11 +94,13 @@ pub struct AddPivotTableCommand {
     /// `countunique`, `average`, `max`, `min`, `median`, `product`,
     /// `stdev`, `stdevp`, `var`, `varp`). Repeatable; at least one is
     /// required.
+    #[arg(help = "An aggregated value column, by 0-based column offset into --source and a summarize function (sum, counta, count, countunique, average, max, min, median, product, stdev, stdevp, var, varp). Repeatable; at least one is required", long_help = None)]
     #[arg(long = "value", value_name = "COLUMN:FUNC", required = true)]
     pub values: Vec<String>,
 
     /// A source-row filter, by 0-based column offset into `--source` and a
     /// comma-separated allow-list of raw values. Repeatable.
+    #[arg(help = "A source-row filter, by 0-based column offset into --source and a comma-separated allow-list of raw values. Repeatable", long_help = None)]
     #[arg(long = "filter", value_name = "COLUMN:VALUE[,VALUE...]")]
     pub filters: Vec<String>,
 
@@ -108,6 +116,7 @@ pub struct AddPivotTableCommand {
     /// current content, without calling `spreadsheets.batchUpdate`. Cannot
     /// report the region the pivot table will actually overwrite — see
     /// `docs/drive.md`.
+    #[arg(help = "Reports the gate verdict, the pivot configuration, and the anchor's current content, without calling spreadsheets.batchUpdate. Cannot report the region the pivot table will actually overwrite — see docs/drive.md", long_help = None)]
     #[arg(long)]
     pub dry_run: bool,
 
@@ -148,22 +157,26 @@ impl AddPivotTableCommand {
 /// write-permission operation alone (ADR-0081 §5): it only ever clears the
 /// anchor's own value, no structural effect.
 #[derive(Parser)]
+#[command(about = "Clears the pivot table at --anchor, refused if there isn't one — use list-pivot-tables to find one. Gated by the sheets-write write-permission operation alone (ADR-0081 §5): it only ever clears the anchor's own value, no structural effect", long_about = None)]
 pub struct DeletePivotTableCommand {
     /// Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL).
     #[arg(help = "Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).")]
     pub spreadsheet_id: String,
 
     /// Sheet (tab) title `--anchor` lives on.
+    #[arg(help = "Sheet (tab) title --anchor lives on", long_help = None)]
     #[arg(long, value_name = "NAME")]
     pub sheet: String,
 
     /// A single-cell A1 reference (no `Sheet!` prefix — `--sheet` supplies
     /// it) the pivot table is anchored at. See `list-pivot-tables`.
+    #[arg(help = "A single-cell A1 reference (no Sheet! prefix — --sheet supplies it) the pivot table is anchored at. See list-pivot-tables", long_help = None)]
     #[arg(long, value_name = "A1")]
     pub anchor: String,
 
     /// Reports the gate verdict and the pivot table currently at
     /// `--anchor`, without calling `spreadsheets.batchUpdate`.
+    #[arg(help = "Reports the gate verdict and the pivot table currently at --anchor, without calling spreadsheets.batchUpdate", long_help = None)]
     #[arg(long)]
     pub dry_run: bool,
 
@@ -196,6 +209,7 @@ impl DeletePivotTableCommand {
 /// to discover the `--anchor` `delete-pivot-table` needs. Read-only and
 /// ungated, like `list-conditional-formats`.
 #[derive(Parser)]
+#[command(about = "Lists every pivot table in a spreadsheet, by anchor cell — the one way to discover the --anchor delete-pivot-table needs. Read-only and ungated, like list-conditional-formats", long_about = None)]
 pub struct ListPivotTablesCommand {
     /// Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL).
     #[arg(help = "Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).")]

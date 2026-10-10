@@ -16,6 +16,10 @@ use crate::utils::settings::Settings;
 /// zero-migration guarantee is deliberately broken — an explicit,
 /// user-initiated migration rather than an automatic one.
 #[derive(Parser)]
+#[command(
+    about = "Migrates today's legacy Gmail credentials (the base env map, or the active --profile's env map) into a named account",
+    long_about = "Migrates today's legacy Gmail credentials (the base env map, or the active --profile's env map) into a named account.\n\nNon-destructive by default: the legacy credentials are left in place unless --remove-legacy is passed. This is how a named account gets created from an existing single-account setup, and the only place the zero-migration guarantee is deliberately broken — an explicit, user-initiated migration rather than an automatic one."
+)]
 pub struct ImportLegacyCommand {
     /// Name to migrate the legacy credentials into.
     ///
@@ -24,6 +28,10 @@ pub struct ImportLegacyCommand {
     /// the same long flag on one command), and it means something
     /// different here anyway — this names the account being *created*,
     /// not one being selected.
+    #[arg(
+        help = "Name to migrate the legacy credentials into",
+        long_help = "Name to migrate the legacy credentials into.\n\nDeliberately --name, not --account: the global --account flag is inherited by every subcommand (clap rejects two args bound to the same long flag on one command), and it means something different here anyway — this names the account being *created*, not one being selected."
+    )]
     #[arg(long, value_name = "NAME", default_value = "default")]
     pub name: String,
     /// Also remove the legacy credentials after a successful migration.

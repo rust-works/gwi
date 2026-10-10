@@ -17,17 +17,23 @@ use crate::drive::sheets::sort_range::{describe_lines, sort_range, SortRangeOpti
 /// imitate Sheets' comparison rules: it reports the request and its record
 /// integrity caveats instead.
 #[derive(Parser)]
+#[command(
+    about = "Reorders the rows in a bounded range by one or more column keys",
+    long_about = "Reorders the rows in a bounded range by one or more column keys.\n\n--sort-by values use COLUMN:asc or COLUMN:desc and are applied in the order given. This v1 command sorts by column values only; color-based sort criteria are not yet supported. --dry-run does not read cells or imitate Sheets' comparison rules: it reports the request and its record integrity caveats instead."
+)]
 pub struct SortRangeCommand {
     /// Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL).
     #[arg(help = "Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).")]
     pub spreadsheet_id: String,
 
     /// Sheet (tab) title. Supplies the prefix for a bare `--range`.
+    #[arg(help = "Sheet (tab) title. Supplies the prefix for a bare --range", long_help = None)]
     #[arg(long, value_name = "NAME")]
     pub sheet: Option<String>,
 
     /// Fully bounded A1 range to sort, optionally carrying its own `Sheet!`
     /// prefix (for example `A2:D100`).
+    #[arg(help = "Fully bounded A1 range to sort, optionally carrying its own Sheet! prefix (for example A2:D100)", long_help = None)]
     #[arg(long, value_name = "A1")]
     pub range: String,
 
@@ -35,11 +41,13 @@ pub struct SortRangeCommand {
     /// zero-based absolute sheet column index (`0` is column A, whatever
     /// the range's first column), and must fall inside the range. Repeat to
     /// add lower-precedence keys.
+    #[arg(help = "A column sort key, as COLUMN:asc or COLUMN:desc. COLUMN is a zero-based absolute sheet column index (0 is column A, whatever the range's first column), and must fall inside the range. Repeat to add lower-precedence keys", long_help = None)]
     #[arg(long, value_name = "COLUMN:ORDER", required = true)]
     pub sort_by: Vec<String>,
 
     /// Reports the gate verdict and request shape without calling
     /// `spreadsheets.batchUpdate` or reading cell values.
+    #[arg(help = "Reports the gate verdict and request shape without calling spreadsheets.batchUpdate or reading cell values", long_help = None)]
     #[arg(long)]
     pub dry_run: bool,
 

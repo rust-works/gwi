@@ -18,6 +18,10 @@ use crate::drive::sheets::trim_whitespace::{
 /// cells, any of which *may* be trimmed, and never their values. The real
 /// run reports the server's own count of cells actually changed.
 #[derive(Parser)]
+#[command(
+    about = "Trims whitespace in every cell of a range, or of a whole sheet",
+    long_about = "Trims whitespace in every cell of a range, or of a whole sheet.\n\nSheets owns the trim rule, so --dry-run never claims which cells will change: it reports the count and A1 locations of the range's non-blank cells, any of which *may* be trimmed, and never their values. The real run reports the server's own count of cells actually changed."
+)]
 pub struct TrimWhitespaceCommand {
     /// Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL).
     #[arg(help = "Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).")]
@@ -25,21 +29,25 @@ pub struct TrimWhitespaceCommand {
 
     /// Sheet (tab) title. Supplies the prefix for a bare `--range`, and is
     /// required with `--whole-sheet`.
+    #[arg(help = "Sheet (tab) title. Supplies the prefix for a bare --range, and is required with --whole-sheet", long_help = None)]
     #[arg(long, value_name = "NAME")]
     pub sheet: Option<String>,
 
     /// A1 range to trim, optionally carrying its own `Sheet!` prefix (for
     /// example `A2:D100`). An open-ended range (`A:A`) is completed from
     /// the sheet's current grid extent.
+    #[arg(help = "A1 range to trim, optionally carrying its own Sheet! prefix (for example A2:D100). An open-ended range (A:A) is completed from the sheet's current grid extent", long_help = None)]
     #[arg(long, value_name = "A1", conflicts_with = "whole_sheet")]
     pub range: Option<String>,
 
     /// Trim every cell of the sheet named by `--sheet`.
+    #[arg(help = "Trim every cell of the sheet named by --sheet", long_help = None)]
     #[arg(long, requires = "sheet")]
     pub whole_sheet: bool,
 
     /// Reports the gate verdict and the cells that may be trimmed, without
     /// calling `spreadsheets.batchUpdate`.
+    #[arg(help = "Reports the gate verdict and the cells that may be trimmed, without calling spreadsheets.batchUpdate", long_help = None)]
     #[arg(long)]
     pub dry_run: bool,
 

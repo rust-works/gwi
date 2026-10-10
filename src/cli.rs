@@ -30,6 +30,10 @@ pub struct Cli {
     /// settings-fallback chain (process env still wins); the base map is not
     /// consulted. Overrides `GWI_PROFILE`. An unknown name is a hard error
     /// listing the known profiles.
+    #[arg(
+        help = "Selects a named credential/config profile from ~/.gwi/settings.json (AWS-CLI style)",
+        long_help = "Selects a named credential/config profile from ~/.gwi/settings.json (AWS-CLI style).\n\nWhen set, the profile's env bundle replaces the base env map in the settings-fallback chain (process env still wins); the base map is not consulted. Overrides GWI_PROFILE. An unknown name is a hard error listing the known profiles."
+    )]
     #[arg(long, global = true, value_name = "NAME")]
     pub profile: Option<String>,
 
