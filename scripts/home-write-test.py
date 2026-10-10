@@ -9,6 +9,7 @@ import sys
 import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
+APP_DIR_KEYS = ("GWI_HOME", "GWI_STATE_DIR")
 XDG_HOME_KEYS = ("XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME", "XDG_CACHE_HOME")
 
 
@@ -42,6 +43,9 @@ def run_binary(binary):
     with tempfile.TemporaryDirectory(prefix="gwi-test-home-") as scratch:
         home = Path(scratch)
         env = os.environ.copy()
+        # Preserve platform defaults instead of inheriting an ambient installation.
+        for key in APP_DIR_KEYS:
+            env.pop(key, None)
         env["HOME"] = str(home)
         # insta otherwise calls `cargo metadata`; rustup would initialize .rustup
         # in the scratch HOME before falling back to the same workspace root.

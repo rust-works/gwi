@@ -75,6 +75,34 @@ class HostileEnvTest(unittest.TestCase):
                 self.assert_cleaned()
         self.assertEqual(list(developer.iterdir()), [])
 
+    def test_application_overrides_are_scrubbed_in_listing_and_execution(self):
+        with tempfile.TemporaryDirectory() as ambient:
+            overrides = {key: str(Path(ambient) / key)
+                         for key in ("GWI_HOME", "GWI_STATE_DIR")}
+            for value in overrides.values():
+                Path(value).mkdir()
+            for case in runner.CASES:
+                for status in (0, 7):
+                    with self.subTest(case=case, status=status):
+                        binary = self.binary(status=status)
+                        # Insert before --list so both child invocations check isolation.
+                        script = binary.read_text().replace(
+                            "if '--list' in sys.argv:",
+                            "for key in ('GWI_HOME', 'GWI_STATE_DIR'):\n"
+                            "    if key in os.environ:\n"
+                            "        (pathlib.Path(os.environ[key]) / 'leak').touch()\n"
+                            "        sys.exit(9)\n"
+                            "if '--list' in sys.argv:"
+                        )
+                        binary.write_text(script)
+                        with patch.dict(os.environ, overrides):
+                            self.assertEqual(runner.run_binary(binary, case), status == 0)
+                            self.assertEqual({k: os.environ[k] for k in overrides}, overrides)
+                        self.assert_cleaned()
+                        for value in overrides.values():
+                            self.assertEqual(list(Path(value).iterdir()), [])
+        self.assertFalse(Path(ambient).exists())
+
     def test_ambient_dependent_regression_fails_main_and_runs_every_case_binary(self):
         binary = self.binary("assert 'GWI_HTTP_READ_TIMEOUT_SECS' not in os.environ")
         with patch.object(runner, "build_binaries", return_value=[binary, binary]):

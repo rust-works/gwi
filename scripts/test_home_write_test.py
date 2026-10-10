@@ -63,6 +63,38 @@ class HomeWriteTest(unittest.TestCase):
             self.assertEqual(os.environ["XDG_STATE_HOME"], "/ambient")
         self.assert_home_cleaned_up()
 
+    def test_application_overrides_are_scrubbed_and_writes_cannot_escape(self):
+        with tempfile.TemporaryDirectory() as ambient:
+            overrides = {key: str(Path(ambient) / key)
+                         for key in ("GWI_HOME", "GWI_STATE_DIR")}
+            for value in overrides.values():
+                Path(value).mkdir()
+            with patch.dict(os.environ, overrides):
+                clean = self.binary(
+                    "assert 'GWI_HOME' not in os.environ\n"
+                    "assert 'GWI_STATE_DIR' not in os.environ"
+                )
+                self.assertTrue(runner.run_binary(clean))
+                self.assertEqual({k: os.environ[k] for k in overrides}, overrides)
+                self.assert_home_cleaned_up()
+                for key in overrides:
+                    for status in (0, 7):
+                        with self.subTest(key=key, status=status):
+                            self.output.seek(0)
+                            self.output.truncate()
+                            writer = self.binary(
+                                f"base = pathlib.Path(os.environ.get({key!r}, str(home)))\n"
+                                "(base / 'leak').write_text('fixture')\n"
+                                f"sys.exit({status})"
+                            )
+                            self.assertFalse(runner.run_binary(writer))
+                            self.assertIn("leak", self.output.getvalue())
+                            self.assert_home_cleaned_up()
+                            self.assertEqual({k: os.environ[k] for k in overrides}, overrides)
+                            for value in overrides.values():
+                                self.assertEqual(list(Path(value).iterdir()), [])
+        self.assertFalse(Path(ambient).exists())
+
     def test_writes_fail_the_script(self):
         for code, entry in (
             ("(home / '.hidden-log').write_text('leak')", ".hidden-log"),

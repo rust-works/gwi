@@ -93,7 +93,9 @@ reported by Cargo directly, each with a fresh temporary `HOME`. It covers both d
 `mcp` features. Cargo itself keeps the real `HOME`/`CARGO_HOME` so rustup and dependency
 fetching still work. `INSTA_WORKSPACE_ROOT` points at this checkout so snapshot tests do
 not invoke Cargo through rustup from the empty HOME. The test processes have inherited `XDG_CONFIG_HOME`, `XDG_DATA_HOME`,
-`XDG_STATE_HOME` and `XDG_CACHE_HOME` removed so default Unix paths resolve under that HOME.
+`XDG_STATE_HOME` and `XDG_CACHE_HOME` removed, along with `GWI_HOME` and
+`GWI_STATE_DIR`, so default Unix paths resolve under that HOME. These changes apply
+only to the test executables; the parent environment and Cargo builds are unchanged.
 
 A failed test or any entry left under HOME (including hidden files, empty directories and
 symlinks) fails the command; the script reports the binary and leftover top-level entries
@@ -123,7 +125,10 @@ Two sweeps apply valid inconvenient values and malformed values for request/audi
 logging (including rotation, bodies and headers), HTTP timeouts, secret-command
 limits and Drive lease policy. Each binary gets temporary request-log, audit-log
 and backup paths, cleaned up even when tests fail; the developer's exported paths
-are replaced only in the child environment. Application parsing behavior is unchanged.
+are replaced only in the child environment. Inherited `GWI_HOME` and `GWI_STATE_DIR`
+are removed from both test listing and execution, preserving ordinary platform-default
+home/state discovery and leaving the parent environment and Cargo builds unchanged.
+Application parsing behavior is unchanged.
 
 Missing executables, empty test selections and failed tests fail the command with
 case and binary diagnostics. Subsequent binaries and cases still run after a test
