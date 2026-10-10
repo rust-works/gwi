@@ -121,10 +121,12 @@ Gate Unix-only imports and helpers on the items that use them, and keep portable
 assertions running on every platform. Rust doc examples must also be portable or gate
 their Unix-specific code explicitly: a normal `cargo test` run checks them too.
 
-Windows home discovery uses the Known Folder API, which ignores `HOME`. The shared
-Gmail and Drive unit-test environment guards explicitly route settings into their
-temporary directories, restoring the previous route when dropped; this route is scoped
-to the test thread and is absent from production binaries. Subprocess tests that require
-`HOME` to relocate the real settings or state directories are Unix-only, with a comment
-explaining that limitation. Portable CLI subprocess tests and in-memory MCP protocol
-tests still run on Windows.
+Windows home discovery uses the Known Folder API, which ignores `HOME`. Unit-test
+settings guards explicitly route settings into scoped fixtures. Real CLI and MCP
+subprocess fixtures use `GWI_HOME` and `GWI_STATE_DIR` to pin application settings
+and every default state path to temporary directories on all platforms. They also
+scrub credentials and ambient configuration, and pin request and audit logs. The
+MCP fixture uses Cargo's absolute executable path without a Unix-specific `PATH`.
+Settings/profile/import scenarios and all three MCP stdio/rejection scenarios run
+on Windows; only tests of platform-specific filesystem or pipe behaviour remain
+gated as described above.
