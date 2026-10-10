@@ -41,8 +41,12 @@ python "$WT/scripts/measure_cli_stack.py" --checkout "$WT" --output "$OUT/after-
 python "$WT/scripts/measure_cli_stack.py" --checkout "$WT" --output "$OUT/after-mcp" --mcp
 ```
 
-Use distinct output directories with the same parent to reuse dependencies. The
-script uses the checkout's locked dependency versions and Cargo's dev profile
+Use distinct output directories with the same parent to reuse dependencies. Each
+measurement runs `cargo clean -p gwi` in that shared target directory: root-package
+fingerprints must not reuse a baseline build whose worktree has newer source
+mtimes than the candidate. Dependency artifacts remain cached. Source SHA-256
+hashes, checkout paths, assembly paths, and Cargo artifact messages establish
+provenance for each phase. The script uses the checkout's locked dependency versions and Cargo's dev profile
 (`opt-level=0`). It records `rustc -Vv`, the checkout commit, feature selection,
 MSVC unwind frame sizes, direct builder call paths, each probe's exit code, and
 the smallest passing tested budget in `report.json`. `probe-<KiB>.log` retains
@@ -52,7 +56,7 @@ failure at 8 MiB fails the script.
 `Windows CLI Stack` in CI runs this against the PR base and candidate with both
 feature sets. The base receives the identical probe test and Cargo test target
 registration; its production code remains unchanged. The job uploads four
-reports and the child logs as `windows-cli-stack`. The existing `Windows Build`
+reports, Cargo artifact messages, and the child logs as `windows-cli-stack`. The existing `Windows Build`
 job continues to run real-binary help/version and log-follow tests in both feature
 configurations, independently of this measurement job.
 

@@ -7,6 +7,7 @@ budget is expected data; build errors and failure at 8 MiB are fatal.
 """
 
 import argparse
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -78,6 +79,14 @@ def library_assemblies(cargo_output):
     ]
 
 
+def clean_root(checkout, target):
+    """Invalidate only gwi artifacts before switching source checkouts."""
+    subprocess.run([
+        "cargo", "clean", "--manifest-path", str(checkout / "Cargo.toml"),
+        "--target-dir", str(target), "-p", "gwi",
+    ], check=True)
+
+
 def measure(checkout, output, mcp):
     output.mkdir(parents=True, exist_ok=True)
     target = output.parent / "target"
@@ -85,12 +94,25 @@ def measure(checkout, output, mcp):
               "--target-dir", str(target)]
     if mcp:
         common += ["--features", "mcp"]
+    # Cargo's root-package fingerprint can be reused across checkouts when the
+    # candidate source has older mtimes than a freshly created baseline worktree.
+    # Keep dependency artifacts, but force each root package to compile its own tree.
+    clean_root(checkout, target)
     # The script deliberately runs natively: Windows C dependencies and the
     # executable probe need a Windows toolchain, not merely Rust's target std.
     compilation = subprocess.run(
         ["cargo", "rustc", *common, "--lib", "--message-format=json", "--", "--emit=asm"],
         check=True, capture_output=True, text=True, encoding="utf-8", errors="replace",
     )
+    (output / "compile.jsonl").write_text(compilation.stdout, encoding="utf-8")
+    root_artifacts = [
+        row for line in compilation.stdout.splitlines()
+        if (row := json.loads(line)).get("reason") == "compiler-artifact"
+        and row.get("target", {}).get("name") == "gwi"
+        and "lib" in row["target"]["kind"]
+    ]
+    if len(root_artifacts) != 1 or root_artifacts[0].get("fresh") is not False:
+        raise RuntimeError("measurement requires a freshly compiled gwi library")
     libraries = library_assemblies(compilation.stdout)
     if len(libraries) != 1 or not libraries[0].is_file():
         raise RuntimeError(f"expected one library assembly, got {libraries}")
@@ -121,6 +143,13 @@ def measure(checkout, output, mcp):
         outcomes.append({"kib": kib, "exit_code": child.returncode})
         print(f"{output.name}: {kib} KiB: exit {child.returncode}", flush=True)
     report = {
+        "checkout": str(checkout),
+        "cargo_fresh": root_artifacts[0]["fresh"],
+        "assembly": str(libraries[0]),
+        "builder_sources_sha256": {
+            relative: hashlib.sha256((checkout / relative).read_bytes()).hexdigest()
+            for relative in ("src/cli/drive.rs", "src/cli/drive/sheets.rs")
+        },
         "compiler": subprocess.check_output(["rustc", "-Vv"], text=True, encoding="utf-8"),
         "commit": subprocess.check_output(
             ["git", "-C", str(checkout), "rev-parse", "HEAD"], text=True, encoding="utf-8").strip(),

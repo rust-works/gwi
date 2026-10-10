@@ -2,10 +2,13 @@
 """Regression tests for MSVC frame accounting used in CLI stack reports."""
 
 import json
+import os
 from pathlib import Path
+import subprocess
+import tempfile
 import unittest
 
-from measure_cli_stack import builder_paths, library_assemblies, windows_frames
+from measure_cli_stack import builder_paths, clean_root, library_assemblies, windows_frames
 
 
 class FrameTests(unittest.TestCase):
@@ -52,6 +55,47 @@ class FrameTests(unittest.TestCase):
         self.assertEqual(library_assemblies(output.replace("libgwi", "gwi")), [
             Path("target/debug/deps/gwi-8f7effb47400b339.s"),
         ])
+
+    def test_older_checkout_is_rebuilt_in_a_shared_target(self):
+        # Cargo can consider an older checkout fresh after compiling another
+        # worktree into the same target. Assert the cleanup compiles its contents.
+        with tempfile.TemporaryDirectory(prefix="gwi-stack-cache-") as temporary:
+            root = Path(temporary)
+            target = root / "target"
+            for name, marker in [("newer", "BASELINE_SENTINEL_228"),
+                                 ("older", "CANDIDATE_SENTINEL_228")]:
+                checkout = root / name
+                (checkout / "src").mkdir(parents=True)
+                (checkout / "Cargo.toml").write_text(
+                    '[package]\nname = "gwi"\nversion = "0.0.1"\nedition = "2021"\n',
+                    encoding="utf-8",
+                )
+                source = checkout / "src/lib.rs"
+                source.write_text(
+                    f'pub fn marker() -> &\'static str {{ "{marker}" }}\n',
+                    encoding="utf-8",
+                )
+                if name == "older":
+                    os.utime(source, (1_000_000_000, 1_000_000_000))
+
+            def compile_library(name):
+                result = subprocess.run([
+                    "cargo", "rustc", "--offline", "--manifest-path",
+                    str(root / name / "Cargo.toml"), "--target-dir", str(target),
+                    "--lib", "--message-format=json", "--", "--emit=asm",
+                ], check=True, capture_output=True, text=True, encoding="utf-8")
+                return result.stdout
+
+            compile_library("newer")
+            compile_library("older")
+            clean_root(root / "older", target)
+            output = compile_library("older")
+            artifacts = [json.loads(line) for line in output.splitlines()
+                         if json.loads(line).get("reason") == "compiler-artifact"]
+            self.assertFalse(artifacts[-1]["fresh"])
+            assembly = library_assemblies(output)[0].read_text(encoding="utf-8")
+            self.assertIn("CANDIDATE_SENTINEL_228", assembly)
+            self.assertNotIn("BASELINE_SENTINEL_228", assembly)
 
     def test_no_windows_unwind_frames(self):
         self.assertEqual(windows_frames("sub sp, sp, #4096"), ({}, {}))

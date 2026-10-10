@@ -139,6 +139,7 @@ jobs:
         name: windows-cli-stack
         path: |
           ${{ runner.temp }}/cli-stack/*/report.json
+          ${{ runner.temp }}/cli-stack/*/compile.jsonl
           ${{ runner.temp }}/cli-stack/*/probe-*.log
 
   fmt:
