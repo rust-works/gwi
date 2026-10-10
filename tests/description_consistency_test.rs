@@ -280,6 +280,15 @@ fn imports_drive_accounts(items: &[Item]) -> bool {
         .all(|name| names.contains(&format!("crate::mcp::drive_tools::{name}")))
 }
 
+// Stable labels also key the source-specific mappings on Windows.
+fn source_label(relative: &Path) -> String {
+    relative
+        .components()
+        .map(|part| part.as_os_str().to_str().unwrap())
+        .collect::<Vec<_>>()
+        .join("/")
+}
+
 fn rust_files(dir: &Path, files: &mut Vec<PathBuf>) {
     for entry in std::fs::read_dir(dir).unwrap() {
         let path = entry.unwrap().path();
@@ -315,7 +324,7 @@ fn explicit_descriptions_match_rustdoc() {
         }
         match check_items(
             &file.items,
-            path.strip_prefix(root).unwrap().to_str().unwrap(),
+            &source_label(path.strip_prefix(root).unwrap()),
             &macros,
         ) {
             Ok(n) => count += n,
@@ -521,6 +530,24 @@ fn shorthand_link_labels_do_not_strip_unrelated_bracketed_literals() {
     }"#
         )
         .unwrap(),
+        1
+    );
+}
+
+#[test]
+fn native_paths_use_portable_labels_for_source_specific_mappings() {
+    let relative: PathBuf = ["src", "cli", "gmail", "read.rs"].iter().collect();
+    assert_eq!(source_label(&relative), "src/cli/gmail/read.rs");
+    let file = syn::parse_file(
+        r#"enum ReadOutputFormat {
+        /// YAML stream (`---`-separated multi-document).
+        #[value(help = "YAML stream ('---'-separated multi-document)")]
+        Yamls,
+    }"#,
+    )
+    .unwrap();
+    assert_eq!(
+        check_items(&file.items, &source_label(&relative), &Macros::new()).unwrap(),
         1
     );
 }
