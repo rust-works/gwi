@@ -67,6 +67,17 @@ jobs:
     - run: python3 scripts/test_home_write_test.py -v
     - run: python3 scripts/home-write-test.py
 
+  hostile-env-test:
+    name: Hostile Environment Test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+    - uses: actions/checkout@v7
+    - uses: dtolnay/rust-toolchain@stable
+    - uses: Swatinem/rust-cache@v2
+    - run: python3 scripts/test_hostile_env_test.py -v
+    - run: python3 scripts/hostile-env-test.py
+
   windows-build:
     name: Windows Build
     runs-on: windows-latest
