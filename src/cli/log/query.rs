@@ -395,7 +395,7 @@ fn source_str(source: Source) -> &'static str {
     }
 }
 
-/// The built-in field names and aliases [`builtin_field_matches`] handles. Used
+/// The built-in field names and aliases the query expressions handle. Used
 /// only to suggest a correction; a test keeps it in step with the match arms.
 const BUILTIN_FIELDS: &[&str] = &[
     "kind",
@@ -454,8 +454,6 @@ fn builtin_field_matches(rec: &LogRecord, field: &str, value: &str) -> Option<bo
             .is_some_and(|s| source_str(s).eq_ignore_ascii_case(value)),
         "service" => opt_eq_ci(rec.service.as_deref(), value),
         "method" => opt_eq_ci(rec.method.as_deref(), value),
-        // Query construction validates this with the same parser as `--status`.
-        "status" => StatusFilter::parse(value).is_ok_and(|s| s.matches(rec)),
         "command" | "cmd" => command_matches(rec, value),
         "url" => contains_ci(rec.url.as_deref(), value),
         "id" => rec.id == value || rec.invocation_id == value,
@@ -483,7 +481,9 @@ fn builtin_field_matches(rec: &LogRecord, field: &str, value: &str) -> Option<bo
 
 /// Whether `field` is a built-in name rather than a `context` key.
 fn is_builtin_field(field: &str) -> bool {
-    builtin_field_matches(&LogRecord::default(), field, "").is_some()
+    // Status terms have their own compiled expression rather than a field arm.
+    field.eq_ignore_ascii_case("status")
+        || builtin_field_matches(&LogRecord::default(), field, "").is_some()
 }
 
 /// Whether a numeric-field value carries a leading comparison operator
@@ -532,8 +532,10 @@ enum Expr {
     And(Box<Self>, Box<Self>),
     Or(Box<Self>, Box<Self>),
     Not(Box<Self>),
-    /// `field:value` structured term.
+    /// `field:value` structured term other than status.
     Field(String, String),
+    /// A `status:` matcher compiled during query construction.
+    Status(StatusFilter),
     /// Bare fuzzy token, matched against the lowercased raw line.
     Term(String),
 }
@@ -546,6 +548,7 @@ impl Expr {
             Self::Or(a, b) => a.eval(rec, raw_lower) || b.eval(rec, raw_lower),
             Self::Not(a) => !a.eval(rec, raw_lower),
             Self::Field(f, v) => field_matches(rec, f, v),
+            Self::Status(status) => status.matches(rec),
             Self::Term(t) => raw_lower.contains(&t.to_ascii_lowercase()),
         }
     }
@@ -560,7 +563,7 @@ impl Expr {
             }
             Self::Not(a) => a.collect_context_terms(out),
             Self::Field(f, v) if !is_builtin_field(f) => out.push((f, v)),
-            Self::Field(..) | Self::Term(_) => {}
+            Self::Field(..) | Self::Status(_) | Self::Term(_) => {}
         }
     }
 
@@ -574,12 +577,13 @@ impl Expr {
                 b.collect_status_terms(out);
             }
             Self::Not(a) => a.collect_status_terms(out),
-            Self::Field(f, v)
-                if f.eq_ignore_ascii_case("status")
-                    && v.trim_start()
-                        .starts_with(|c: char| c.is_ascii_alphabetic()) =>
-            {
-                out.extend(domain_status_words(v).map(|w| (w, format!("status:{w}"))));
+            Self::Status(status) => {
+                out.extend(
+                    status
+                        .domain_words()
+                        .into_iter()
+                        .map(|w| (w, format!("status:{w}"))),
+                );
             }
             Self::Field(..) | Self::Term(_) => {}
         }
@@ -944,9 +948,10 @@ impl Parser {
                 Ok(match word.split_once(':') {
                     Some((field, value)) if !field.is_empty() => {
                         if field.eq_ignore_ascii_case("status") {
-                            StatusFilter::parse(value)?;
+                            Expr::Status(StatusFilter::parse(value)?)
+                        } else {
+                            Expr::Field(field.to_string(), value.to_string())
                         }
-                        Expr::Field(field.to_string(), value.to_string())
                     }
                     _ => Expr::Term(word),
                 })
@@ -1926,6 +1931,50 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn status_queries_retain_matchers_for_repeated_evaluation() {
+        for spec in ["200,5xx", ">=400", "Blocked,WRITTEN"] {
+            let expr = parse_query(&format!(r#"STATUS:"{spec}""#)).unwrap();
+            assert!(matches!(&expr, Expr::Status(_)), "{spec}");
+            let expected = StatusFilter::parse(spec).unwrap();
+            for _ in 0..3 {
+                for rec in [
+                    http(Some(200), "drive", "GET"),
+                    http(Some(503), "drive", "GET"),
+                    http(None, "drive", "GET"),
+                    drive_rec("blocked"),
+                    drive_rec("written"),
+                    drive_rec("stale-revision"),
+                ] {
+                    assert_eq!(
+                        expr.eval(&rec, "{}"),
+                        expected.matches(&rec),
+                        "{spec}: {rec:?}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn compiled_status_watch_traverses_lists_and_nested_expressions() {
+        let f = filter_for(
+            None,
+            &[
+                r#"service:drive OR NOT (STATUS:"Written, Blokced" AND status:BLOKCED)"#,
+                r#"status:5xx OR "status:literal" OR servce:drive"#,
+            ],
+        )
+        .unwrap();
+        f.matches(&drive_rec("written"), "{}");
+        let warnings = f.unseen_status_warnings(false);
+        assert_eq!(warnings.len(), 1, "{warnings:?}");
+        assert!(warnings[0].contains("`status:Blokced`"), "{warnings:?}");
+        let fields = f.unknown_field_warnings(false);
+        assert_eq!(fields.len(), 1, "{fields:?}");
+        assert!(fields[0].contains("`servce`"), "{fields:?}");
     }
 
     #[test]
