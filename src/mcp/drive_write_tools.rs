@@ -28,8 +28,10 @@ use crate::mcp::drive_tools::account_param_doc;
 #[derive(Debug, Clone, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct DriveDocsReplaceParams {
-    /// Document id from `/d/<ID>/` in a Docs URL, e.g. 1a2B3c4D. Required.
-    #[schemars(description = "Document id from /d/<ID>/ in a Docs URL, e.g. 1a2B3c4D. Required.")]
+    /// Document id from `/d/<ID>/` in a Docs URL or `drive_search`'s `id`, e.g. 1a2B3c4D. Required.
+    #[schemars(
+        description = "Document id from /d/<ID>/ in a Docs URL or drive_search's id, e.g. 1a2B3c4D. Required."
+    )]
     pub document_id: String,
     /// Literal text to find, e.g. draft; not a regular expression. Required.
     pub search: String,
@@ -41,9 +43,10 @@ pub struct DriveDocsReplaceParams {
     /// Preview without mutating or requiring a lease. Default false; preview first.
     #[serde(default)]
     pub dry_run: Option<bool>,
-    /// Token from drive_lease_acquire or gwi drive lease acquire. Not needed for
-    /// dry_run or operator require_lease:false rules; any supplied token is still
-    /// validated.
+    /// Opaque lease token: copy the returned token from drive_lease_acquire
+    /// or gwi drive lease acquire for this file and account. Omit for dry_run
+    /// or operator require_lease:false rules; otherwise omission refuses the write.
+    /// On real writes any supplied token is validated, even under require_lease:false.
     #[serde(default)]
     pub lease: Option<String>,
     #[doc = account_param_doc!()]
@@ -55,13 +58,16 @@ pub struct DriveDocsReplaceParams {
 #[derive(Debug, Clone, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct DriveDocsAppendParams {
-    /// Document id from `/d/<ID>/` in a Docs URL, e.g. 1a2B3c4D. Required.
-    #[schemars(description = "Document id from /d/<ID>/ in a Docs URL, e.g. 1a2B3c4D. Required.")]
+    /// Document id from `/d/<ID>/` in a Docs URL or `drive_search`'s `id`, e.g. 1a2B3c4D. Required.
+    #[schemars(
+        description = "Document id from /d/<ID>/ in a Docs URL or drive_search's id, e.g. 1a2B3c4D. Required."
+    )]
     pub document_id: String,
     /// Text to append, e.g. a new paragraph. Exactly one of text or text_path is required.
     #[serde(default)]
     pub text: Option<String>,
-    /// Local UTF-8 text file, mutually exclusive with text. Stdin (-) is unsupported.
+    /// Local UTF-8 text file, e.g. `/tmp/paragraph.txt`; omit when supplying text.
+    /// Exactly one of text or text_path is required. Stdin (-) is unsupported.
     /// Must be inside the operator's allowed directories (`mcp.allowed_paths`) and outside
     /// credential locations.
     #[serde(default)]
@@ -69,9 +75,10 @@ pub struct DriveDocsAppendParams {
     /// Preview without mutating or requiring a lease. Default false; preview first.
     #[serde(default)]
     pub dry_run: Option<bool>,
-    /// Token from drive_lease_acquire or gwi drive lease acquire. Not needed for
-    /// dry_run or operator require_lease:false rules; any supplied token is still
-    /// validated.
+    /// Opaque lease token: copy the returned token from drive_lease_acquire
+    /// or gwi drive lease acquire for this file and account. Omit for dry_run
+    /// or operator require_lease:false rules; otherwise omission refuses the write.
+    /// On real writes any supplied token is validated, even under require_lease:false.
     #[serde(default)]
     pub lease: Option<String>,
     #[doc = account_param_doc!()]
@@ -83,28 +90,31 @@ pub struct DriveDocsAppendParams {
 #[derive(Debug, Clone, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct DriveSheetsWriteParams {
-    /// Spreadsheet id from `/d/<ID>/` in a Sheets URL, e.g. 1a2B3c4D. Required.
+    /// Spreadsheet id from `/d/<ID>/` in a Sheets URL or `drive_search`'s `id`, e.g. 1a2B3c4D. Required.
     #[schemars(
-        description = "Spreadsheet id from /d/<ID>/ in a Sheets URL, e.g. 1a2B3c4D. Required."
+        description = "Spreadsheet id from /d/<ID>/ in a Sheets URL or drive_search's id, e.g. 1a2B3c4D. Required."
     )]
     pub spreadsheet_id: String,
     /// A1 range, e.g. A1:B2 or Sheet1!A1:B2. Omit with sheet to target the tab.
+    /// At least one of range or sheet is required.
     #[serde(default)]
     pub range: Option<String>,
-    /// Tab title, e.g. Sheet1. Supplies a bare range prefix; conflicts with a range already
-    /// naming a tab.
+    /// Tab title, e.g. Sheet1 (from drive_sheets_info). Omit to use range alone.
+    /// Supplies a bare range prefix; conflicts with a range already naming a tab.
     #[serde(default)]
     pub sheet: Option<String>,
     /// Inline array of rows, e.g. `[["name", "score"], ["Ada", "42"]]`. Exactly one of values
     /// or values_path is required.
     #[serde(default)]
     pub values: Option<Vec<Vec<String>>>,
-    /// Local UTF-8 CSV/TSV/JSON file; mutually exclusive with values. Stdin (-) is unsupported.
+    /// Local UTF-8 CSV/TSV/JSON file, e.g. `/tmp/rows.csv`; omit when supplying values.
+    /// Exactly one of values or values_path is required. Stdin (-) is unsupported.
     /// Must be inside the operator's allowed directories (`mcp.allowed_paths`) and outside
     /// credential locations.
     #[serde(default)]
     pub values_path: Option<String>,
-    /// File format: auto (default; infer extension), csv, tsv, json. Only applies to values_path.
+    /// File format: auto (default; infer extension), csv, tsv, json.
+    /// Omit when supplying inline values; explicit values_format requires values_path.
     #[serde(default)]
     pub values_format: Option<String>,
     /// Interpretation: user-entered (default; parses formulas/dates/numbers) or raw (literal text).
@@ -113,9 +123,10 @@ pub struct DriveSheetsWriteParams {
     /// Preview without mutating or requiring a lease. Default false; preview first.
     #[serde(default)]
     pub dry_run: Option<bool>,
-    /// Token from drive_lease_acquire or gwi drive lease acquire. Not needed for
-    /// dry_run or operator require_lease:false rules; any supplied token is still
-    /// validated.
+    /// Opaque lease token: copy the returned token from drive_lease_acquire
+    /// or gwi drive lease acquire for this file and account. Omit for dry_run
+    /// or operator require_lease:false rules; otherwise omission refuses the write.
+    /// On real writes any supplied token is validated, even under require_lease:false.
     #[serde(default)]
     pub lease: Option<String>,
     #[doc = account_param_doc!()]
@@ -127,24 +138,26 @@ pub struct DriveSheetsWriteParams {
 #[derive(Debug, Clone, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct DriveSheetsClearParams {
-    /// Spreadsheet id from `/d/<ID>/` in a Sheets URL, e.g. 1a2B3c4D. Required.
+    /// Spreadsheet id from `/d/<ID>/` in a Sheets URL or `drive_search`'s `id`, e.g. 1a2B3c4D. Required.
     #[schemars(
-        description = "Spreadsheet id from /d/<ID>/ in a Sheets URL, e.g. 1a2B3c4D. Required."
+        description = "Spreadsheet id from /d/<ID>/ in a Sheets URL or drive_search's id, e.g. 1a2B3c4D. Required."
     )]
     pub spreadsheet_id: String,
     /// A1 range, e.g. A1:B2 or Sheet1!A1:B2. Omit with sheet to target the tab.
+    /// At least one of range or sheet is required.
     #[serde(default)]
     pub range: Option<String>,
-    /// Tab title, e.g. Sheet1. Supplies a bare range prefix; conflicts with a range already
-    /// naming a tab.
+    /// Tab title, e.g. Sheet1 (from drive_sheets_info). Omit to use range alone.
+    /// Supplies a bare range prefix; conflicts with a range already naming a tab.
     #[serde(default)]
     pub sheet: Option<String>,
     /// Preview without mutating or requiring a lease. Default false; preview first.
     #[serde(default)]
     pub dry_run: Option<bool>,
-    /// Token from drive_lease_acquire or gwi drive lease acquire. Not needed for
-    /// dry_run or operator require_lease:false rules; any supplied token is still
-    /// validated.
+    /// Opaque lease token: copy the returned token from drive_lease_acquire
+    /// or gwi drive lease acquire for this file and account. Omit for dry_run
+    /// or operator require_lease:false rules; otherwise omission refuses the write.
+    /// On real writes any supplied token is validated, even under require_lease:false.
     #[serde(default)]
     pub lease: Option<String>,
     #[doc = account_param_doc!()]
@@ -156,9 +169,11 @@ pub struct DriveSheetsClearParams {
 #[derive(Debug, Clone, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct DriveLeaseAcquireParams {
-    /// Drive file id to back up and lease, e.g. 1a2B3c4D. Required.
+    /// Drive file id to back up and lease, e.g. 1a2B3c4D, from drive_search's id
+    /// or the file id in a Drive/Docs/Sheets URL. Pass the id, not the URL. Required.
     pub file_id: String,
-    /// Lease lifetime in minutes (1–1440). Defaults to operator env/settings, then 30;
+    /// Lease lifetime in whole minutes (1–1440), e.g. 30. Omit to use operator
+    /// env/settings, then 30;
     /// writes never extend it.
     #[serde(default)]
     pub expiry_minutes: Option<i64>,

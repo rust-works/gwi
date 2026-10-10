@@ -65,7 +65,8 @@ pub struct DriveDocsReadParams {
         description = "Document id (the /d/<ID>/ segment of a Docs URL, e.g. 1a2B3c4D5e6F7g8H9iJ0kLmNoPqRsTuVwXyZ). Required."
     )]
     pub document_id: String,
-    /// Restrict output to one tab id (see `drive_docs_info`'s `tabs[].tab_id`).
+    /// Restrict output to one tab id, e.g. `t.abc123` (copy the actual id from
+    /// `drive_docs_info`'s `tabs[].tab_id`, not the tab title).
     /// Omit to read every tab.
     #[serde(default)]
     pub tab: Option<String>,
@@ -78,6 +79,7 @@ pub struct DriveDocsReadParams {
     /// made under that same view — a different view can shift every index.
     #[serde(default)]
     pub suggestions_view: Option<String>,
+    /// Local output path, e.g. `/tmp/document.yaml`. Omit for inline YAML.
     /// When set, writes the result (YAML) to this path and returns a short
     /// summary instead of the inline body — recommended for a large document
     /// that would exceed the response size limit.
@@ -104,7 +106,7 @@ impl GwiServer {
                        `writeControl.requiredRevisionId`, so a write against a document that moved \
                        underneath it is refused rather than misapplied; it is absent when the \
                        caller lacks edit access. Use `drive_docs_read` for the full element list \
-                       with every index. \
+                       with every index. Example: document_id:\"1a2B3c4D5e6F7g8H9iJ0kLmNoPqRsTuVwXyZ\". \
                        Read-only. Mirrors `gwi drive docs info`. Output is YAML."
     )]
     pub async fn drive_docs_info(
@@ -133,7 +135,7 @@ impl GwiServer {
                        are reported against — indices from one view only apply to an edit made \
                        under that same view. When `output_file` is set, writes the YAML result to \
                        that path and returns a short summary instead — recommended for a large \
-                       document. \
+                       document. Example: document_id:\"1a2B3c4D\", suggestions_view:\"accepted\". \
                        Read-only — no write gate, lease or dry-run applies (unlike `docs \
                        replace`/`append`, exposed by separate gated write tools). \
                        Mirrors `gwi drive docs read`. Output is YAML."

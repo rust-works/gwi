@@ -55,10 +55,13 @@ use super::truncate::build_truncated_result;
 /// rather than forking the string.
 macro_rules! account_param_doc {
     () => {
-        "Selects a named Drive account instead of the ambient \
-         `--account`/`GWI_DRIVE_ACCOUNT` resolution — e.g. `work`. Omit to use the \
-         resolved default account (or the legacy single-account credentials, if no named \
-         accounts are configured). Call `drive_account_list` to discover configured names."
+        "Selects a named Drive account, e.g. `work`, overriding ambient \
+         `--account`/`GWI_DRIVE_ACCOUNT`. Omit to use the ambient selection, then the \
+         configured default or sole account; multiple accounts without a default require \
+         a selection. With no named accounts, uses unconfigured/legacy credentials. \
+         A complete process-environment DRIVE_CLIENT_ID/DRIVE_CLIENT_SECRET/\
+         DRIVE_REFRESH_TOKEN credential set bypasses named-account selection, even \
+         when account is supplied. Call `drive_account_list` to discover configured names."
     };
 }
 pub(crate) use account_param_doc;
@@ -90,7 +93,8 @@ pub struct DriveSearchParams {
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct DriveDedupeParams {
     /// Drive query, same syntax as `drive search`'s query argument (e.g.
-    /// `'<folder-id>' in parents` to dedupe within one folder). Required.
+    /// `'1a2B3c4D' in parents` to dedupe within one folder; obtain the folder
+    /// id from `drive_search`). Required.
     pub query: String,
     /// Maximum results to scan. Defaults to 50 when omitted; `0` explicitly
     /// means scan every match up to the hard cap (10000).
@@ -104,15 +108,16 @@ pub struct DriveDedupeParams {
 /// Parameters for the `drive_file_read` tool.
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct DriveFileReadParams {
-    /// Drive file id (from `drive_search`, or the `id` segment of a Drive
-    /// URL). Required.
+    /// Drive file id, e.g. `1a2B3c4D`, from `drive_search`'s `id` field or
+    /// the file id in a Drive URL. Pass the id, not the whole URL. Required.
     pub file_id: String,
     /// `metadata` (default) returns only the file's metadata; `content`
     /// additionally fetches its actual content — exported for Google-native
     /// files (Docs/Sheets/Slides/...), downloaded as-is otherwise.
     #[serde(default)]
     pub format: Option<String>,
-    /// Export MIME type for a Google-native file's content — only relevant
+    /// Export MIME type, e.g. `text/markdown`, for a Google-native file's
+    /// content — only relevant
     /// with `format: "content"`, ignored otherwise. Defaults: Google Docs ->
     /// text/markdown, Sheets -> text/csv (first sheet only), Slides ->
     /// text/plain. Required for every other Google-native type (Forms,
@@ -120,6 +125,7 @@ pub struct DriveFileReadParams {
     /// actually supported export MIME types.
     #[serde(default)]
     pub export_mime_type: Option<String>,
+    /// Local output path, e.g. `/tmp/report.pdf`. Omit for inline text.
     /// Only valid with `format: "content"`. When set, writes the fetched
     /// content to this path and returns a short YAML summary instead of the
     /// inline body — required for binary content (this tool refuses to
@@ -134,7 +140,7 @@ pub struct DriveFileReadParams {
     /// Drive's reported `sha256Checksum`. Only supported for non-Google-
     /// native files — Drive never returns a checksum for exported content,
     /// so this errors immediately on a Google-native file. Fails clearly on
-    /// a mismatch or a missing checksum.
+    /// a mismatch or a missing checksum. Omit or pass `false` to skip verification.
     #[serde(default)]
     pub verify: Option<bool>,
     #[doc = account_param_doc!()]
@@ -163,7 +169,8 @@ impl GwiServer {
                        Unlike the CLI `gwi drive auth status`, this tool does not call the \
                        Drive API and cannot confirm the refresh token is still accepted — use \
                        the CLI status command to actually verify. \
-                       Read-only. Mirrors `gwi drive auth status`."
+                       Example: account:\"work\". Read-only. Output is YAML. \
+                       Mirrors `gwi drive auth status`."
     )]
     pub async fn drive_auth_status(
         &self,
@@ -177,7 +184,8 @@ impl GwiServer {
     #[tool(
         description = "Search Drive files with a Drive query (same syntax as `drive search`'s \
                        query argument, e.g. `name contains 'report' and mimeType = \
-                       'application/pdf'`). Returns id/name/mimeType/size/md5Checksum/\
+                       'application/pdf'`). Use `drive_dedupe` to group files with identical content \
+                       instead of listing individual hits. Returns id/name/mimeType/size/md5Checksum/\
                        sha1Checksum/sha256Checksum/modifiedTime/parents/webViewLink/owners per \
                        hit — `files.list` returns full metadata in one call, so there's no \
                        separate hydration step. Checksum fields are present only for \
@@ -200,12 +208,12 @@ impl GwiServer {
     /// Tool: find Drive files sharing the same content hash.
     #[tool(
         description = "Find Drive files sharing the same content hash, within the results of a \
-                       Drive query (same syntax as `drive_search`'s `query`, e.g. `'<folder-id>' \
-                       in parents` to dedupe within one folder). Reuses the same bulk-search \
-                       path as `drive_search` — no per-file follow-up call. Groups by \
+                       Drive query (same syntax as `drive_search`'s `query`, e.g. `'1a2B3c4D' \
+                       in parents` to dedupe within one folder; get its id from `drive_search`). Reuses the same \
+                       bulk-search path as `drive_search` — no per-file follow-up call. Groups by \
                        md5Checksum (the broadest-coverage checksum field); files with no \
                        checksum (folders, Google-native documents) are skipped, and groups of \
-                       one are omitted. `limit` defaults to 50 when omitted; pass `0` explicitly \
+                       one are omitted. Use `drive_search` for individual files, including unique ones. `limit` defaults to 50 when omitted; pass `0` explicitly \
                        to scan up to a hard cap (10000). \
                        Read-only. Mirrors `gwi drive dedupe`. Output is YAML."
     )]
@@ -222,7 +230,9 @@ impl GwiServer {
 
     /// Tool: read a single Drive file's metadata or content.
     #[tool(
-        description = "Read a single Drive file by id. `format: \"metadata\"` (default) \
+        description = "Read a single Drive file by id. Example: file_id:\"1a2B3c4D\", format:\"metadata\". \
+                       Get ids from `drive_search`. Prefer `drive_docs_read` for document indices or \
+                       `drive_sheets_read` for selected cells or multiple tabs. `format: \"metadata\"` (default) \
                        returns only metadata (including md5Checksum/sha1Checksum/\
                        sha256Checksum when available); `format: \"content\"` additionally \
                        fetches the file's actual content — exported for Google-native files \
@@ -262,7 +272,8 @@ impl GwiServer {
                        cached email address (if known), granted scope, and which one is the \
                        default. Call this first to discover valid `account` values before \
                        passing one to `drive_search`/`drive_file_read`/`drive_auth_status`. \
-                       Never returns a secret. \
+                       Names work with every Drive/Docs/Sheets tool, including writes and leases. \
+                       Never returns a secret. Example: {}. Output is YAML. \
                        Read-only, no parameters. Mirrors `gwi drive account list`."
     )]
     pub async fn drive_account_list(

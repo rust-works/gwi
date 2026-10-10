@@ -39,8 +39,11 @@ use super::truncate::build_truncated_result;
 /// Parameters for the `drive_sheets_info` tool.
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct DriveSheetsInfoParams {
-    /// Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL). Required.
-    #[schemars(description = "Spreadsheet id (the /d/<ID>/ segment of a Sheets URL). Required.")]
+    /// Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL, e.g.
+    /// `1a2B3c4D5e6F7g8H9iJ0kLmNoPqRsTuVwXyZ`). Required.
+    #[schemars(
+        description = "Spreadsheet id (the /d/<ID>/ segment of a Sheets URL, e.g. 1a2B3c4D5e6F7g8H9iJ0kLmNoPqRsTuVwXyZ). Required."
+    )]
     pub spreadsheet_id: String,
     #[doc = account_param_doc!()]
     #[serde(default)]
@@ -50,8 +53,11 @@ pub struct DriveSheetsInfoParams {
 /// Parameters for the `drive_sheets_read` tool.
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct DriveSheetsReadParams {
-    /// Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL). Required.
-    #[schemars(description = "Spreadsheet id (the /d/<ID>/ segment of a Sheets URL). Required.")]
+    /// Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL, e.g.
+    /// `1a2B3c4D5e6F7g8H9iJ0kLmNoPqRsTuVwXyZ`). Required.
+    #[schemars(
+        description = "Spreadsheet id (the /d/<ID>/ segment of a Sheets URL, e.g. 1a2B3c4D5e6F7g8H9iJ0kLmNoPqRsTuVwXyZ). Required."
+    )]
     pub spreadsheet_id: String,
     /// An explicit A1 range, which may carry its own `Sheet!` prefix (e.g.
     /// `A1:C10`, `'My Sheet'!A:A`). Combined with `sheet` when bare. Omit
@@ -59,7 +65,9 @@ pub struct DriveSheetsReadParams {
     /// at 200 sheets; narrow with `sheet`/`range` above that cap).
     #[serde(default)]
     pub range: Option<String>,
-    /// Sheet (tab) title to read. Supplies the prefix for a bare `range`, or
+    /// Sheet (tab) title to read, e.g. `Sheet1` (from `drive_sheets_info`).
+    /// Omit to use the range alone, or every tab when range is also omitted.
+    /// Supplies the prefix for a bare `range`, or
     /// selects the whole tab on its own. Conflicts with a `range` that
     /// already names a sheet.
     #[serde(default)]
@@ -69,6 +77,7 @@ pub struct DriveSheetsReadParams {
     /// rather than locale-formatted strings; `formula` yields formula text.
     #[serde(default)]
     pub render: Option<String>,
+    /// Local output path, e.g. `/tmp/workbook.yaml`. Omit for inline YAML.
     /// When set, writes the result (YAML) to this path and returns a short
     /// summary instead of the inline body — recommended for a whole-workbook
     /// read that would exceed the response size limit.
@@ -92,7 +101,7 @@ impl GwiServer {
                        and a hidden flag per tab, no cell data (the underlying `spreadsheets.get` \
                        call requests a fields mask that excludes cell values, so this stays cheap \
                        regardless of workbook size). Use `drive_sheets_read` for actual cell \
-                       values. \
+                       values. Example: spreadsheet_id:\"1a2B3c4D5e6F7g8H9iJ0kLmNoPqRsTuVwXyZ\". \
                        Read-only. Mirrors `gwi drive sheets info`. Output is YAML."
     )]
     pub async fn drive_sheets_info(
@@ -120,7 +129,8 @@ impl GwiServer {
                        ragged exactly as the API returns them (trailing empty cells/rows \
                        truncated). When `output_file` is set, writes the YAML result to that path \
                        and returns a short summary instead — recommended for a large \
-                       whole-workbook read. \
+                       whole-workbook read. Example: spreadsheet_id:\"1a2B3c4D\", range:\"Sheet1!A1:C10\". \
+                       Use `drive_sheets_info` for tab titles and dimensions without cell data. \
                        Read-only — no write gate or dry-run applies (unlike `sheets \
                        write`/`append`/`clear`, whose MCP handlers live in `drive_write_tools`). \
                        Mirrors `gwi drive sheets read`. Output is YAML."

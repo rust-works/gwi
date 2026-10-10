@@ -61,10 +61,13 @@ use super::truncate::build_truncated_result;
 /// kept as one string so the copies can't drift.
 macro_rules! account_param_doc {
     () => {
-        "Selects a named Gmail account instead of the ambient \
-         `--account`/`GWI_GMAIL_ACCOUNT` resolution — e.g. `work`. Omit to use the \
-         resolved default account (or the legacy single-account credentials, if no named \
-         accounts are configured). Call `gmail_account_list` to discover configured names."
+        "Selects a named Gmail account, e.g. `work`, overriding ambient \
+         `--account`/`GWI_GMAIL_ACCOUNT`. Omit to use the ambient selection, then the \
+         configured default or sole account; multiple accounts without a default require \
+         a selection. With no named accounts, uses unconfigured/legacy credentials. \
+         A complete process-environment GMAIL_CLIENT_ID/GMAIL_CLIENT_SECRET/\
+         GMAIL_REFRESH_TOKEN credential set bypasses named-account selection, even \
+         when account is supplied. Call `gmail_account_list` to discover configured names."
     };
 }
 
@@ -105,13 +108,16 @@ pub struct GmailSearchParams {
 /// Parameters for the `gmail_message_read` tool.
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct GmailMessageReadParams {
-    /// Gmail message id. Required.
+    /// Gmail API message id, e.g. `18c5a2b3d4e6f789`, from the `id` field of
+    /// a `gmail_search` hit. Use the message id, not its `threadId`, an RFC
+    /// Message-ID header, or a draft id (`r-1234567890`). Required.
     pub message_id: String,
     /// `minimal` (ids/labels only), `metadata` (headers + snippet), `full`
     /// (default; parsed MIME structure), or `raw` (base64url RFC 2822
     /// source). Matches Gmail's own wire values verbatim.
     #[serde(default)]
     pub format: Option<String>,
+    /// Local output path, e.g. `/tmp/message.yaml`. Omit for inline YAML.
     /// When set, writes the rendered message to this path and returns a
     /// short YAML summary (path/bytes/format) instead of the inline body —
     /// use for large messages/attachments that would blow past the context
@@ -128,7 +134,10 @@ pub struct GmailMessageReadParams {
 /// Parameters for the `gmail_thread_read` tool.
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct GmailThreadReadParams {
-    /// Gmail thread id. Required.
+    /// Gmail API thread id, e.g. `18c5a2b3d4e6f780`, from the `threadId` field
+    /// of an ids-only `gmail_search` hit or `gmail_message_read` response
+    /// (`thread_id` in enriched search results). Identifies the
+    /// conversation, not an individual message or a draft (`r-1234567890`). Required.
     pub thread_id: String,
     #[doc = account_param_doc!()]
     #[serde(default)]
@@ -174,6 +183,7 @@ pub struct GmailDraftShowParams {
     /// source) — the same values as `gmail_message_read`'s `format`.
     #[serde(default)]
     pub format: Option<String>,
+    /// Local output path, e.g. `/tmp/draft.yaml`. Omit for inline YAML.
     /// When set, writes the rendered draft to this path as YAML and returns
     /// a short YAML summary (path/bytes/format) instead of the inline body.
     /// Even with `format: raw` the file is the YAML envelope, not a decoded
@@ -209,7 +219,8 @@ impl GwiServer {
                        not call the Gmail API and cannot confirm the refresh token is still \
                        accepted (a testing-mode Google Cloud project's refresh tokens expire \
                        after 7 days — use the CLI status command to actually verify). \
-                       Read-only. Mirrors `gwi gmail auth status`."
+                       Example: account:\"work\". Read-only. Output is YAML. \
+                       Mirrors `gwi gmail auth status`."
     )]
     pub async fn gmail_auth_status(
         &self,
@@ -241,7 +252,9 @@ impl GwiServer {
 
     /// Tool: read a single Gmail message.
     #[tool(
-        description = "Read a single Gmail message by id. `format` is `minimal` (ids/labels \
+        description = "Read a single Gmail message by id. Example: message_id:\"18c5a2b3d4e6f789\", format:\"metadata\". \
+                       Get the id from `gmail_search`; use `gmail_thread_read` for the conversation \
+                       or `gmail_draft_show` for a draft id. `format` is `minimal` (ids/labels \
                        only), `metadata` (headers + snippet only), `full` (default; parsed MIME \
                        structure), or `raw` (base64url-encoded RFC 2822 source) — Gmail's own \
                        wire values verbatim. When `output_file` is set, writes the rendered \
@@ -272,7 +285,9 @@ impl GwiServer {
     /// Tool: read a Gmail thread.
     #[tool(
         description = "Read a full Gmail thread (conversation) by id, including every message \
-                       in it. A thread is N messages, each potentially carrying attachments — \
+                       in it. Example: thread_id:\"18c5a2b3d4e6f780\" (the `threadId` from ids-only `gmail_search`, \
+                       or `thread_id` when enriched). \
+                       Use `gmail_message_read` for just one message. A thread is N messages, each potentially carrying attachments — \
                        the single highest-risk payload on the whole Gmail surface for exceeding \
                        the response size limit, so large threads are automatically truncated \
                        with a marker. Read-only. \
@@ -292,7 +307,7 @@ impl GwiServer {
     /// Tool: list Gmail labels.
     #[tool(
         description = "List every label on the Gmail mailbox (system labels like INBOX/TRASH \
-                       and user-created ones), with unread/total message counts. Adding or \
+                       and user-created ones), with unread/total message counts. Example: account:\"work\". Adding or \
                        removing labels on messages is CLI-only in this release \
                        (`gwi gmail label add`/`remove`) — no MCP tool mutates labels yet. \
                        Read-only. \
@@ -315,7 +330,7 @@ impl GwiServer {
                        passing one to `gmail_search`/`gmail_message_read`/`gmail_thread_read`/\
                        `gmail_label_list`/`gmail_draft_list`/`gmail_draft_show`/\
                        `gmail_auth_status`. Never returns a secret. \
-                       Read-only, no parameters. Mirrors `gwi gmail account list`."
+                       Example: {}. Read-only, no parameters. Output is YAML. Mirrors `gwi gmail account list`."
     )]
     pub async fn gmail_account_list(
         &self,
