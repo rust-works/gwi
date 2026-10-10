@@ -23,7 +23,7 @@
 use std::collections::VecDeque;
 use std::ffi::OsStr;
 use std::fs::File;
-use std::io::{self, BufRead, BufReader, Seek, SeekFrom, Write};
+use std::io::{self, BufRead, BufReader, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -39,6 +39,26 @@ const FOLLOW_POLL: Duration = Duration::from_millis(250);
 
 /// Amortize the hangup probe across this many backlog lines, including nonmatches.
 const BACKLOG_PROBE_LINES: usize = 1024;
+
+/// Maximum physical line numbers included in a skipped-lines warning.
+const SKIPPED_POSITION_CAP: usize = 5;
+
+/// Total malformed lines and a bounded sample of their physical line numbers.
+#[derive(Debug, Default, PartialEq, Eq)]
+struct SkippedLines {
+    count: usize,
+    positions: Vec<u64>,
+}
+
+impl SkippedLines {
+    /// Records a malformed line without retaining more than the warning cap.
+    fn record(&mut self, line: u64) {
+        self.count += 1;
+        if self.positions.len() < SKIPPED_POSITION_CAP {
+            self.positions.push(line);
+        }
+    }
+}
 
 /// Identity of a file on disk, `(device, inode)` on unix and `(volume serial number,
 /// file index)` on Windows; `None` where the platform offers none, so only
@@ -111,6 +131,8 @@ fn fd_hung_up(fd: std::os::fd::BorrowedFd<'_>) -> bool {
 struct Tail {
     /// Byte offset just past the last complete line read.
     pos: u64,
+    /// Number of newlines consumed before `pos` in this file.
+    lines: u64,
     /// Identity of the file `pos` refers to, when known.
     id: FileId,
     /// Pins the Unix inode until a fresh file has been opened and read, preventing
@@ -123,8 +145,12 @@ struct Tail {
 #[derive(Debug, PartialEq, Eq)]
 enum Backlog {
     /// Every line was read: the offset is just past the last newline-terminated
-    /// one, and `skipped` counts all scanned lines that could not be recovered.
-    Complete { pos: u64, skipped: usize },
+    /// one, `lines` counts newlines consumed, and `skipped` summarizes malformed lines.
+    Complete {
+        pos: u64,
+        lines: u64,
+        skipped: SkippedLines,
+    },
     /// The output pipe closed (e.g. `| head -1`), so the scan stopped early.
     ReaderGone,
 }
@@ -233,11 +259,16 @@ fn scan_files<W: Write>(
         }
         let mut reader = BufReader::new(file);
         match scan_backlog(&mut reader, filter, follow && live, sink, &mut reader_gone)? {
-            Backlog::Complete { pos, skipped } => {
+            Backlog::Complete {
+                pos,
+                lines,
+                skipped,
+            } => {
                 if live {
                     tail.pos = pos;
+                    tail.lines = lines;
                 }
-                warn_skipped(&current, skipped);
+                warn_skipped(&current, &skipped);
             }
             Backlog::ReaderGone => return Ok(None),
         }
@@ -294,21 +325,36 @@ impl<W: Write> BacklogSink<'_, W> {
 
 /// The warning for `skipped` lines of `path` that could not be parsed, or `None`
 /// when there were none.
-fn skipped_warning(path: &Path, skipped: usize) -> Option<String> {
-    let lines = match skipped {
+fn skipped_warning(path: &Path, skipped: &SkippedLines) -> Option<String> {
+    let lines = match skipped.count {
         0 => return None,
         1 => "1 unparseable line".to_string(),
         n => format!("{n} unparseable lines"),
     };
-    Some(format!("warning: skipped {lines} in {}", path.display()))
+    let positions = skipped
+        .positions
+        .iter()
+        .map(u64::to_string)
+        .collect::<Vec<_>>()
+        .join(", ");
+    let more = skipped.count - skipped.positions.len();
+    let suffix = if more == 0 {
+        String::new()
+    } else {
+        format!(" and {more} more")
+    };
+    Some(format!(
+        "warning: skipped {lines} in {} (lines {positions}{suffix})",
+        path.display()
+    ))
 }
 
 /// Prints the skipped-lines warning to stderr, once the backlog has been scanned:
 /// a corrupt record is dropped from every search, so a short or empty result
 /// would otherwise read as "nothing happened". Stderr only, so stdout and the
 /// exit code are unchanged. The follow loop reports the count of newly consumed malformed
-/// lines once per drain pass using the same warning.
-fn warn_skipped(path: &Path, skipped: usize) {
+/// lines and their positions once per drain pass using the same warning.
+fn warn_skipped(path: &Path, skipped: &SkippedLines) {
     if let Some(warning) = skipped_warning(path, skipped) {
         // Best effort: a closed stderr must not fail the search.
         let _ = writeln!(io::stderr().lock(), "{warning}");
@@ -357,7 +403,7 @@ fn read_line_lossy<R: BufRead>(
 /// Reads every existing line, passing matches to the shared sink. With a limit,
 /// the sink retains only the most recent N matches across scans; without it,
 /// matches stream out as they are read. Returns the byte offset just past the last
-/// newline-terminated line, and how many scanned lines could not be recovered.
+/// newline-terminated line, the completed-line count, and a bounded malformed-line summary.
 /// With `follow`, a trailing partial line is left pending without a warning:
 /// `--follow` reads it from that offset once it is complete. A one-shot scan has
 /// nothing to complete it, so it renders or counts that line immediately.
@@ -372,7 +418,8 @@ fn scan_backlog<R: BufRead, W: Write>(
     mut reader_gone: impl FnMut() -> bool,
 ) -> Result<Backlog> {
     let mut pos = 0u64;
-    let mut skipped = 0usize;
+    let mut skipped = SkippedLines::default();
+    let mut lines = 0u64;
     let mut buf = Vec::new();
     let mut line = String::new();
     let mut until_probe = 0;
@@ -391,12 +438,13 @@ fn scan_backlog<R: BufRead, W: Write>(
         let complete = line.ends_with('\n');
         if complete {
             pos += n as u64;
+            lines += 1;
         } else if follow {
             break; // a partial last line: left for the follow loop to print once
         }
         match parse_line(&line, filter, sink.format) {
             Line::Blank | Line::Filtered => {}
-            Line::Malformed => skipped += 1,
+            Line::Malformed => skipped.record(if complete { lines } else { lines + 1 }),
             Line::Match(rendered) => {
                 if !sink.emit(rendered)? {
                     return Ok(Backlog::ReaderGone);
@@ -404,7 +452,11 @@ fn scan_backlog<R: BufRead, W: Write>(
             }
         }
     }
-    Ok(Backlog::Complete { pos, skipped })
+    Ok(Backlog::Complete {
+        pos,
+        lines,
+        skipped,
+    })
 }
 
 /// Single-file test adapter for the backlog parser and output behavior.
@@ -461,7 +513,7 @@ fn follow_loop<W: Write>(
             return Ok(());
         }
         let skipped = drain_appended(path, filter, format, &mut tail, out)?;
-        warn_skipped(path, skipped);
+        warn_skipped(path, &skipped);
         std::thread::sleep(FOLLOW_POLL);
     }
 }
@@ -470,7 +522,7 @@ fn follow_loop<W: Write>(
 /// tail. Skips to the observed end if the file was replaced (its identity changed)
 /// or shrank (truncation); a no-op if the file is absent or has not grown.
 /// This also applies to replacement during the initial backlog scan.
-/// Returns the number of unparseable complete lines consumed in this pass.
+/// Returns the count and bounded positions of unparseable complete lines consumed in this pass.
 /// A trailing partial line (no newline yet) is left for the next call.
 fn drain_appended<W: Write>(
     path: &Path,
@@ -478,9 +530,9 @@ fn drain_appended<W: Write>(
     format: Format,
     tail: &mut Tail,
     out: &mut W,
-) -> Result<usize> {
+) -> Result<SkippedLines> {
     let Ok(file) = File::open(path) else {
-        return Ok(0);
+        return Ok(SkippedLines::default());
     };
     // Identity and length come from the handle that is read, not from the path.
     let len = file.metadata().map_or(tail.pos, |m| m.len());
@@ -492,10 +544,11 @@ fn drain_appended<W: Write>(
         // Prune retains records already seen, and identity cannot tell it apart
         // from rotation. Never replay replacement contents, including records
         // written before this poll; follow only subsequent appends.
+        tail.lines = count_newlines(&file, len)?;
         tail.pos = len;
     }
     tail.id = id.or(tail.id);
-    let mut skipped = 0;
+    let mut skipped = SkippedLines::default();
     if len > tail.pos {
         let mut reader = BufReader::new(&file);
         reader.seek(SeekFrom::Start(tail.pos))?;
@@ -507,12 +560,13 @@ fn drain_appended<W: Write>(
                 break; // EOF or partial trailing line — wait for more
             }
             tail.pos += n as u64;
+            tail.lines += 1;
             let parsed = parse_line(&line, filter, format);
             if matches!(parsed, Line::Match(_) | Line::Filtered) {
                 warn_unmatched_terms(filter, true);
             }
             match parsed {
-                Line::Malformed => skipped += 1,
+                Line::Malformed => skipped.record(tail.lines),
                 Line::Match(rendered) => {
                     writeln!(out, "{rendered}")?;
                     out.flush()?;
@@ -528,6 +582,23 @@ fn drain_appended<W: Write>(
         tail.file = Some(file);
     }
     Ok(skipped)
+}
+
+/// Counts physical line boundaries up to the observed replacement end, without
+/// parsing or replaying its records or buffering an arbitrarily large line.
+#[allow(clippy::naive_bytecount)] // Replacement-only scans do not warrant a bytecount dependency.
+fn count_newlines(file: &File, len: u64) -> io::Result<u64> {
+    let mut reader = BufReader::new(file.take(len));
+    let mut lines = 0;
+    loop {
+        let buf = reader.fill_buf()?;
+        if buf.is_empty() {
+            return Ok(lines);
+        }
+        lines += buf.iter().filter(|&&byte| byte == b'\n').count() as u64;
+        let consumed = buf.len();
+        reader.consume(consumed);
+    }
 }
 
 /// What one raw log line turned out to be.
@@ -594,6 +665,15 @@ fn swallow_broken_pipe(e: anyhow::Error) -> Result<()> {
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
+    /// Builds an expected bounded summary from known malformed positions.
+    fn skipped_lines(positions: &[u64]) -> SkippedLines {
+        let mut skipped = SkippedLines::default();
+        for &position in positions {
+            skipped.record(position);
+        }
+        skipped
+    }
+
     use super::*;
     use crate::cli::log::query::FilterInput;
     use std::io::Cursor;
@@ -939,7 +1019,8 @@ mod tests {
             result,
             Backlog::Complete {
                 pos: complete.len() as u64,
-                skipped: 0
+                lines: 5,
+                skipped: SkippedLines::default()
             }
         );
     }
@@ -969,7 +1050,8 @@ mod tests {
             result,
             Backlog::Complete {
                 pos: complete.len() as u64,
-                skipped: 0
+                lines: 5,
+                skipped: SkippedLines::default()
             }
         );
     }
@@ -1020,7 +1102,8 @@ mod tests {
             result,
             Backlog::Complete {
                 pos: input.len() as u64,
-                skipped: 0
+                lines: input.lines().count() as u64,
+                skipped: SkippedLines::default()
             }
         );
     }
@@ -1038,7 +1121,7 @@ mod tests {
         let id = file_id(&file);
         let mut reader = BufReader::new(file);
         let mut backlog = Vec::new();
-        let Backlog::Complete { pos, .. } = emit_backlog(
+        let Backlog::Complete { pos, lines, .. } = emit_backlog(
             &mut reader,
             &empty_filter(),
             Format::Json,
@@ -1052,6 +1135,7 @@ mod tests {
         };
         let mut tail = Tail {
             pos,
+            lines,
             id,
             #[cfg(unix)]
             file: None,
@@ -1109,7 +1193,8 @@ mod tests {
             result,
             Backlog::Complete {
                 pos: input.len() as u64,
-                skipped: 3
+                lines: 5,
+                skipped: skipped_lines(&[1, 3, 4])
             }
         );
     }
@@ -1122,7 +1207,8 @@ mod tests {
             result,
             Backlog::Complete {
                 pos: clean.len() as u64,
-                skipped: 0
+                lines: 2,
+                skipped: SkippedLines::default()
             }
         );
 
@@ -1132,7 +1218,8 @@ mod tests {
             result,
             Backlog::Complete {
                 pos: blanks.len() as u64,
-                skipped: 0
+                lines: 5,
+                skipped: SkippedLines::default()
             }
         );
 
@@ -1144,7 +1231,8 @@ mod tests {
             result,
             Backlog::Complete {
                 pos: GOOD.len() as u64 + 1,
-                skipped: 1
+                lines: 1,
+                skipped: skipped_lines(&[2])
             }
         );
     }
@@ -1153,7 +1241,7 @@ mod tests {
     fn backlog_counts_unparseable_lines_the_filter_and_limit_would_hide() {
         let input = format!("junk\n{GOOD}\njunk\n{GOOD}\njunk\n");
         let skipped = |result| match result {
-            Backlog::Complete { skipped, .. } => skipped,
+            Backlog::Complete { skipped, .. } => skipped.count,
             Backlog::ReaderGone => panic!("reader gone"),
         };
         let (text, result) = scan(input.as_bytes(), &empty_filter(), Some(1));
@@ -1218,13 +1306,21 @@ mod tests {
                 result,
                 Backlog::Complete {
                     pos: input.len() as u64,
-                    skipped: 0
+                    lines: input.lines().count() as u64,
+                    skipped: SkippedLines::default()
                 }
             );
         }
         let (text, result) = scan(format!("{{partial{GOOD}").as_bytes(), &empty_filter(), None);
         assert_eq!(text, format!("{GOOD}\n"));
-        assert_eq!(result, Backlog::Complete { pos: 0, skipped: 0 });
+        assert_eq!(
+            result,
+            Backlog::Complete {
+                pos: 0,
+                lines: 0,
+                skipped: SkippedLines::default()
+            }
+        );
     }
 
     #[test]
@@ -1244,7 +1340,14 @@ mod tests {
             || false,
         )
         .unwrap();
-        assert_eq!(result, Backlog::Complete { pos: 0, skipped: 0 });
+        assert_eq!(
+            result,
+            Backlog::Complete {
+                pos: 0,
+                lines: 0,
+                skipped: SkippedLines::default()
+            }
+        );
         let mut tail = tail_at_start();
         drain_appended(&path, &empty_filter(), Format::Json, &mut tail, &mut out).unwrap();
         assert!(out.is_empty());
@@ -1263,14 +1366,117 @@ mod tests {
     #[test]
     fn skipped_warning_names_the_count_and_the_path() {
         let path = Path::new("/state/log.jsonl");
-        assert_eq!(skipped_warning(path, 0), None);
+        assert_eq!(skipped_warning(path, &SkippedLines::default()), None);
         assert_eq!(
-            skipped_warning(path, 1).as_deref(),
-            Some("warning: skipped 1 unparseable line in /state/log.jsonl")
+            skipped_warning(path, &skipped_lines(&[12])).as_deref(),
+            Some("warning: skipped 1 unparseable line in /state/log.jsonl (lines 12)")
         );
         assert_eq!(
-            skipped_warning(path, 3).as_deref(),
-            Some("warning: skipped 3 unparseable lines in /state/log.jsonl")
+            skipped_warning(path, &skipped_lines(&[12, 40, 41])).as_deref(),
+            Some("warning: skipped 3 unparseable lines in /state/log.jsonl (lines 12, 40, 41)")
+        );
+    }
+
+    #[test]
+    fn skipped_warning_caps_positions_but_preserves_the_total() {
+        let path = Path::new("/state/log.jsonl");
+        for (positions, suffix) in [
+            (vec![2, 4, 6, 8, 10], "lines 2, 4, 6, 8, 10"),
+            (vec![2, 4, 6, 8, 10, 12], "lines 2, 4, 6, 8, 10 and 1 more"),
+            ((1..=100).collect(), "lines 1, 2, 3, 4, 5 and 95 more"),
+        ] {
+            let skipped = skipped_lines(&positions);
+            assert_eq!(skipped.positions.len(), 5);
+            assert_eq!(
+                skipped_warning(path, &skipped).unwrap(),
+                format!(
+                    "warning: skipped {} unparseable lines in /state/log.jsonl ({suffix})",
+                    positions.len()
+                )
+            );
+        }
+    }
+
+    #[test]
+    fn scan_files_passes_live_line_numbers_to_follow() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("log.jsonl");
+        std::fs::write(&path, format!("\n{GOOD}\npartial")).unwrap();
+        let mut out = Vec::new();
+        let mut sink = BacklogSink {
+            format: Format::Json,
+            limit: Some(0),
+            ring: VecDeque::new(),
+            out: &mut out,
+        };
+        let mut tail = scan_files(&path, &empty_filter(), true, false, &mut sink, || false)
+            .unwrap()
+            .unwrap();
+        assert_eq!(tail.lines, 2);
+        let mut file = std::fs::OpenOptions::new()
+            .append(true)
+            .open(&path)
+            .unwrap();
+        file.write_all(b"\n\ninvalid\n").unwrap();
+        assert_eq!(
+            drain_appended(&path, &empty_filter(), Format::Json, &mut tail, &mut out).unwrap(),
+            skipped_lines(&[3, 5])
+        );
+        file.write_all(b"more\n").unwrap();
+        assert_eq!(
+            drain_appended(&path, &empty_filter(), Format::Json, &mut tail, &mut out).unwrap(),
+            skipped_lines(&[6])
+        );
+    }
+
+    #[test]
+    fn follow_line_numbers_restart_after_truncation() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("log.jsonl");
+        std::fs::write(&path, format!("{GOOD}\n{GOOD}\n{GOOD}\n")).unwrap();
+        let mut tail = tail_at_start();
+        let mut out = Vec::new();
+        drain_appended(&path, &empty_filter(), Format::Json, &mut tail, &mut out).unwrap();
+        std::fs::write(&path, b"\n\r\npartial").unwrap();
+        assert_eq!(
+            drain_appended(&path, &empty_filter(), Format::Json, &mut tail, &mut out).unwrap(),
+            SkippedLines::default()
+        );
+        assert_eq!(tail.lines, 2);
+        let mut file = std::fs::OpenOptions::new()
+            .append(true)
+            .open(&path)
+            .unwrap();
+        file.write_all(b"bad\ninvalid\n").unwrap();
+        assert_eq!(
+            drain_appended(&path, &empty_filter(), Format::Json, &mut tail, &mut out).unwrap(),
+            skipped_lines(&[3, 4])
+        );
+    }
+
+    #[cfg(any(unix, windows))]
+    #[test]
+    fn follow_line_numbers_restart_after_replacement() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("log.jsonl");
+        std::fs::write(&path, format!("{GOOD}\n")).unwrap();
+        let mut tail = tail_at_start();
+        let mut out = Vec::new();
+        drain_appended(&path, &empty_filter(), Format::Json, &mut tail, &mut out).unwrap();
+        replace_by_rename(&path, &format!("{GOOD}\n\n{GOOD}\n{GOOD}\n"));
+        assert_eq!(
+            drain_appended(&path, &empty_filter(), Format::Json, &mut tail, &mut out).unwrap(),
+            SkippedLines::default()
+        );
+        assert_eq!(tail.lines, 4);
+        let mut file = std::fs::OpenOptions::new()
+            .append(true)
+            .open(&path)
+            .unwrap();
+        file.write_all(b"invalid\n").unwrap();
+        assert_eq!(
+            drain_appended(&path, &empty_filter(), Format::Json, &mut tail, &mut out).unwrap(),
+            skipped_lines(&[5])
         );
     }
 
@@ -1283,12 +1489,12 @@ mod tests {
         let mut out = Vec::new();
         assert_eq!(
             drain_appended(&path, &empty_filter(), Format::Json, &mut tail, &mut out).unwrap(),
-            2
+            skipped_lines(&[1, 5])
         );
         assert_eq!(String::from_utf8(out.clone()).unwrap(), format!("{GOOD}\n"));
         assert_eq!(
             drain_appended(&path, &empty_filter(), Format::Json, &mut tail, &mut out).unwrap(),
-            0
+            SkippedLines::default()
         );
         assert_eq!(String::from_utf8(out).unwrap(), format!("{GOOD}\n"));
     }
@@ -1307,7 +1513,7 @@ mod tests {
         let mut out = Vec::new();
         assert_eq!(
             drain_appended(&path, &filter, Format::Json, &mut tail, &mut out).unwrap(),
-            0
+            SkippedLines::default()
         );
         assert_eq!(tail.pos, (GOOD.len() + 1) as u64);
         let mut file = std::fs::OpenOptions::new()
@@ -1317,11 +1523,11 @@ mod tests {
         file.write_all(b"\n\xff\n").unwrap();
         assert_eq!(
             drain_appended(&path, &filter, Format::Json, &mut tail, &mut out).unwrap(),
-            2
+            skipped_lines(&[2, 3])
         );
         assert_eq!(
             drain_appended(&path, &filter, Format::Json, &mut tail, &mut out).unwrap(),
-            0
+            SkippedLines::default()
         );
         assert!(out.is_empty());
     }
@@ -1603,7 +1809,8 @@ mod tests {
             result,
             Backlog::Complete {
                 pos: input.len() as u64,
-                skipped: 0
+                lines: input.lines().count() as u64,
+                skipped: SkippedLines::default()
             }
         );
         assert_eq!(out, input.as_bytes());
@@ -1816,6 +2023,7 @@ mod tests {
         let missing = dir.path().join("gone.jsonl");
         let mut kept = Tail {
             pos: 7,
+            lines: 0,
             id: tail.id,
             #[cfg(unix)]
             file: None,
@@ -1854,6 +2062,7 @@ mod tests {
         // The identity could not be read at startup (`None`), and the backlog is behind us.
         let mut tail = Tail {
             pos: sample_lines().len() as u64,
+            lines: 5,
             id: None,
             #[cfg(unix)]
             file: None,
@@ -2066,6 +2275,7 @@ mod tests {
                     let file = File::open(&path).unwrap();
                     let mut tail = Tail {
                         pos: 0,
+                        lines: 0,
                         id: file_id(&file),
                         #[cfg(unix)]
                         file: None,
@@ -2093,10 +2303,11 @@ mod tests {
                         },
                     )
                     .unwrap();
-                    let Backlog::Complete { pos, .. } = result else {
+                    let Backlog::Complete { pos, lines, .. } = result else {
                         panic!("backlog should complete");
                     };
                     tail.pos = pos;
+                    tail.lines = lines;
                     assert_eq!(
                         out.split(|byte| *byte == b'\n')
                             .filter(|line| !line.is_empty())

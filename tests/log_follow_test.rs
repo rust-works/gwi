@@ -302,7 +302,10 @@ fn log_follow_batches_corrupt_appends_and_waits_for_partial_lines() {
             .warnings
             .recv_timeout(Duration::from_secs(20))
             .unwrap(),
-        format!("warning: skipped 2 unparseable lines in {}", path.display())
+        format!(
+            "warning: skipped 2 unparseable lines in {} (lines 2, 3)",
+            path.display()
+        )
     );
     assert_eq!(
         follow.warnings.recv_timeout(Duration::from_secs(1)),
@@ -331,7 +334,10 @@ fn log_follow_batches_corrupt_appends_and_waits_for_partial_lines() {
             .warnings
             .recv_timeout(Duration::from_secs(20))
             .unwrap(),
-        format!("warning: skipped 1 unparseable line in {}", path.display())
+        format!(
+            "warning: skipped 1 unparseable line in {} (lines 8)",
+            path.display()
+        )
     );
     follow.expect_quiet();
     assert_eq!(follow.warnings.try_recv(), Err(mpsc::TryRecvError::Empty));
