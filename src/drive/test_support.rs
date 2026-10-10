@@ -41,8 +41,9 @@ static DRIVE_ENV_MUTEX: &Mutex<()> = &crate::test_support::HOME_ENV_MUTEX;
 /// RAII guard: snapshots `HOME`, `GWI_PROFILE` + every Drive credential and
 /// endpoint and lease-policy env var on construction and restores them on drop.
 pub(crate) struct EnvGuard {
-    _lock: MutexGuard<'static, ()>,
-    snapshot: Vec<(String, Option<String>)>,
+    // Fields drop in declaration order: restore values before releasing the lock.
+    _snapshot: crate::test_support::EnvSnapshot,
+    lock: MutexGuard<'static, ()>,
     settings_path: crate::test_support::SettingsPathGuard,
 }
 
@@ -89,16 +90,10 @@ impl EnvGuard {
         // and `DOCS_API_URL` make it sharper, since without an override
         // those clients default to the *real* `sheets.googleapis.com` /
         // `docs.googleapis.com`.
-        let snapshot = Self::keys()
-            .into_iter()
-            .map(|k| {
-                let value = std::env::var(&k).ok();
-                (k, value)
-            })
-            .collect();
+        let snapshot = crate::test_support::EnvSnapshot::take(Self::keys(), &lock);
         Self {
-            _lock: lock,
-            snapshot,
+            lock,
+            _snapshot: snapshot,
             settings_path: crate::test_support::SettingsPathGuard::take(),
         }
     }
@@ -137,17 +132,6 @@ impl EnvGuard {
         std::env::set_var(SHEETS_API_URL, "http://127.0.0.1:1");
         std::env::set_var(DOCS_API_URL, "http://127.0.0.1:1");
         std::env::set_var(SLIDES_API_URL, "http://127.0.0.1:1");
-    }
-}
-
-impl Drop for EnvGuard {
-    fn drop(&mut self) {
-        for (k, v) in &self.snapshot {
-            match v {
-                Some(val) => std::env::set_var(k, val),
-                None => std::env::remove_var(k),
-            }
-        }
     }
 }
 
@@ -526,6 +510,60 @@ mod tests {
             .chain(crate::gmail::test_support::EnvGuard::keys());
         for key in guarded.filter(|key| key != "HOME") {
             assert!(list.contains(&format!("\"{key}\"")), "{key}");
+        }
+    }
+
+    #[test]
+    fn directory_values_survive_clear_and_snapshot_drop() {
+        use super::EnvGuard;
+        use std::ffi::OsString;
+
+        let guard = EnvGuard::take();
+        let mut values = vec![
+            None,
+            Some(OsString::new()),
+            Some(OsString::from("application-λ")),
+        ];
+        // Unix environment values are arbitrary bytes; invalid UTF-8 must survive.
+        #[cfg(unix)]
+        {
+            use std::os::unix::ffi::OsStringExt;
+            values.push(Some(OsString::from_vec(b"/tmp/application-\xff".to_vec())));
+        }
+        // Windows environment values may contain an unpaired UTF-16 surrogate.
+        #[cfg(windows)]
+        {
+            use std::os::windows::ffi::OsStringExt;
+            values.push(Some(OsString::from_wide(&[0x0061, 0xd800])));
+        }
+        for value in values {
+            for key in ["GWI_HOME", "GWI_STATE_DIR"] {
+                match &value {
+                    Some(value) => std::env::set_var(key, value),
+                    None => std::env::remove_var(key),
+                }
+            }
+            // Nest only the snapshot, retaining the outer guard's mutex throughout.
+            for early_return in [false, true] {
+                let clear = || -> Option<()> {
+                    let _snapshot =
+                        crate::test_support::EnvSnapshot::take(EnvGuard::keys(), &guard.lock);
+                    let _home = guard.clear_credentials();
+                    for key in ["GWI_HOME", "GWI_STATE_DIR"] {
+                        assert_eq!(std::env::var_os(key), None, "{key}");
+                        std::env::set_var(key, "replacement");
+                    }
+                    // Exercise an early scope exit as well as ordinary scope completion.
+                    if early_return {
+                        return None;
+                    }
+                    Some(())
+                };
+                assert_eq!(clear(), if early_return { None } else { Some(()) });
+                for key in ["GWI_HOME", "GWI_STATE_DIR"] {
+                    assert_eq!(std::env::var_os(key), value, "{key}");
+                }
+            }
         }
     }
 }

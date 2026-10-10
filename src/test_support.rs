@@ -21,6 +21,40 @@
 /// own independent mutex) in issue #1465.
 pub(crate) static HOME_ENV_MUTEX: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
+/// Captures native environment values and restores them on drop.
+/// The caller must hold `HOME_ENV_MUTEX` until after this snapshot is dropped.
+pub(crate) struct EnvSnapshot {
+    values: Vec<(String, Option<std::ffi::OsString>)>,
+}
+
+impl EnvSnapshot {
+    pub(crate) fn take(
+        keys: impl IntoIterator<Item = String>,
+        _lock: &std::sync::MutexGuard<'_, ()>,
+    ) -> Self {
+        Self {
+            values: keys
+                .into_iter()
+                .map(|key| {
+                    let value = std::env::var_os(&key);
+                    (key, value)
+                })
+                .collect(),
+        }
+    }
+}
+
+impl Drop for EnvSnapshot {
+    fn drop(&mut self) {
+        for (key, value) in &self.values {
+            match value {
+                Some(value) => std::env::set_var(key, value),
+                None => std::env::remove_var(key),
+            }
+        }
+    }
+}
+
 thread_local! {
     static SETTINGS_PATH: std::cell::RefCell<Option<std::path::PathBuf>> = const {
         std::cell::RefCell::new(None)
