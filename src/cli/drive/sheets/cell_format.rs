@@ -23,18 +23,26 @@ use crate::drive::sheets::client::SheetsClient;
 /// whether a verb moves formatting — run it before and after a verb and
 /// diff the two outputs.
 #[derive(Parser)]
+#[command(
+    about = "Reads a range's cell-level formatting back — background, text format, number format, horizontal alignment, notes and data validation",
+    long_about = "Reads a range's cell-level formatting back — background, text format, number format, horizontal alignment, notes and data validation.\n\nReports only userEnteredFormat, never effectiveFormat: what a sort, fill or paste physically moves is the user-entered format, while effectiveFormat folds in conditional formatting, which follows the *range* rather than the cell and would give false positives. This is the tool [ADR-0083](../../../../docs/adrs/adr-0083.md) §5 relies on to answer whether a verb moves formatting — run it before and after a verb and diff the two outputs."
+)]
 pub struct ReadCellFormatCommand {
     /// Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL).
     #[arg(help = "Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).")]
     pub spreadsheet_id: String,
 
     /// Sheet (tab) title. Supplies the prefix for a bare `--range`.
+    #[arg(help = "Sheet (tab) title. Supplies the prefix for a bare --range")]
     #[arg(long, value_name = "NAME")]
     pub sheet: Option<String>,
 
     /// A1 range to read, optionally carrying its own `Sheet!` prefix (e.g.
     /// `A1:D10`, `'My Sheet'!A1:D10`). Required — a whole-workbook read is
     /// out of scope, since the response grows with the range requested.
+    #[arg(
+        help = "A1 range to read, optionally carrying its own Sheet! prefix (e.g. A1:D10, 'My Sheet'!A1:D10). Required — a whole-workbook read is out of scope, since the response grows with the range requested"
+    )]
     #[arg(long, value_name = "A1")]
     pub range: String,
 
@@ -42,6 +50,9 @@ pub struct ReadCellFormatCommand {
     /// line per non-default cell (e.g. `B3  bg=#FF0000 bold note`); a cell
     /// carrying none of the reported properties is never listed. Use
     /// `json`/`yaml` for the full structured format, including note text.
+    #[arg(
+        help = "Output format. The default table emits one compact, diff-friendly line per non-default cell (e.g. B3  bg=#FF0000 bold note); a cell carrying none of the reported properties is never listed. Use json/yaml for the full structured format, including note text"
+    )]
     #[arg(short = 'o', long, value_enum, default_value_t = OutputFormat::Table)]
     pub output: OutputFormat,
 }

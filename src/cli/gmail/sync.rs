@@ -56,6 +56,9 @@ pub struct SyncCommand {
     /// `history.list` has no query filter, so newly-arrived mail matching
     /// the query is only picked up by a later `--full` re-run (see
     /// docs/gmail.md's Sync section).
+    #[arg(
+        help = "Restrict the archive to messages matching this Gmail search query (same syntax as gmail search --query). Only applied on backfill/--full/reconciliation passes — an incremental sync's history.list has no query filter, so newly-arrived mail matching the query is only picked up by a later --full re-run (see docs/gmail.md's Sync section)"
+    )]
     #[arg(long)]
     pub query: Option<String>,
 
@@ -70,6 +73,9 @@ pub struct SyncCommand {
     /// query as `-in:spam`/`-in:trash`); anything else still filters future incremental
     /// runs, but won't be excluded retroactively on this pass unless you also pass
     /// `--query`.
+    #[arg(
+        help = "Excludes messages carrying this label id from the archive (rust-works/omni-dev#1780). Repeatable — e.g. --exclude-label SPAM --exclude-label TRASH. Applied fully and generally on incremental passes (no extra API calls; a messagesAdded history event matching this filter is never fetched, and a labelsAdded/labelsRemoved event that crosses the excluded boundary soft-deletes/undeletes the archived record). On backfill/--full/reconciliation passes, only entries with a known query translation take effect (currently SPAM/TRASH — folded into the listing query as -in:spam/-in:trash); anything else still filters future incremental runs, but won't be excluded retroactively on this pass unless you also pass --query"
+    )]
     #[arg(long, value_name = "LABEL_ID")]
     pub exclude_label: Vec<String>,
 
@@ -87,6 +93,9 @@ pub struct SyncCommand {
 
     /// Bounds concurrent message fetches. Clamped to
     /// `1..=gmail::messages_api::MAX_CONCURRENCY`.
+    #[arg(
+        help = "Bounds concurrent message fetches. Clamped to 1..=gmail::messages_api::MAX_CONCURRENCY"
+    )]
     #[arg(long, default_value_t = DEFAULT_SYNC_CONCURRENCY)]
     pub concurrency: usize,
 
@@ -104,12 +113,18 @@ pub struct SyncCommand {
     /// retroactively backfill an existing archive (delete the affected
     /// `.eml` files, or the whole archive, and re-run `--full` to force
     /// re-extraction).
+    #[arg(
+        help = "Also writes each message's attachment MIME parts to disk as separate files under <eml-shard-dir>/<id>/attachments/<filename>, alongside the existing .eml. Off by default: extraction is additional I/O/disk usage per message, and the .eml stays the lossless source of truth regardless. Only applies to messages actually fetched this run — presence-on-disk still skips an already-archived message, so turning this on does not retroactively backfill an existing archive (delete the affected .eml files, or the whole archive, and re-run --full to force re-extraction)"
+    )]
     #[arg(long)]
     pub extract_attachments: bool,
 
     /// Only shows errors/warnings, suppresses info-level output — including the live
     /// progress bars a backfill/`--full`/reconciliation pass shows on an interactive
     /// terminal (rust-works/omni-dev#1502).
+    #[arg(
+        help = "Only shows errors/warnings, suppresses info-level output — including the live progress bars a backfill/--full/reconciliation pass shows on an interactive terminal (rust-works/omni-dev#1502)"
+    )]
     #[arg(long)]
     pub quiet: bool,
 

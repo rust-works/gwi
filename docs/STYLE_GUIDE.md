@@ -461,6 +461,17 @@ comment and supply plain text with `#[arg(help = "...")]` or
 examples and defaults. Check both short and long CLI help, the help snapshot, and the
 advertised MCP schema descriptions when changing them.
 
+CLI short/long help and MCP parameter descriptions use plain text for command names,
+options, settings keys, paths, enum values and examples. Keep their exact spelling and
+punctuation; omit Markdown code/emphasis delimiters and unresolved links. For multi-paragraph clap
+docs, supply both the short first-paragraph `help` and full `long_help` (or `about` and
+`long_about` on commands). Literal Markdown syntax that describes output is content, not
+presentation: retain it, using ordinary quotes to delimit the example if needed.
+Explicit MCP `#[tool(description = "...")]` strings deliberately use Markdown inline code
+for call shapes and tool/CLI references, since clients may render it and the delimiters
+clarify these tokens even in plain text. This is separate from inferred parameter text.
+See the [presentation audit](help-schema-formatting.md) for the reviewed surfaces.
+
 **Summary line style** — write in **third-person singular present indicative** per
 [RFC 505](https://rust-lang.github.io/rfcs/0505-api-comment-conventions.html). Use full
 sentences ending with a period:

@@ -20,12 +20,17 @@ use crate::drive::files_api::FilesApi;
 /// the document's `revisionId`. An export is a one-way rendering with no
 /// path back to either.
 #[derive(Parser)]
+#[command(
+    about = "Reads a document's structural elements with their index ranges",
+    long_about = "Reads a document's structural elements with their index ranges.\n\ndrive read --content is the *prose* channel — it exports a Doc to markdown. This is the *model* channel: it reports each element's [start, end) index range, which is the only way to learn an index, and the document's revisionId. An export is a one-way rendering with no path back to either."
+)]
 pub struct ReadCommand {
     /// Document id (the `/d/<ID>/` segment of a Docs URL).
     #[arg(help = "Document id (the /d/<ID>/ segment of a Docs URL).")]
     pub document_id: String,
 
     /// Restrict output to one tab id (see `drive docs info`).
+    #[arg(help = "Restrict output to one tab id (see drive docs info)")]
     #[arg(long)]
     pub tab: Option<String>,
 

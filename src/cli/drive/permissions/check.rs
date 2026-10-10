@@ -26,18 +26,33 @@ pub enum OperationArg {
     Edit,
     /// Writing cells into a Google Sheet — distinct from `Edit`, see
     /// [`DriveOperation::SheetsWrite`].
+    #[value(
+        help = "Writing cells into a Google Sheet — distinct from Edit, see [DriveOperation::SheetsWrite]"
+    )]
     SheetsWrite,
     /// Structurally editing a Google Sheet — distinct from `SheetsWrite`,
     /// see [`DriveOperation::SheetsStructure`].
+    #[value(
+        help = "Structurally editing a Google Sheet — distinct from SheetsWrite, see [DriveOperation::SheetsStructure]"
+    )]
     SheetsStructure,
     /// Destructively editing a Google Sheet — distinct from
     /// `SheetsStructure`, see [`DriveOperation::SheetsDelete`].
+    #[value(
+        help = "Destructively editing a Google Sheet — distinct from SheetsStructure, see [DriveOperation::SheetsDelete]"
+    )]
     SheetsDelete,
     /// Adding, changing or removing a protected range — distinct from
     /// `SheetsStructure`, see [`DriveOperation::SheetsProtection`].
+    #[value(
+        help = "Adding, changing or removing a protected range — distinct from SheetsStructure, see [DriveOperation::SheetsProtection]"
+    )]
     SheetsProtection,
     /// Replacing or appending text in a Google Doc — distinct from both
     /// `Edit` and `SheetsWrite`, see [`DriveOperation::DocsWrite`].
+    #[value(
+        help = "Replacing or appending text in a Google Doc — distinct from both Edit and SheetsWrite, see [DriveOperation::DocsWrite]"
+    )]
     DocsWrite,
     /// Moving an individual file to Trash or restoring it.
     Trash,
@@ -81,6 +96,9 @@ impl From<OperationArg> for DriveOperation {
 /// `create`/`upload`/`edit`/`sheets write` engine modules call, so this
 /// diagnostic can never drift from actual enforcement.
 #[derive(Parser)]
+#[command(
+    about = "Evaluates the configured write-permission rules against a real target and prints the verdict — the same [folder_ancestry::resolve_decision]/ [folder_ancestry::resolve_decision_for_file_target] the real create/upload/edit/sheets write engine modules call, so this diagnostic can never drift from actual enforcement"
+)]
 pub struct CheckCommand {
     /// The folder or file id to evaluate.
     pub id: String,

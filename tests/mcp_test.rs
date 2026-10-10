@@ -126,6 +126,60 @@ async fn list_tools_advertises_exactly_the_gmail_and_drive_tools() -> Result<()>
     Ok(())
 }
 
+/// Parameter descriptions are plain text; explicit tool Markdown is intentional.
+#[tokio::test]
+async fn schema_descriptions_are_plain_text_and_keep_examples() -> Result<()> {
+    let (client, server_handle) = spawn_server().await;
+    let tools = client.list_tools(Option::default()).await?;
+    let mut parameters = 0;
+    for tool in &tools.tools {
+        if let Some(properties) = tool
+            .input_schema
+            .get("properties")
+            .and_then(|v| v.as_object())
+        {
+            for (field, schema) in properties {
+                let text = schema["description"].as_str().unwrap();
+                assert!(
+                    !text.contains('`') && !text.contains("]("),
+                    "Markdown in {} parameter {field}: {text}",
+                    tool.name
+                );
+                parameters += 1;
+            }
+        }
+    }
+    assert_eq!(
+        parameters, 90,
+        "All advertised top-level parameters audited"
+    );
+    let description = |tool_name: &str, field: &str| {
+        let tool = tools.tools.iter().find(|t| t.name == tool_name).unwrap();
+        tool.input_schema["properties"][field]["description"]
+            .as_str()
+            .unwrap()
+    };
+    assert!(description("gmail_search", "query").contains("label:finance after:2026/01/01"));
+    let enrich = description("gmail_search", "enrich");
+    assert!(
+        enrich.contains("messages.get") && enrich.contains("false") && enrich.contains("20 units")
+    );
+    assert!(description("drive_sheets_write", "values")
+        .contains(r#"[["name", "score"], ["Ada", "42"]]"#));
+    assert!(description("drive_docs_append", "text_path").contains("mcp.allowed_paths"));
+    assert!(description("drive_docs_read", "tab").contains("tabs[].tab_id"));
+    for tool in &tools.tools {
+        assert!(
+            tool.description.as_deref().unwrap().contains('`'),
+            "{} lost its intentional tool-description formatting",
+            tool.name
+        );
+    }
+    client.cancel().await?;
+    let _ = server_handle.await;
+    Ok(())
+}
+
 /// Rustdoc code delimiters must not leak into URL identifier schema hints.
 #[tokio::test]
 async fn identifier_schema_hints_have_no_markdown() -> Result<()> {

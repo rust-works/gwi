@@ -18,6 +18,9 @@ use crate::cli::drive::helpers;
 /// write`/`append`/`clear`/`create` and `drive docs
 /// replace`/`append`/`create`.
 #[derive(Parser)]
+#[command(
+    about = "Inspects the write-permission rules gating drive create/upload/edit, drive sheets write/append/clear/create and drive docs replace/append/create"
+)]
 pub struct PermissionsCommand {
     /// The permissions subcommand to execute.
     #[command(subcommand)]

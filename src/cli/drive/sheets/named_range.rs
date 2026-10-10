@@ -25,6 +25,7 @@ use crate::drive::sheets::{render_grid_range, sheet_title_by_id};
 /// Adds a named range (or, with `--whole-sheet`, one covering an entire
 /// sheet).
 #[derive(Parser)]
+#[command(about = "Adds a named range (or, with --whole-sheet, one covering an entire sheet)")]
 pub struct AddNamedRangeCommand {
     /// Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL).
     #[arg(help = "Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).")]
@@ -36,16 +37,23 @@ pub struct AddNamedRangeCommand {
 
     /// A1 range the name refers to, optionally carrying its own `Sheet!`
     /// prefix. Mutually exclusive with `--whole-sheet`.
+    #[arg(
+        help = "A1 range the name refers to, optionally carrying its own Sheet! prefix. Mutually exclusive with --whole-sheet"
+    )]
     #[arg(long, value_name = "A1")]
     pub range: Option<String>,
 
     /// Sheet (tab) title. Supplies the prefix for a bare `--range`, or the
     /// target sheet directly with `--whole-sheet`.
+    #[arg(
+        help = "Sheet (tab) title. Supplies the prefix for a bare --range, or the target sheet directly with --whole-sheet"
+    )]
     #[arg(long, value_name = "NAME")]
     pub sheet: Option<String>,
 
     /// Cover the entire sheet named by `--sheet`, rather than a range
     /// within it.
+    #[arg(help = "Cover the entire sheet named by --sheet, rather than a range within it")]
     #[arg(long)]
     pub whole_sheet: bool,
 
@@ -87,11 +95,17 @@ pub struct UpdateNamedRangeCommand {
 
     /// The existing name to change, by case-insensitive exact match.
     /// Mutually exclusive with `--id`.
+    #[arg(
+        help = "The existing name to change, by case-insensitive exact match. Mutually exclusive with --id"
+    )]
     #[arg(long, value_name = "NAME")]
     pub name: Option<String>,
 
     /// The existing named range's id, by exact match. Mutually exclusive
     /// with `--name`. Find it with `drive sheets list-named-ranges`.
+    #[arg(
+        help = "The existing named range's id, by exact match. Mutually exclusive with --name. Find it with drive sheets list-named-ranges"
+    )]
     #[arg(long, value_name = "ID")]
     pub id: Option<String>,
 
@@ -103,16 +117,23 @@ pub struct UpdateNamedRangeCommand {
     /// prefix. Mutually exclusive with `--whole-sheet`. Omitting this,
     /// `--sheet` and `--whole-sheet` together keeps the existing range
     /// unchanged — this command may be a rename only.
+    #[arg(
+        help = "A1 range for the new target, optionally carrying its own Sheet! prefix. Mutually exclusive with --whole-sheet. Omitting this, --sheet and --whole-sheet together keeps the existing range unchanged — this command may be a rename only"
+    )]
     #[arg(long, value_name = "A1")]
     pub range: Option<String>,
 
     /// Sheet (tab) title. Supplies the prefix for a bare `--range`, or the
     /// target sheet directly with `--whole-sheet`.
+    #[arg(
+        help = "Sheet (tab) title. Supplies the prefix for a bare --range, or the target sheet directly with --whole-sheet"
+    )]
     #[arg(long, value_name = "NAME")]
     pub sheet: Option<String>,
 
     /// Re-point at the entire sheet named by `--sheet`, rather than a range
     /// within it.
+    #[arg(help = "Re-point at the entire sheet named by --sheet, rather than a range within it")]
     #[arg(long)]
     pub whole_sheet: bool,
 
@@ -161,16 +182,25 @@ pub struct DeleteNamedRangeCommand {
 
     /// The existing name to remove, by case-insensitive exact match.
     /// Mutually exclusive with `--id`.
+    #[arg(
+        help = "The existing name to remove, by case-insensitive exact match. Mutually exclusive with --id"
+    )]
     #[arg(long, value_name = "NAME")]
     pub name: Option<String>,
 
     /// The existing named range's id, by exact match. Mutually exclusive
     /// with `--name`. Find it with `drive sheets list-named-ranges`.
+    #[arg(
+        help = "The existing named range's id, by exact match. Mutually exclusive with --name. Find it with drive sheets list-named-ranges"
+    )]
     #[arg(long, value_name = "ID")]
     pub id: Option<String>,
 
     /// Reports the gate verdict and the referencing-formula preview,
     /// without calling `spreadsheets.batchUpdate`.
+    #[arg(
+        help = "Reports the gate verdict and the referencing-formula preview, without calling spreadsheets.batchUpdate"
+    )]
     #[arg(long)]
     pub dry_run: bool,
 
@@ -205,6 +235,10 @@ impl DeleteNamedRangeCommand {
 /// `update-named-range`/`delete-named-range` are usable at all, since a
 /// named range's current extent is otherwise invisible from the CLI.
 #[derive(Parser)]
+#[command(
+    about = "Lists the named ranges in a spreadsheet",
+    long_about = "Lists the named ranges in a spreadsheet.\n\nRead-only and ungated, like sheets list-protections — needed so update-named-range/delete-named-range are usable at all, since a named range's current extent is otherwise invisible from the CLI."
+)]
 pub struct ListNamedRangesCommand {
     /// Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL).
     #[arg(help = "Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).")]

@@ -18,22 +18,33 @@ use crate::drive::sheets::randomize_range::{
 /// the request — this is server-side randomness. `--dry-run` reports the
 /// range and its record-integrity caveats instead.
 #[derive(Parser)]
+#[command(
+    about = "Shuffles the row order within a bounded range into an order chosen by the server",
+    long_about = "Shuffles the row order within a bounded range into an order chosen by the server.\n\nThe resulting order can never be previewed or reported, before or after the request — this is server-side randomness. --dry-run reports the range and its record-integrity caveats instead."
+)]
 pub struct RandomizeRangeCommand {
     /// Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL).
     #[arg(help = "Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).")]
     pub spreadsheet_id: String,
 
     /// Sheet (tab) title. Supplies the prefix for a bare `--range`.
+    #[arg(help = "Sheet (tab) title. Supplies the prefix for a bare --range")]
     #[arg(long, value_name = "NAME")]
     pub sheet: Option<String>,
 
     /// Fully bounded A1 range to randomize, optionally carrying its own
     /// `Sheet!` prefix (for example `A2:D100`).
+    #[arg(
+        help = "Fully bounded A1 range to randomize, optionally carrying its own Sheet! prefix (for example A2:D100)"
+    )]
     #[arg(long, value_name = "A1")]
     pub range: String,
 
     /// Reports the gate verdict and request shape without calling
     /// `spreadsheets.batchUpdate` or reading cell values.
+    #[arg(
+        help = "Reports the gate verdict and request shape without calling spreadsheets.batchUpdate or reading cell values"
+    )]
     #[arg(long)]
     pub dry_run: bool,
 

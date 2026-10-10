@@ -32,6 +32,22 @@ fn render_all(cmd: &mut clap::Command, out: &mut String) {
     }
 }
 
+// Exercise the linked Windows stack reserve and a tighter 1 MiB budget on
+// other platforms, where generated command-builder frames are smaller.
+#[test]
+fn command_tree_fits_the_startup_stack() {
+    std::thread::Builder::new()
+        .stack_size(if cfg!(windows) { 8 } else { 1 } * 1024 * 1024)
+        .spawn(|| {
+            for args in [vec!["gwi", "--help"], vec!["gwi", "log", "--limit", "0"]] {
+                let _ = Cli::command().try_get_matches_from(args);
+            }
+        })
+        .unwrap()
+        .join()
+        .unwrap();
+}
+
 #[test]
 fn help_all_golden() {
     let mut root = Cli::command();
@@ -54,6 +70,51 @@ fn help_has_no_markdown_links() {
 
     let links: Vec<&str> = help.lines().filter(|line| line.contains("](")).collect();
     assert!(links.is_empty(), "markdown links in help: {links:#?}");
+}
+
+/// Every generated terminal help surface uses plain text, including summaries.
+#[test]
+fn short_and_long_help_have_no_markdown_delimiters() {
+    fn check(cmd: &mut clap::Command) {
+        for help in [cmd.render_help(), cmd.render_long_help()] {
+            let text = help.to_string();
+            assert!(
+                !text.contains('`') && !text.contains("](") && !text.contains("**"),
+                "Markdown in {} help: {text}",
+                cmd.get_name()
+            );
+        }
+        for sub in cmd.get_subcommands_mut() {
+            check(sub);
+        }
+    }
+    let mut root = Cli::command();
+    root.build();
+    check(&mut root);
+}
+
+/// Plain-text presentation preserves the examples and defaults in drive edit.
+#[test]
+fn edit_help_preserves_content_and_mime_hints() {
+    let mut root = Cli::command();
+    root.build();
+    let edit = root
+        .find_subcommand_mut("drive")
+        .unwrap()
+        .find_subcommand_mut("edit")
+        .unwrap();
+    for help in [edit.render_help(), edit.render_long_help()] {
+        let text = help.to_string();
+        for hint in [
+            "drive search",
+            "id segment",
+            "- to read from stdin",
+            "application/octet-stream",
+            "files.update",
+        ] {
+            assert!(text.contains(hint), "Missing {hint:?}: {text}");
+        }
+    }
 }
 
 /// URL identifier hints are plain text in both terminal help formats.

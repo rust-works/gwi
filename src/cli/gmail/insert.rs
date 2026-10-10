@@ -34,8 +34,12 @@ use report::{InsertAction, InsertError, InsertReport, InsertSummary, SkipReason}
 /// bulk, mutating, potentially long-running operation is a poor fit for a
 /// synchronous MCP tool call, mirroring `sync`'s own no-MCP rationale).
 #[derive(Parser)]
+#[command(
+    about = "Restores archived .eml messages into a mailbox (needs gmail.modify, granted by gmail auth login --modify; CLI-only; no MCP equivalent — a bulk, mutating, potentially long-running operation is a poor fit for a synchronous MCP tool call, mirroring sync's own no-MCP rationale)"
+)]
 pub struct InsertCommand {
     /// Archive directory previously populated by `gmail sync`/`sync-all`.
+    #[arg(help = "Archive directory previously populated by gmail sync/sync-all")]
     #[arg(long, value_name = "PATH")]
     pub archive_dir: PathBuf,
 
@@ -44,6 +48,9 @@ pub struct InsertCommand {
 
     /// Caps how many selected messages are inserted, applied after
     /// selection to the oldest-first plan. `0` means no limit.
+    #[arg(
+        help = "Caps how many selected messages are inserted, applied after selection to the oldest-first plan. 0 means no limit"
+    )]
     #[arg(long, default_value_t = 0)]
     pub limit: usize,
 
@@ -52,6 +59,9 @@ pub struct InsertCommand {
     /// auto-created — since inserted mail's raw headers still name the
     /// *original* recipient, `to:` searches won't match it, making this
     /// tag the only reliable handle for "what came from the archive".
+    #[arg(
+        help = "Tags every inserted message with this label, resolved by name against the destination mailbox's existing labels. Never auto-created — since inserted mail's raw headers still name the *original* recipient, to: searches won't match it, making this tag the only reliable handle for \"what came from the archive\""
+    )]
     #[arg(long, value_name = "NAME")]
     pub label: Option<String>,
 
@@ -59,11 +69,15 @@ pub struct InsertCommand {
     /// (applied after the system-label filter). Repeatable — e.g.
     /// `--drop-label INBOX --drop-label UNREAD` restores mail as
     /// already-read and archived rather than dumping it into a live Inbox.
+    #[arg(
+        help = "Drops this label id from a message's replayed system-label set (applied after the system-label filter). Repeatable — e.g. --drop-label INBOX --drop-label UNREAD restores mail as already-read and archived rather than dumping it into a live Inbox"
+    )]
     #[arg(long, value_name = "LABEL_ID")]
     pub drop_label: Vec<String>,
 
     /// Bounds concurrent inserts. Clamped to
     /// `1..=gmail::messages_api::MAX_CONCURRENCY`.
+    #[arg(help = "Bounds concurrent inserts. Clamped to 1..=gmail::messages_api::MAX_CONCURRENCY")]
     #[arg(long, default_value_t = DEFAULT_INSERT_CONCURRENCY)]
     pub concurrency: usize,
 
@@ -74,11 +88,17 @@ pub struct InsertCommand {
     /// insert by seconds to minutes; useful mainly for a first run into a
     /// mailbox that may already hold some of this mail, or as a recovery
     /// probe after losing the ledger.
+    #[arg(
+        help = "Before inserting, probes the destination for a message already carrying the same Message-ID (rfc822msgid: search) and skips it on a hit. A supplement to the local ledger, not a substitute — the probe costs quota and a round-trip per message and can lag a recent insert by seconds to minutes; useful mainly for a first run into a mailbox that may already hold some of this mail, or as a recovery probe after losing the ledger"
+    )]
     #[arg(long)]
     pub verify_remote: bool,
 
     /// Reports what would be inserted without making any `messages.insert`
     /// call or writing the ledger.
+    #[arg(
+        help = "Reports what would be inserted without making any messages.insert call or writing the ledger"
+    )]
     #[arg(long)]
     pub dry_run: bool,
 

@@ -15,6 +15,10 @@ use crate::drive::file_move::{self, MoveOptions, MoveOutcome, MoveResult, Visibi
 /// visibility are refused by default — the three `--allow-*` flags opt in
 /// independently. See ADR-0070.
 #[derive(Parser)]
+#[command(
+    about = "Moves one or more Drive files into a destination folder",
+    long_about = "Moves one or more Drive files into a destination folder.\n\nMoving can change who can see a file: Drive resolves visibility from direct permissions plus permissions inherited from the parent folder chain, and a move changes that chain. Moves that would change visibility are refused by default — the three --allow-* flags opt in independently. See ADR-0070."
+)]
 pub struct MoveCommand {
     /// Drive file ids to move.
     #[arg(required = true)]

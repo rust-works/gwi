@@ -18,6 +18,10 @@ use crate::drive::sheets::create::{create, describe, CreateOptions};
 /// difference is `--values`, and being discoverable inside the `sheets`
 /// tree.
 #[derive(Parser)]
+#[command(
+    about = "Creates a new Google Sheet, optionally seeded with values",
+    long_about = "Creates a new Google Sheet, optionally seeded with values.\n\nShorthand for drive create --mime-type application/vnd.google-apps.spreadsheet, which does the same thing; the difference is --values, and being discoverable inside the sheets tree."
+)]
 pub struct CreateCommand {
     /// The new spreadsheet's title.
     #[arg(long)]
@@ -30,14 +34,19 @@ pub struct CreateCommand {
 
     /// Optional initial values, written to `Sheet1!A1` onwards: a local file
     /// path, or `-` to read stdin.
+    #[arg(
+        help = "Optional initial values, written to Sheet1!A1 onwards: a local file path, or - to read stdin"
+    )]
     #[arg(long, value_name = "PATH|-")]
     pub values: Option<String>,
 
     /// How to parse `--values`. `auto` infers from the file extension.
+    #[arg(help = "How to parse --values. auto infers from the file extension")]
     #[arg(long = "values-format", value_enum, default_value_t = ValuesFormat::Auto)]
     pub values_format: ValuesFormat,
 
     /// How the API interprets the values (see `drive sheets write`).
+    #[arg(help = "How the API interprets the values (see drive sheets write)")]
     #[arg(long, value_enum, default_value_t = InputArg::UserEntered)]
     pub input: InputArg,
 

@@ -71,10 +71,23 @@ macro_rules! account_param_doc {
     };
 }
 
+macro_rules! account_param_plain {
+    () => {
+        "Selects a named Gmail account, e.g. work, overriding ambient \
+         --account/GWI_GMAIL_ACCOUNT. Omit to use the ambient selection, then the \
+         configured default or sole account; multiple accounts without a default require \
+         a selection. With no named accounts, uses unconfigured/legacy credentials. \
+         A complete process-environment GMAIL_CLIENT_ID/GMAIL_CLIENT_SECRET/\
+         GMAIL_REFRESH_TOKEN credential set bypasses named-account selection, even \
+         when account is supplied. Call gmail_account_list to discover configured names."
+    };
+}
+
 /// Parameters for `gmail_auth_status`.
 #[derive(Debug, Default, Deserialize, schemars::JsonSchema)]
 pub struct GmailAuthStatusParams {
     #[doc = account_param_doc!()]
+    #[schemars(description = account_param_plain!())]
     #[serde(default)]
     pub account: Option<String>,
 }
@@ -84,23 +97,36 @@ pub struct GmailAuthStatusParams {
 pub struct GmailSearchParams {
     /// Gmail search query, same syntax as the Gmail search box (e.g.
     /// `label:finance after:2026/01/01`). Required.
+    #[schemars(
+        description = "Gmail search query, same syntax as the Gmail search box (e.g. label:finance after:2026/01/01). Required."
+    )]
     pub query: String,
     /// Maximum results. Defaults to 50 when omitted; `0` explicitly means
     /// fetch every match up to the hard cap (10000).
+    #[schemars(
+        description = "Maximum results. Defaults to 50 when omitted; 0 explicitly means fetch every match up to the hard cap (10000)."
+    )]
     #[serde(default)]
     pub limit: Option<usize>,
     /// When `true`, enrich each hit with From/Subject/Date/snippet via one
     /// extra `messages.get` request per hit. Defaults to `false` (ids-only,
     /// the cheaper default — `messages.get` costs 20 units).
+    #[schemars(
+        description = "When true, enrich each hit with From/Subject/Date/snippet via one extra messages.get request per hit. Defaults to false (ids-only, the cheaper default — messages.get costs 20 units)."
+    )]
     #[serde(default)]
     pub enrich: Option<bool>,
     /// Bounds concurrent `messages.get` calls when `enrich` is true (has no
     /// effect otherwise). Defaults to 4, clamped to 1-5 based on a
     /// 100-units/second pacing budget and 20 units per get. Bounds fan-out,
     /// not sustained request rate.
+    #[schemars(
+        description = "Bounds concurrent messages.get calls when enrich is true (has no effect otherwise). Defaults to 4, clamped to 1-5 based on a 100-units/second pacing budget and 20 units per get. Bounds fan-out, not sustained request rate."
+    )]
     #[serde(default)]
     pub concurrency: Option<usize>,
     #[doc = account_param_doc!()]
+    #[schemars(description = account_param_plain!())]
     #[serde(default)]
     pub account: Option<String>,
 }
@@ -111,10 +137,16 @@ pub struct GmailMessageReadParams {
     /// Gmail API message id, e.g. `18c5a2b3d4e6f789`, from the `id` field of
     /// a `gmail_search` hit. Use the message id, not its `threadId`, an RFC
     /// Message-ID header, or a draft id (`r-1234567890`). Required.
+    #[schemars(
+        description = "Gmail API message id, e.g. 18c5a2b3d4e6f789, from the id field of a gmail_search hit. Use the message id, not its threadId, an RFC Message-ID header, or a draft id (r-1234567890). Required."
+    )]
     pub message_id: String,
     /// `minimal` (ids/labels only), `metadata` (headers + snippet), `full`
     /// (default; parsed MIME structure), or `raw` (base64url RFC 2822
     /// source). Matches Gmail's own wire values verbatim.
+    #[schemars(
+        description = "minimal (ids/labels only), metadata (headers + snippet), full (default; parsed MIME structure), or raw (base64url RFC 2822 source). Matches Gmail's own wire values verbatim."
+    )]
     #[serde(default)]
     pub format: Option<String>,
     /// Local output path, e.g. `/tmp/message.yaml`. Omit for inline YAML.
@@ -124,9 +156,13 @@ pub struct GmailMessageReadParams {
     /// window.
     /// Must be inside the operator's allowed directories (`mcp.allowed_paths`) and outside
     /// credential locations.
+    #[schemars(
+        description = "Local output path, e.g. /tmp/message.yaml. Omit for inline YAML. When set, writes the rendered message to this path and returns a short YAML summary (path/bytes/format) instead of the inline body — use for large messages/attachments that would blow past the context window. Must be inside the operator's allowed directories (mcp.allowed_paths) and outside credential locations."
+    )]
     #[serde(default)]
     pub output_file: Option<String>,
     #[doc = account_param_doc!()]
+    #[schemars(description = account_param_plain!())]
     #[serde(default)]
     pub account: Option<String>,
 }
@@ -138,8 +174,12 @@ pub struct GmailThreadReadParams {
     /// of an ids-only `gmail_search` hit or `gmail_message_read` response
     /// (`thread_id` in enriched search results). Identifies the
     /// conversation, not an individual message or a draft (`r-1234567890`). Required.
+    #[schemars(
+        description = "Gmail API thread id, e.g. 18c5a2b3d4e6f780, from the threadId field of an ids-only gmail_search hit or gmail_message_read response (thread_id in enriched search results). Identifies the conversation, not an individual message or a draft (r-1234567890). Required."
+    )]
     pub thread_id: String,
     #[doc = account_param_doc!()]
+    #[schemars(description = account_param_plain!())]
     #[serde(default)]
     pub account: Option<String>,
 }
@@ -148,6 +188,7 @@ pub struct GmailThreadReadParams {
 #[derive(Debug, Default, Deserialize, schemars::JsonSchema)]
 pub struct GmailLabelListParams {
     #[doc = account_param_doc!()]
+    #[schemars(description = account_param_plain!())]
     #[serde(default)]
     pub account: Option<String>,
 }
@@ -158,14 +199,21 @@ pub struct GmailDraftListParams {
     /// Only list drafts matching this Gmail search query (same syntax as the
     /// Gmail search box), e.g. `to:alice subject:report`. Omit to list every
     /// draft.
+    #[schemars(
+        description = "Only list drafts matching this Gmail search query (same syntax as the Gmail search box), e.g. to:alice subject:report. Omit to list every draft."
+    )]
     #[serde(default)]
     pub query: Option<String>,
     /// Maximum drafts to return. Defaults to 50 when omitted; `0` explicitly
     /// means every draft, up to the hard cap (10000). Each draft costs one
     /// extra `messages.get` request (20 quota units).
+    #[schemars(
+        description = "Maximum drafts to return. Defaults to 50 when omitted; 0 explicitly means every draft, up to the hard cap (10000). Each draft costs one extra messages.get request (20 quota units)."
+    )]
     #[serde(default)]
     pub limit: Option<usize>,
     #[doc = account_param_doc!()]
+    #[schemars(description = account_param_plain!())]
     #[serde(default)]
     pub account: Option<String>,
 }
@@ -177,10 +225,16 @@ pub struct GmailDraftShowParams {
     /// `gmail_draft_list` row. NOT a message id: a message id from
     /// `gmail_search` or `gmail_message_read` fails with "No draft with id".
     /// Required.
+    #[schemars(
+        description = "Gmail draft id, e.g. r-1234567890 — the draft_id field of a gmail_draft_list row. NOT a message id: a message id from gmail_search or gmail_message_read fails with \"No draft with id\". Required."
+    )]
     pub draft_id: String,
     /// `minimal` (ids/labels only), `metadata` (headers + snippet), `full`
     /// (default; parsed MIME structure), or `raw` (base64url RFC 2822
     /// source) — the same values as `gmail_message_read`'s `format`.
+    #[schemars(
+        description = "minimal (ids/labels only), metadata (headers + snippet), full (default; parsed MIME structure), or raw (base64url RFC 2822 source) — the same values as gmail_message_read's format."
+    )]
     #[serde(default)]
     pub format: Option<String>,
     /// Local output path, e.g. `/tmp/draft.yaml`. Omit for inline YAML.
@@ -190,9 +244,13 @@ pub struct GmailDraftShowParams {
     /// `.eml`.
     /// Must be inside the operator's allowed directories (`mcp.allowed_paths`) and outside
     /// credential locations.
+    #[schemars(
+        description = "Local output path, e.g. /tmp/draft.yaml. Omit for inline YAML. When set, writes the rendered draft to this path as YAML and returns a short YAML summary (path/bytes/format) instead of the inline body. Even with format: raw the file is the YAML envelope, not a decoded .eml. Must be inside the operator's allowed directories (mcp.allowed_paths) and outside credential locations."
+    )]
     #[serde(default)]
     pub output_file: Option<String>,
     #[doc = account_param_doc!()]
+    #[schemars(description = account_param_plain!())]
     #[serde(default)]
     pub account: Option<String>,
 }

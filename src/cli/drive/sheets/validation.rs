@@ -46,10 +46,12 @@ pub struct SetDataValidationCommand {
     pub spreadsheet_id: String,
 
     /// A1 range to validate, optionally carrying its own `Sheet!` prefix.
+    #[arg(help = "A1 range to validate, optionally carrying its own Sheet! prefix")]
     #[arg(long, value_name = "A1")]
     pub range: Option<String>,
 
     /// Sheet (tab) title. Supplies the prefix for a bare `--range`.
+    #[arg(help = "Sheet (tab) title. Supplies the prefix for a bare --range")]
     #[arg(long, value_name = "NAME")]
     pub sheet: Option<String>,
 
@@ -120,16 +122,25 @@ pub struct SetDataValidationCommand {
     /// Sheets rejects a relative keyword like `today` in data validation
     /// (accepted in `add-conditional-format`/`update-conditional-format`,
     /// not here).
+    #[arg(
+        help = "Restrict entries to a date after this one. Absolute dates only — Sheets rejects a relative keyword like today in data validation (accepted in add-conditional-format/update-conditional-format, not here)"
+    )]
     #[arg(long, value_name = "DATE")]
     pub date_after: Option<String>,
 
     /// Restrict entries to a date before this one. Absolute dates only
     /// (see `--date-after`).
+    #[arg(
+        help = "Restrict entries to a date before this one. Absolute dates only (see --date-after)"
+    )]
     #[arg(long, value_name = "DATE")]
     pub date_before: Option<String>,
 
     /// Restrict entries to a date equal to this one. Absolute dates only
     /// (see `--date-after`).
+    #[arg(
+        help = "Restrict entries to a date equal to this one. Absolute dates only (see --date-after)"
+    )]
     #[arg(long, value_name = "DATE")]
     pub date_on: Option<String>,
 
@@ -147,6 +158,7 @@ pub struct SetDataValidationCommand {
     pub not_blank: bool,
 
     /// Restrict entries to `TRUE`/`FALSE`, rendered as a checkbox.
+    #[arg(help = "Restrict entries to TRUE/FALSE, rendered as a checkbox")]
     #[arg(long)]
     pub checkbox: bool,
 
@@ -252,10 +264,12 @@ pub struct ClearDataValidationCommand {
 
     /// A1 range to clear validation from, optionally carrying its own
     /// `Sheet!` prefix.
+    #[arg(help = "A1 range to clear validation from, optionally carrying its own Sheet! prefix")]
     #[arg(long, value_name = "A1")]
     pub range: Option<String>,
 
     /// Sheet (tab) title. Supplies the prefix for a bare `--range`.
+    #[arg(help = "Sheet (tab) title. Supplies the prefix for a bare --range")]
     #[arg(long, value_name = "NAME")]
     pub sheet: Option<String>,
 

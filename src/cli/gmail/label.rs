@@ -21,10 +21,13 @@ pub struct LabelCommand {
 #[derive(Subcommand)]
 pub enum LabelSubcommands {
     /// Lists Gmail labels (mirrors the `gmail_label_list` MCP tool).
+    #[command(about = "Lists Gmail labels (mirrors the gmail_label_list MCP tool)")]
     List(list::ListCommand),
     /// Adds a label to one or more messages (`gmail.modify` scope required).
+    #[command(about = "Adds a label to one or more messages (gmail.modify scope required)")]
     Add(add::AddCommand),
     /// Removes a label from one or more messages (`gmail.modify` scope required).
+    #[command(about = "Removes a label from one or more messages (gmail.modify scope required)")]
     Remove(remove::RemoveCommand),
 }
 

@@ -18,13 +18,23 @@ use crate::drive::types::DriveFile;
 /// already returns full metadata (including `md5Checksum`) per hit, so
 /// duplicate detection needs no per-file follow-up call.
 #[derive(Parser)]
+#[command(
+    about = "Finds Drive files sharing the same content hash",
+    long_about = "Finds Drive files sharing the same content hash.\n\nReuses the same bulk search path as drive search — files.list already returns full metadata (including md5Checksum) per hit, so duplicate detection needs no per-file follow-up call."
+)]
 pub struct DedupeCommand {
     /// Drive search query, passed verbatim to `files.list`'s `q` parameter
     /// (e.g. `'<folder-id>' in parents` to dedupe within one folder).
+    #[arg(
+        help = "Drive search query, passed verbatim to files.list's q parameter (e.g. '<folder-id>' in parents to dedupe within one folder)"
+    )]
     pub query: String,
 
     /// Maximum results to scan. `0` means "scan every match" (capped at a
     /// hard ceiling to bound run time).
+    #[arg(
+        help = "Maximum results to scan. 0 means \"scan every match\" (capped at a hard ceiling to bound run time)"
+    )]
     #[arg(long, default_value_t = DEFAULT_SEARCH_LIMIT)]
     pub limit: usize,
 

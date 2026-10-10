@@ -15,9 +15,13 @@ use crate::drive::rename::{self, RenameOutcome};
 /// and never changes `parents`, so it never affects visibility — unlike
 /// `move`, there is no `--allow-*` gate here.
 #[derive(Parser)]
+#[command(
+    about = "Renames a single Drive file. Always safe: renaming only touches name and never changes parents, so it never affects visibility — unlike move, there is no --allow-* gate here"
+)]
 pub struct RenameCommand {
     /// Drive file id (from `drive search`, or the `id` segment of a Drive
     /// URL).
+    #[arg(help = "Drive file id (from drive search, or the id segment of a Drive URL)")]
     pub file_id: String,
     /// The new name.
     pub new_name: String,

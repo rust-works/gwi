@@ -28,6 +28,7 @@ pub enum RenderArg {
     /// Raw typed values — numbers and booleans rather than strings.
     Unformatted,
     /// Formula text (`=SUM(A1:A3)`) rather than the computed result.
+    #[value(help = "Formula text (=SUM(A1:A3)) rather than the computed result")]
     Formula,
 }
 
@@ -50,24 +51,36 @@ pub struct ReadCommand {
 
     /// A1 range to read, optionally carrying its own `Sheet!` prefix (e.g.
     /// `A1:C10`, `'My Sheet'!A:A`). Combined with `--sheet` when bare.
+    #[arg(
+        help = "A1 range to read, optionally carrying its own Sheet! prefix (e.g. A1:C10, 'My Sheet'!A:A). Combined with --sheet when bare"
+    )]
     #[arg(long, value_name = "A1")]
     pub range: Option<String>,
 
     /// Sheet (tab) title to read. Supplies the prefix for a bare `--range`,
     /// or selects the whole tab on its own. Conflicts with a `--range` that
     /// already names a sheet.
+    #[arg(
+        help = "Sheet (tab) title to read. Supplies the prefix for a bare --range, or selects the whole tab on its own. Conflicts with a --range that already names a sheet"
+    )]
     #[arg(long, value_name = "NAME")]
     pub sheet: Option<String>,
 
     /// How cell values are rendered. `formatted` matches the spreadsheet as
     /// displayed; `unformatted` yields raw typed numbers rather than
     /// locale-formatted strings; `formula` yields formula text.
+    #[arg(
+        help = "How cell values are rendered. formatted matches the spreadsheet as displayed; unformatted yields raw typed numbers rather than locale-formatted strings; formula yields formula text"
+    )]
     #[arg(long, value_enum, default_value_t = RenderArg::Formatted)]
     pub render: RenderArg,
 
     /// Output format. The default `table` emits CSV — one block per sheet,
     /// each preceded by a `# <title>` comment line when reading more than
     /// one. Use `json`/`yaml` to keep values typed and rows ragged.
+    #[arg(
+        help = "Output format. The default table emits CSV — one block per sheet, each preceded by a # <title> comment line when reading more than one. Use json/yaml to keep values typed and rows ragged"
+    )]
     #[arg(short = 'o', long, value_enum, default_value_t = OutputFormat::Table)]
     pub output: OutputFormat,
 }

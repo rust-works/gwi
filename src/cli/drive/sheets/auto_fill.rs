@@ -42,6 +42,7 @@ pub struct AutoFillCommand {
 
     /// Sheet (tab) title. Supplies the prefix for a bare
     /// `--range`/`--source`.
+    #[arg(help = "Sheet (tab) title. Supplies the prefix for a bare --range/--source")]
     #[arg(long, value_name = "NAME")]
     pub sheet: Option<String>,
 
@@ -50,21 +51,31 @@ pub struct AutoFillCommand {
     /// the source and which are filled — so the destination reported by
     /// `--dry-run` is only ever an upper bound on what will be
     /// overwritten.
+    #[arg(
+        help = "Form A: the whole region, optionally carrying its own Sheet! prefix. Sheets examines it and decides for itself which cells are the source and which are filled — so the destination reported by --dry-run is only ever an upper bound on what will be overwritten"
+    )]
     #[arg(long, value_name = "A1")]
     pub range: Option<String>,
 
     /// Form B: the cells holding the series to extend, optionally carrying
     /// its own `Sheet!` prefix. Requires `--dimension` and `--fill-length`.
+    #[arg(
+        help = "Form B: the cells holding the series to extend, optionally carrying its own Sheet! prefix. Requires --dimension and --fill-length"
+    )]
     #[arg(long, value_name = "A1", requires_all = ["dimension", "fill_length"])]
     pub source: Option<String>,
 
     /// Form B: which axis `--fill-length` extends `--source` along.
+    #[arg(help = "Form B: which axis --fill-length extends --source along")]
     #[arg(long, value_enum, requires = "source")]
     pub dimension: Option<DimensionArg>,
 
     /// Form B: how many rows/columns to fill, extending from `--source`'s
     /// edge. Negative fills backward (up or left) instead of forward
     /// (down or right).
+    #[arg(
+        help = "Form B: how many rows/columns to fill, extending from --source's edge. Negative fills backward (up or left) instead of forward (down or right)"
+    )]
     #[arg(
         long,
         value_name = "N",

@@ -16,13 +16,23 @@ use crate::drive::types::DriveFile;
 /// hit in one call via the `fields` parameter — there is no ids-then-enrich
 /// split and no `--enrich` flag.
 #[derive(Parser)]
+#[command(
+    about = "Searches Drive files",
+    long_about = "Searches Drive files.\n\nUnlike Gmail's messages.list, files.list returns full metadata per hit in one call via the fields parameter — there is no ids-then-enrich split and no --enrich flag."
+)]
 pub struct SearchCommand {
     /// Drive search query, passed verbatim to `files.list`'s `q` parameter
     /// (e.g. `name contains 'report' and mimeType = 'application/pdf'`).
+    #[arg(
+        help = "Drive search query, passed verbatim to files.list's q parameter (e.g. name contains 'report' and mimeType = 'application/pdf')"
+    )]
     pub query: String,
 
     /// Maximum results to return. `0` means "fetch every match" (capped at
     /// a hard ceiling to bound run time).
+    #[arg(
+        help = "Maximum results to return. 0 means \"fetch every match\" (capped at a hard ceiling to bound run time)"
+    )]
     #[arg(long, default_value_t = DEFAULT_SEARCH_LIMIT)]
     pub limit: usize,
 

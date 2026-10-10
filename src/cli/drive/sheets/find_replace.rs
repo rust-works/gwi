@@ -25,15 +25,20 @@ pub struct FindReplaceCommand {
     pub replacement: String,
 
     /// A1 range to search, optionally carrying its own `Sheet!` prefix.
+    #[arg(help = "A1 range to search, optionally carrying its own Sheet! prefix")]
     #[arg(long, value_name = "A1")]
     pub range: Option<String>,
 
     /// Sheet (tab) title. Supplies the prefix for a bare `--range`, and is
     /// required with `--whole-sheet`.
+    #[arg(
+        help = "Sheet (tab) title. Supplies the prefix for a bare --range, and is required with --whole-sheet"
+    )]
     #[arg(long, value_name = "NAME")]
     pub sheet: Option<String>,
 
     /// Search the whole sheet named by `--sheet`.
+    #[arg(help = "Search the whole sheet named by --sheet")]
     #[arg(long)]
     pub whole_sheet: bool,
 
@@ -61,6 +66,9 @@ pub struct FindReplaceCommand {
     /// Reports the gate verdict and request scope without calling
     /// `spreadsheets.batchUpdate`. Sheets computes matching counts only when
     /// the request executes.
+    #[arg(
+        help = "Reports the gate verdict and request scope without calling spreadsheets.batchUpdate. Sheets computes matching counts only when the request executes"
+    )]
     #[arg(long)]
     pub dry_run: bool,
 

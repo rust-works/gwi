@@ -32,14 +32,24 @@ const HEADERS: [&str; 7] = [
 /// `drafts.list` returns only ids. They run at `gmail search --enrich`'s
 /// default concurrency. Works with a `gmail.readonly` account.
 #[derive(Parser)]
+#[command(
+    about = "Lists Gmail drafts, showing each one's draft id",
+    long_about = "Lists Gmail drafts, showing each one's draft id.\n\nEvery drafts endpoint is addressed by the draft id, not the message id. gmail search in:drafts finds the messages but can't return their draft ids, which is why this command exists.\n\nEach row costs one messages.get on top of the listing, since drafts.list returns only ids. They run at gmail search --enrich's default concurrency. Works with a gmail.readonly account."
+)]
 pub struct ListCommand {
     /// Only list drafts matching this Gmail search query (same syntax as
     /// the Gmail search box, e.g. `to:alice subject:report`).
+    #[arg(
+        help = "Only list drafts matching this Gmail search query (same syntax as the Gmail search box, e.g. to:alice subject:report)"
+    )]
     #[arg(long)]
     pub query: Option<String>,
 
     /// Maximum drafts to return. `0` means "every draft" (capped at the
     /// same hard ceiling as `gmail search`).
+    #[arg(
+        help = "Maximum drafts to return. 0 means \"every draft\" (capped at the same hard ceiling as gmail search)"
+    )]
     #[arg(long, default_value_t = DEFAULT_SEARCH_LIMIT)]
     pub limit: usize,
 

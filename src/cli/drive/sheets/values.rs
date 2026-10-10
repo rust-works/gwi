@@ -18,6 +18,9 @@ use clap::ValueEnum;
 pub enum ValuesFormat {
     /// Infer from the path's extension: `.json` is JSON, `.tsv` is TSV, everything else —
     /// including stdin — is CSV.
+    #[value(
+        help = "Infer from the path's extension: .json is JSON, .tsv is TSV, everything else — including stdin — is CSV"
+    )]
     #[default]
     Auto,
     /// RFC 4180 CSV.

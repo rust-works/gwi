@@ -44,21 +44,33 @@ pub struct SetDeveloperMetadataCommand {
     /// Title of the sheet, when the location is sheet- or dimension-scoped.
     /// Omit entirely, along with `--dimension`/`--start`/`--end`, for a
     /// spreadsheet-scoped entry.
+    #[arg(
+        help = "Title of the sheet, when the location is sheet- or dimension-scoped. Omit entirely, along with --dimension/--start/--end, for a spreadsheet-scoped entry"
+    )]
     #[arg(long, value_name = "NAME")]
     pub sheet: Option<String>,
 
     /// Rows or columns, when the location is a single row or column. Requires
     /// `--sheet`, `--start` and `--end` together.
+    #[arg(
+        help = "Rows or columns, when the location is a single row or column. Requires --sheet, --start and --end together"
+    )]
     #[arg(long, value_enum)]
     pub dimension: Option<DimensionArg>,
 
     /// 1-based row/column. Must equal `--end`: developer metadata attaches
     /// to a single row or column only.
+    #[arg(
+        help = "1-based row/column. Must equal --end: developer metadata attaches to a single row or column only"
+    )]
     #[arg(long, value_name = "N")]
     pub start: Option<i64>,
 
     /// 1-based row/column. Must equal `--start`: developer metadata attaches
     /// to a single row or column only.
+    #[arg(
+        help = "1-based row/column. Must equal --start: developer metadata attaches to a single row or column only"
+    )]
     #[arg(long, value_name = "N")]
     pub end: Option<i64>,
 
@@ -102,26 +114,41 @@ pub struct DeleteDeveloperMetadataCommand {
     /// Title of the sheet, when the location is sheet- or dimension-scoped.
     /// Omit entirely, along with `--dimension`/`--start`/`--end`, for a
     /// spreadsheet-scoped entry.
+    #[arg(
+        help = "Title of the sheet, when the location is sheet- or dimension-scoped. Omit entirely, along with --dimension/--start/--end, for a spreadsheet-scoped entry"
+    )]
     #[arg(long, value_name = "NAME")]
     pub sheet: Option<String>,
 
     /// Rows or columns, when the location is a single row or column. Requires
     /// `--sheet`, `--start` and `--end` together.
+    #[arg(
+        help = "Rows or columns, when the location is a single row or column. Requires --sheet, --start and --end together"
+    )]
     #[arg(long, value_enum)]
     pub dimension: Option<DimensionArg>,
 
     /// 1-based row/column. Must equal `--end`: developer metadata attaches
     /// to a single row or column only.
+    #[arg(
+        help = "1-based row/column. Must equal --end: developer metadata attaches to a single row or column only"
+    )]
     #[arg(long, value_name = "N")]
     pub start: Option<i64>,
 
     /// 1-based row/column. Must equal `--start`: developer metadata attaches
     /// to a single row or column only.
+    #[arg(
+        help = "1-based row/column. Must equal --start: developer metadata attaches to a single row or column only"
+    )]
     #[arg(long, value_name = "N")]
     pub end: Option<i64>,
 
     /// Reports the gate verdict and every entry that would be removed,
     /// without calling `spreadsheets.batchUpdate`.
+    #[arg(
+        help = "Reports the gate verdict and every entry that would be removed, without calling spreadsheets.batchUpdate"
+    )]
     #[arg(long)]
     pub dry_run: bool,
 
@@ -180,6 +207,10 @@ async fn run_developer_metadata(
 /// `sheets info` — needed so a caller can discover an entry's exact key
 /// and location before `set-developer-metadata`/`delete-developer-metadata`.
 #[derive(Parser)]
+#[command(
+    about = "Searches for developer-metadata entries by key and/or location",
+    long_about = "Searches for developer-metadata entries by key and/or location.\n\nRestricted to DOCUMENT visibility. Read-only and ungated, like sheets info — needed so a caller can discover an entry's exact key and location before set-developer-metadata/delete-developer-metadata."
+)]
 pub struct SearchDeveloperMetadataCommand {
     /// Spreadsheet id (the `/d/<ID>/` segment of a Sheets URL).
     #[arg(help = "Spreadsheet id (the /d/<ID>/ segment of a Sheets URL).")]
@@ -192,6 +223,9 @@ pub struct SearchDeveloperMetadataCommand {
     /// Title of the sheet, when restricting the search to a sheet or
     /// a single row/column. Omit entirely, along with `--dimension`/`--start`/`--end`,
     /// to search the whole workbook.
+    #[arg(
+        help = "Title of the sheet, when restricting the search to a sheet or a single row/column. Omit entirely, along with --dimension/--start/--end, to search the whole workbook"
+    )]
     #[arg(long, value_name = "NAME")]
     pub sheet: Option<String>,
 
@@ -201,11 +235,17 @@ pub struct SearchDeveloperMetadataCommand {
 
     /// 1-based row/column. Must equal `--end`: developer metadata attaches
     /// to a single row or column only.
+    #[arg(
+        help = "1-based row/column. Must equal --end: developer metadata attaches to a single row or column only"
+    )]
     #[arg(long, value_name = "N")]
     pub start: Option<i64>,
 
     /// 1-based row/column. Must equal `--start`: developer metadata attaches
     /// to a single row or column only.
+    #[arg(
+        help = "1-based row/column. Must equal --start: developer metadata attaches to a single row or column only"
+    )]
     #[arg(long, value_name = "N")]
     pub end: Option<i64>,
 

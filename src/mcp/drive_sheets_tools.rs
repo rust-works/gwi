@@ -26,7 +26,7 @@ use crate::cli::drive::helpers::create_client_for;
 use crate::drive::sheets::api::{SheetsApi, ValueRenderOption};
 use crate::drive::sheets::client::SheetsClient;
 use crate::drive::sheets::read::{read, ReadOptions};
-use crate::mcp::drive_tools::account_param_doc;
+use crate::mcp::drive_tools::{account_param_doc, account_param_plain};
 
 use super::error::tool_error;
 use super::output_file;
@@ -46,6 +46,7 @@ pub struct DriveSheetsInfoParams {
     )]
     pub spreadsheet_id: String,
     #[doc = account_param_doc!()]
+    #[schemars(description = account_param_plain!())]
     #[serde(default)]
     pub account: Option<String>,
 }
@@ -63,6 +64,9 @@ pub struct DriveSheetsReadParams {
     /// `A1:C10`, `'My Sheet'!A:A`). Combined with `sheet` when bare. Omit
     /// both `range` and `sheet` to read every sheet in the workbook (capped
     /// at 200 sheets; narrow with `sheet`/`range` above that cap).
+    #[schemars(
+        description = "An explicit A1 range, which may carry its own Sheet! prefix (e.g. A1:C10, 'My Sheet'!A:A). Combined with sheet when bare. Omit both range and sheet to read every sheet in the workbook (capped at 200 sheets; narrow with sheet/range above that cap)."
+    )]
     #[serde(default)]
     pub range: Option<String>,
     /// Sheet (tab) title to read, e.g. `Sheet1` (from `drive_sheets_info`).
@@ -70,11 +74,17 @@ pub struct DriveSheetsReadParams {
     /// Supplies the prefix for a bare `range`, or
     /// selects the whole tab on its own. Conflicts with a `range` that
     /// already names a sheet.
+    #[schemars(
+        description = "Sheet (tab) title to read, e.g. Sheet1 (from drive_sheets_info). Omit to use the range alone, or every tab when range is also omitted. Supplies the prefix for a bare range, or selects the whole tab on its own. Conflicts with a range that already names a sheet."
+    )]
     #[serde(default)]
     pub sheet: Option<String>,
     /// How cell values are rendered. `formatted` (default) matches the
     /// spreadsheet as displayed; `unformatted` yields raw typed numbers
     /// rather than locale-formatted strings; `formula` yields formula text.
+    #[schemars(
+        description = "How cell values are rendered. formatted (default) matches the spreadsheet as displayed; unformatted yields raw typed numbers rather than locale-formatted strings; formula yields formula text."
+    )]
     #[serde(default)]
     pub render: Option<String>,
     /// Local output path, e.g. `/tmp/workbook.yaml`. Omit for inline YAML.
@@ -83,9 +93,13 @@ pub struct DriveSheetsReadParams {
     /// read that would exceed the response size limit.
     /// Must be inside the operator's allowed directories (`mcp.allowed_paths`) and outside
     /// credential locations.
+    #[schemars(
+        description = "Local output path, e.g. /tmp/workbook.yaml. Omit for inline YAML. When set, writes the result (YAML) to this path and returns a short summary instead of the inline body — recommended for a whole-workbook read that would exceed the response size limit. Must be inside the operator's allowed directories (mcp.allowed_paths) and outside credential locations."
+    )]
     #[serde(default)]
     pub output_file: Option<String>,
     #[doc = account_param_doc!()]
+    #[schemars(description = account_param_plain!())]
     #[serde(default)]
     pub account: Option<String>,
 }

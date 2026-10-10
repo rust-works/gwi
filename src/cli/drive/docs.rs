@@ -32,17 +32,29 @@ pub struct DocsCommand {
 pub enum DocsSubcommands {
     /// Shows a document's title, revision id and structural outline
     /// (mirrors the `drive_docs_info` MCP tool).
+    #[command(
+        about = "Shows a document's title, revision id and structural outline (mirrors the drive_docs_info MCP tool)"
+    )]
     Info(info::InfoCommand),
     /// Reads a document's structural elements with their index ranges
     /// (mirrors the `drive_docs_read` MCP tool).
+    #[command(
+        about = "Reads a document's structural elements with their index ranges (mirrors the drive_docs_read MCP tool)"
+    )]
     Read(read::ReadCommand),
     /// Replaces every occurrence of some text, gated by the write-permission rules
     /// (issue rust-works/omni-dev#1615). Requires the `drive.file` or `drive` scope
     /// (`drive auth login --write-file`/`--write-full`). (mirrors the
     /// `drive_docs_replace` MCP tool).
+    #[command(
+        about = "Replaces every occurrence of some text, gated by the write-permission rules (issue rust-works/omni-dev#1615). Requires the drive.file or drive scope (drive auth login --write-file/--write-full). (mirrors the drive_docs_replace MCP tool)"
+    )]
     Replace(write::ReplaceCommand),
     /// Appends text to the end of a document, gated by the write-permission rules
     /// (issue rust-works/omni-dev#1615). (mirrors the `drive_docs_append` MCP tool).
+    #[command(
+        about = "Appends text to the end of a document, gated by the write-permission rules (issue rust-works/omni-dev#1615). (mirrors the drive_docs_append MCP tool)"
+    )]
     Append(write::AppendCommand),
     /// Inserts text before or after a unique body or segment anchor, gated by docs-write.
     Insert(write::InsertCommand),
@@ -68,6 +80,9 @@ pub enum DocsSubcommands {
     DeleteTableColumn(table::DeleteDimensionCommand),
     /// Creates a new Google Doc, optionally seeded with text. Gated by the
     /// write-permission rules' `create` operation (issue rust-works/omni-dev#1615).
+    #[command(
+        about = "Creates a new Google Doc, optionally seeded with text. Gated by the write-permission rules' create operation (issue rust-works/omni-dev#1615)"
+    )]
     Create(create::CreateCommand),
     /// Creates a scoped named-range label, gated by docs-structure.
     CreateNamedRange(named_range::CreateNamedRangeCommand),
