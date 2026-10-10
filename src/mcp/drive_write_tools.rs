@@ -1155,7 +1155,8 @@ mod tests {
                 continue; // patchcov: coverage ignore-line reason="a non-.rs file in src/mcp; the directory holds none, so the guard exists only for a future stray file"
             }
             let source = std::fs::read_to_string(&path).unwrap();
-            let production = source.split("#[cfg(test)]").next().unwrap();
+            let production = super::super::source_guard::production(&source)
+                .unwrap_or_else(|error| panic!("{}: {error}", path.display()));
             for method in [
                 "batch_update",
                 "values_update",
