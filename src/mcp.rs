@@ -23,6 +23,9 @@ pub mod truncate;
 #[allow(clippy::unwrap_used)]
 mod path_policy_guard;
 
+#[cfg(test)]
+mod source_guard;
+
 pub use error::tool_error;
 pub use runtime::{log_startup_event, serve_with, try_init_tracing, write_error_chain};
 pub use server::GwiServer;

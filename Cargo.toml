@@ -118,6 +118,8 @@ nix = { version = "0.31", default-features = false, features = ["fs", "hostname"
 winapi-util = "0.1"
 
 [dev-dependencies]
+proc-macro2 = { version = "1", features = ["span-locations"] }
+syn = { version = "2", features = ["full"] }
 rmcp = { version = "3.1", features = ["client", "server", "transport-io", "macros"] }
 insta = { version = "1.47", features = ["filters"] }
 indicatif = { version = "0.18", features = ["in_memory"] }

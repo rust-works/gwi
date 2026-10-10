@@ -7,10 +7,14 @@
 //! not resolved. Only tool files are scanned; policy helpers and trailing tests
 //! remain outside the production scan.
 
+#![cfg(test)]
+
 use std::collections::BTreeSet;
 use std::path::Path;
 
 use regex::Regex;
+
+use super::source_guard::production;
 
 // Add an entry only after routing the parameter through PathPolicy. Keep the struct
 // name: allowing `output_file` throughout a file would silently admit a new tool.
@@ -34,15 +38,10 @@ const POLICY_CHECKED_PARAMS: &[(&str, &str, &str)] = &[
     ("gmail_tools.rs", "GmailDraftShowParams", "output_file"),
 ];
 
-fn production(source: &str) -> &str {
-    // Match the existing mutation-wrapper guard and the trailing test-module convention.
-    source.split("#[cfg(test)]").next().unwrap()
-}
-
 fn path_params(source: &str) -> Vec<(String, String)> {
     let structs = Regex::new(r"\bstruct\s+(\w+)\s*\{").unwrap();
     let fields = Regex::new(r"pub\s+(\w+)\s*:\s*Option\s*<\s*String\s*>").unwrap();
-    let source = production(source);
+    let source = production(source).unwrap();
     fields
         .captures_iter(source)
         .filter(|field| &field[1] == "output_file" || field[1].ends_with("_path"))
@@ -110,7 +109,7 @@ fn direct_filesystem_calls(source: &str) -> Vec<String> {
         r"\b(?:(?:(?:std|tokio)\s*::\s*)?fs\s*::\s*(?:write|read\w*|copy|rename|remove_file|remove_dir|remove_dir_all)\s*\(|File\s*::\s*(?:open|create|create_new)\s*\(|OpenOptions\b)",
     )
     .unwrap();
-    let source = production(source);
+    let source = production(source).unwrap();
     let mut found: Vec<_> = calls
         .find_iter(source)
         .map(|call| call.as_str().to_owned())
@@ -153,6 +152,7 @@ fn mcp_tool_paths_require_policy_review() {
             continue;
         }
         let source = std::fs::read_to_string(&path).unwrap();
+        production(&source).unwrap_or_else(|error| panic!("{file}: {error}"));
         let unchecked = unchecked_params(file, &source);
         assert!(unchecked.is_empty(), "{}", unchecked.join("\n"));
         for (owner, field) in path_params(&source) {
@@ -209,7 +209,8 @@ fn direct_filesystem_access_is_detected() {
         "use std::fs::OpenOptions;",
         "OpenOptions::new().write(true).open(path)",
     ] {
-        assert!(!direct_filesystem_calls(source).is_empty(), "{source}");
+        let source = format!("fn production() {{ {source}; }}");
+        assert!(!direct_filesystem_calls(&source).is_empty(), "{source}");
     }
 }
 
@@ -240,7 +241,8 @@ fn additional_filesystem_calls_name_the_tool_and_policy() {
 }
 
 fn assert_filesystem_rejected(source: &str) {
-    let errors = filesystem_policy_errors("gmail_tools.rs", source);
+    let source = format!("fn production() {{ {source}; }}");
+    let errors = filesystem_policy_errors("gmail_tools.rs", &source);
     assert!(!errors.is_empty(), "{source}");
     for error in errors {
         assert!(error.contains("gmail_tools.rs"), "{error}");
@@ -302,7 +304,8 @@ fn module_and_unrelated_function_imports_are_permitted() {
         "use std::fs::{metadata, canonicalize};",
         "PathPolicy::check_read(path); check_output_file(path);",
     ] {
-        assert!(direct_filesystem_calls(source).is_empty(), "{source}");
+        let source = format!("fn production() {{ {source}; }}");
+        assert!(direct_filesystem_calls(&source).is_empty(), "{source}");
     }
 }
 
@@ -321,4 +324,18 @@ fn test_fixture_io_is_excluded() {
         }";
     assert!(path_params(source).is_empty());
     assert!(direct_filesystem_calls(source).is_empty());
+}
+
+#[test]
+fn boundary_text_cannot_hide_new_paths_or_filesystem_calls() {
+    let source = r##"
+        // #[cfg(test)]
+        const TEXT: &str = "#[cfg(test)]";
+        pub struct NewParams { pub source_path: Option<String> }
+        fn production() { std::fs::write(path, bytes); }
+        #[cfg(test)]
+        mod tests { fn fixture() { std::fs::read(path); } }
+    "##;
+    assert_eq!(unchecked_params("new_tools.rs", source).len(), 1);
+    assert_eq!(direct_filesystem_calls(source), ["std::fs::write("]);
 }
