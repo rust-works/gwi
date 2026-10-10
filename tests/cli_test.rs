@@ -550,6 +550,8 @@ fn import_after_a_source_write_without_release_reports_freshness_conflict() {
     }
 }
 
+// Requires HOME-based settings/state discovery; Windows uses the Known Folder API.
+#[cfg(unix)]
 #[test]
 fn import_propagates_a_release_made_in_omni_dev_after_the_import() {
     let home = tempfile::tempdir().unwrap();
