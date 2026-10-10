@@ -29,6 +29,11 @@ use serde::{Deserialize, Serialize};
 
 /// Where a lease's backup landed (ADR-0080 §3's fidelity split).
 ///
+/// [ADR-0080](../../../docs/adrs/adr-0080.md) §4/§10 distinguishes preserving
+/// unknown additive metadata from restore support. Extras must be harmless to
+/// ignore; they cannot change an existing kind's payload interpretation.
+/// Unknown kinds reject the whole ledger, never just the unfamiliar row.
+///
 /// An enum, not a set of `Option` fields on [`LeaseRecord`] directly: the
 /// two kinds are mutually exclusive by construction (a lease backs up
 /// either bytes or a native document, never both or neither), which a
@@ -223,6 +228,8 @@ impl LeaseLedger {
     /// unparseable file is a hard error, mirroring `InsertLedger::load`'s
     /// posture — losing this file doesn't lose recoverable metadata, it
     /// loses the only record of which tokens are still valid.
+    /// An unknown backup kind also rejects the whole ledger (ADR-0080 §4),
+    /// rather than returning a partial set of authority and recovery records.
     pub(crate) fn load(path: &Path) -> Result<Self> {
         let text = match std::fs::read_to_string(path) {
             Ok(text) => text,
@@ -886,6 +893,25 @@ mod tests {
         let path = dir.path().join("lease-ledger.jsonl");
         std::fs::write(&path, "not json\n").unwrap();
         assert!(LeaseLedger::load(&path).is_err());
+    }
+
+    #[test]
+    fn load_rejects_the_whole_ledger_for_an_unknown_backup_kind() {
+        let fixture =
+            include_str!("../../../tests/fixtures/lease-ledger-unknown-backup-kind.jsonl");
+        // The compatible first row is valid in isolation, but must not be
+        // returned as a partial ledger when the second row is unsupported.
+        let known: LeaseRecord = serde_json::from_str(fixture.lines().next().unwrap()).unwrap();
+        assert_eq!(known.token, "known");
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("lease-ledger.jsonl");
+        std::fs::write(&path, fixture).unwrap();
+
+        let err = format!("{:#}", LeaseLedger::load(&path).unwrap_err());
+
+        assert!(err.contains("line 2"), "{err}");
+        assert!(err.contains("unknown variant `future_archive`"), "{err}");
+        assert_eq!(std::fs::read(&path).unwrap(), fixture.as_bytes());
     }
 
     #[test]

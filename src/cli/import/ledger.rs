@@ -1067,6 +1067,41 @@ mod tests {
     }
 
     #[test]
+    fn an_unknown_backup_kind_refuses_import_without_touching_the_destination() {
+        let fixture =
+            include_str!("../../../tests/fixtures/lease-ledger-unknown-backup-kind.jsonl");
+        for existing_target in [false, true] {
+            for (dry_run, force) in [(false, false), (false, true), (true, false), (true, true)] {
+                let dir = tempfile::tempdir().unwrap();
+                let source = dir.path().join("source.jsonl");
+                let target = dir.path().join("gwi").join("lease-ledger.jsonl");
+                std::fs::write(&source, fixture).unwrap();
+                let before = if existing_target {
+                    ledger_of(vec![record("gwi-own", 10)])
+                        .save(&target)
+                        .unwrap();
+                    Some(std::fs::read(&target).unwrap())
+                } else {
+                    None
+                };
+
+                let (result, _) = import(&source, &target, dry_run, force);
+
+                let err = format!("{:#}", result.unwrap_err());
+                assert!(err.contains("line 2"), "{err}");
+                assert!(err.contains("unknown variant `future_archive`"), "{err}");
+                if let Some(before) = before {
+                    assert_eq!(std::fs::read(&target).unwrap(), before);
+                    assert_eq!(tokens(&target), vec!["gwi-own"]);
+                } else {
+                    assert!(!target.parent().unwrap().exists());
+                }
+                assert_eq!(std::fs::read(&source).unwrap(), fixture.as_bytes());
+            }
+        }
+    }
+
+    #[test]
     fn the_report_never_names_a_backup_location() {
         let (_dir, source, target) = setup();
 
