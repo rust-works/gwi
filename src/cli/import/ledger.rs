@@ -61,8 +61,7 @@ const SOURCE_LOCK_POLL: Duration = Duration::from_millis(50);
 /// omni-dev's ledger: `<state_dir>/omni-dev/lease-ledger.jsonl`, beside gwi's own
 /// `<state_dir>/gwi/` and resolved the same way (`state_dir`, falling back to `data_dir`).
 pub(super) fn default_source_ledger() -> Result<PathBuf> {
-    let base = dirs::state_dir()
-        .or_else(dirs::data_dir)
+    let base = crate::utils::app_dirs::state_dir()
         .context("could not resolve the state/data directory for omni-dev's lease ledger")?;
     Ok(base.join("omni-dev").join("lease-ledger.jsonl"))
 }

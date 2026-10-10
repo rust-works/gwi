@@ -160,7 +160,7 @@ fn run_all(paths: &Paths<'_>, dry_run: bool, force: bool, out: &mut impl Write) 
 
 /// omni-dev's settings file: `~/.omni-dev/settings.json`.
 fn default_source() -> Result<PathBuf> {
-    let home = dirs::home_dir().context("Failed to determine home directory")?;
+    let home = crate::utils::app_dirs::home_dir().context("Failed to determine home directory")?;
     Ok(home.join(".omni-dev").join("settings.json"))
 }
 

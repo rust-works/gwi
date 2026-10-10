@@ -114,7 +114,25 @@ impl PathPolicy {
     pub(crate) fn load() -> Self {
         // Not `load_mcp`: that falls back to defaults on a settings file it cannot
         // parse, which would widen a configured `allowed_paths` to the default roots.
-        Self::from_load_result(Settings::load(), &PolicyDirs::current())
+        let mut policy = Self::from_load_result(Settings::load(), &PolicyDirs::current());
+        // Moving application directories must not expose either the relocated
+        // settings/state or the real platform credential directories.
+        policy.protect_application_dirs(
+            crate::utils::app_dirs::home_dir().as_deref(),
+            crate::utils::app_dirs::state_dir().as_deref(),
+        );
+        policy
+    }
+
+    /// Protect relocated application data in addition to platform credentials.
+    fn protect_application_dirs(&mut self, home: Option<&Path>, state: Option<&Path>) {
+        if let Some(home) = home {
+            push_protected(&mut self.protected, &home.join(".gwi"));
+            push_protected(&mut self.protected, &home.join(".omni-dev"));
+        }
+        if let Some(state) = state {
+            push_protected(&mut self.protected, &state.join("gwi"));
+        }
     }
 
     /// [`Self::load`] with the settings read and the directories injected.
@@ -444,6 +462,29 @@ mod tests {
 
     fn refusal(result: Result<PathBuf>) -> String {
         format!("{:#}", result.unwrap_err())
+    }
+
+    #[test]
+    fn relocated_application_directories_and_platform_credentials_are_protected() {
+        let sandbox = Sandbox::new();
+        let app_home = sandbox.work.join("app-home");
+        let app_state = sandbox.work.join("app-state");
+        let roots = [
+            app_home.join(".gwi"),
+            app_home.join(".omni-dev"),
+            app_state.join("gwi"),
+            sandbox.home.join(".ssh"),
+            sandbox.state.join("gwi"),
+        ];
+        for root in &roots {
+            std::fs::create_dir_all(root).unwrap();
+        }
+        let mut policy = sandbox.policy_allowing(&[sandbox.root.path().to_str().unwrap()]);
+        policy.protect_application_dirs(Some(&app_home), Some(&app_state));
+        for root in &roots {
+            let file = sandbox.file_in(root, "secret.json");
+            assert!(refusal(policy.check_read(&file)).contains("protected credential location"));
+        }
     }
 
     #[test]
