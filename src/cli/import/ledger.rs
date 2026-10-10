@@ -16,10 +16,12 @@
 //! - **A release in omni-dev propagates.** When omni-dev has released a lease that gwi's
 //!   row is unreleased, and the token and file id match, gwi's row takes omni-dev's
 //!   `released_at` (and `superseded_by`) and is reported as `released`. This is the mirror
-//!   of the rule above: an import only ever ends authority, never grants it, so it is
+//!   of the rule above: propagating a release only ends authority, so it is
 //!   always on. All other fields of gwi's row are kept, even if the copies have diverged.
 //!   A lease both tools released for the same file is unchanged. Live-row divergence
 //!   and a token naming different files remain conflicts unless `--force` is given.
+//!   Even freshness-only divergence stays a conflict: replacing `version` can restore
+//!   write authority to a stale token. No ordering of Drive versions is assumed.
 //! - **Every row is copied, expired and released ones included.** The ledger keeps them
 //!   on purpose: `drive lease restore` finds a backup by token, and a restore is almost
 //!   always wanted after the expiry window (ADR-0080 §4).
@@ -49,7 +51,7 @@ use chrono::{DateTime, Utc};
 
 use super::Status;
 use crate::drive::lease::ledger::{
-    default_lock_wait_timeout, lock_path_for, LeaseLedger, LedgerLock,
+    default_lock_wait_timeout, lock_path_for, LeaseLedger, LeaseRecord, LedgerLock,
 };
 use crate::utils::fs::{try_lock_or_busy, FileLock};
 
@@ -74,6 +76,18 @@ struct Outcome {
     carried_live: bool,
     /// Why the row was left as it is, when that is not obvious from the status.
     note: Option<&'static str>,
+}
+
+/// Returns whether unreleased rows differ only in their write freshness metadata.
+/// Compares all other fields, including unknown fields, without ordering versions.
+fn differs_only_in_freshness(current: &LeaseRecord, source: &LeaseRecord) -> bool {
+    if current.released_at.is_some() || source.released_at.is_some() || current == source {
+        return false;
+    }
+    let mut normalized = source.clone();
+    normalized.version.clone_from(&current.version);
+    normalized.modified_time.clone_from(&current.modified_time);
+    current == &normalized
 }
 
 /// Merges `source` into `target`, propagating releases for matching lease identities.
@@ -107,7 +121,15 @@ fn merge(
                 }
             }
             Some(_) if force => Status::Overwritten,
-            Some(_) => Status::Conflict,
+            Some(current) => {
+                if differs_only_in_freshness(current, record) {
+                    note = Some(
+                        "unreleased copies differ only in freshness; omni-dev may have written \
+                         under this lease; gwi kept its row",
+                    );
+                }
+                Status::Conflict
+            }
         };
         let copied = matches!(status, Status::Added | Status::Overwritten);
         if copied {
@@ -254,8 +276,8 @@ fn run_ledger_import_waiting(
     let count = |status: Status| outcomes.iter().filter(|o| o.status == status).count();
     for outcome in &outcomes {
         let note = match (outcome.status, outcome.note) {
-            (Status::Conflict, _) => "  (gwi has a different row; use --force)".to_string(),
             (_, Some(note)) => format!("  ({note})"),
+            (Status::Conflict, None) => "  (gwi has a different row; kept unchanged)".to_string(),
             _ => String::new(),
         };
         writeln!(
@@ -275,6 +297,18 @@ fn run_ledger_import_waiting(
         )?;
     }
     let conflicts = count(Status::Conflict);
+    if conflicts > 0 {
+        writeln!(
+            out,
+            "For conflicting unreleased leases, --force replaces the entire row, including \
+             version, modified_time, expiry, file binding, backup/restore metadata and unknown \
+             fields; replacing version may restore write authority to a stale token. \
+             Recommended recovery after switching tools: release the old lease in omni-dev \
+             and run `gwi import` to propagate the release when token and file ID match \
+             (or use `gwi drive lease release`), then acquire a fresh authorized lease with \
+             `gwi drive lease acquire`."
+        )?;
+    }
     writeln!(
         out,
         "{}{} added, {} overwritten, {} released, {} unchanged, {} conflict(s).",
@@ -296,7 +330,9 @@ fn run_ledger_import_waiting(
     if conflicts > 0 && !dry_run {
         return Err(anyhow!(
             "{conflicts} lease(s) were not imported because gwi already has a different row for \
-             the token; re-run with --force to overwrite them"
+             the token; rows were kept unchanged. --force replaces entire conflicting rows and may \
+             restore write authority; release the old lease and acquire a fresh authorized lease \
+             instead when switching tools after a write"
         ));
     }
     Ok(conflicts)
@@ -524,6 +560,102 @@ mod tests {
             .unwrap()
             .extra
             .is_empty());
+    }
+
+    #[test]
+    fn a_source_write_without_release_keeps_gwi_freshness_and_authority_unchanged() {
+        let (_dir, source, target) = setup();
+        import(&source, &target, false, false).0.unwrap();
+        let original = LeaseLedger::load(&target).unwrap();
+        let before = std::fs::read(&target).unwrap();
+        let mut written = LeaseLedger::load(&source).unwrap();
+        written.record_write("live", "4".into(), Some("2026-10-09T00:00:00Z".into()));
+        written.save(&source).unwrap();
+        let source_before = std::fs::read(&source).unwrap();
+
+        for dry_run in [false, true] {
+            let (result, report) = import(&source, &target, dry_run, false);
+            if dry_run {
+                assert_eq!(result.unwrap(), 1);
+            } else {
+                let error = result.unwrap_err().to_string();
+                assert!(error.contains("release the old lease"), "{error}");
+            }
+            assert!(report.contains("conflict    lease live"), "{report}");
+            assert!(
+                report.contains("unreleased copies differ only in freshness"),
+                "{report}"
+            );
+            assert!(report.contains("omni-dev may have written"), "{report}");
+            assert!(
+                report.contains("--force replaces the entire row"),
+                "{report}"
+            );
+            assert!(report.contains("gwi drive lease acquire"), "{report}");
+            assert!(!report.contains(BACKUP_PATH), "{report}");
+            assert_eq!(std::fs::read(&target).unwrap(), before);
+            assert_eq!(
+                LeaseLedger::load(&target).unwrap().get("live"),
+                original.get("live")
+            );
+            assert_eq!(std::fs::read(&source).unwrap(), source_before);
+        }
+        let (result, report) = import(&source, &target, false, true);
+        result.unwrap();
+        assert!(report.contains("overwritten lease live"), "{report}");
+        assert_eq!(
+            LeaseLedger::load(&target).unwrap().get("live"),
+            written.get("live")
+        );
+    }
+
+    #[test]
+    fn freshness_diagnostics_require_equality_of_every_other_field() {
+        let current = record("live", 10);
+        assert!(!differs_only_in_freshness(&current, &current));
+        // Neither direction nor numeric ordering gives freshness authority.
+        for version in ["2", "4", "opaque-version"] {
+            let mut source = current.clone();
+            source.version = version.into();
+            assert!(differs_only_in_freshness(&current, &source));
+            assert!(differs_only_in_freshness(&source, &current));
+        }
+        let mut source = current.clone();
+        source.modified_time = None;
+        assert!(differs_only_in_freshness(&current, &source));
+        source.version = "4".into();
+        let value = serde_json::to_value(&source).unwrap();
+        for (field, different) in [
+            ("token", serde_json::json!("different-token")),
+            ("file_id", serde_json::json!("different-file")),
+            ("expires_at", serde_json::json!("2999-01-01T00:00:00Z")),
+            ("acquired_at", serde_json::json!("2020-01-01T00:00:00Z")),
+            (
+                "backup",
+                serde_json::json!({"kind": "drive_copy", "file_id": "other-backup"}),
+            ),
+            ("restored_at", serde_json::json!("2026-10-09T00:00:00Z")),
+            ("released_at", serde_json::json!("2026-10-09T00:00:00Z")),
+            ("superseded_by", serde_json::json!("other-token")),
+            ("unknown_field", serde_json::json!({"n": 1})),
+        ] {
+            let mut changed = value.clone();
+            changed[field] = different;
+            let changed: LeaseRecord = serde_json::from_value(changed).unwrap();
+            assert!(!differs_only_in_freshness(&current, &changed), "{field}");
+            let outcomes = merge(
+                &mut ledger_of(vec![current.clone()]),
+                &ledger_of(vec![changed]),
+                false,
+                Utc::now(),
+            );
+            assert!(
+                outcomes[0]
+                    .note
+                    .is_none_or(|note| !note.contains("only in freshness")),
+                "{field}"
+            );
+        }
     }
 
     #[test]
