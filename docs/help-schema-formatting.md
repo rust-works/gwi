@@ -48,3 +48,48 @@ room, so build.rs reserves 8 MiB for the CLI executable (pages commit on demand)
 A command-tree regression exercises the Windows reserve and a tighter 1 MiB
 budget elsewhere; binary smoke tests verify actual startup, and the help snapshot
 verifies identical output.
+
+## Paired-description consistency guard
+
+`cargo test --test description_consistency_test` runs in the default test suite and
+parses the CLI and MCP Rust sources with `syn`. It compares explicit clap
+`help`/`long_help`, `about`/`long_about` and value help, and schemars parameter
+`description` attributes with the rustdoc attached to that same struct, enum,
+variant or field. Functions and independently authored MCP `tool` descriptions
+are excluded. A failure names the source path, item/parameter, attribute and line,
+and shows both texts. The existing generated-help snapshot and MCP tools/list
+tests still check the actual outputs.
+
+The test applies only these presentation conventions to both sides:
+
+- Collapse whitespace, including wrapped source lines. Short clap text uses the
+  first rustdoc paragraph and may omit its single final period; long clap text and
+  schemars descriptions use every paragraph.
+- Remove inline code delimiters while preserving their literal contents. Remove
+  single/double asterisk emphasis outside code spans, including emphasis around a
+  code span. Retained emphasis in older explicit descriptions is also accepted.
+- Compare inline Markdown links by readable label. Rustdoc shorthand code links
+  such as ``[`LeaseFlags`]`` and the older explicit `[LeaseFlags]` representation
+  compare as `LeaseFlags`; only bracketed labels actually linked in that paired
+  rustdoc are accepted.
+  Literal links and emphasis inside code examples are preserved.
+
+Four source-specific mappings preserve literal output examples rather than
+interpreting them as prose formatting: `OutputFormat::Yamls` and
+`ReadOutputFormat::Yamls` map the rustdoc code span for `---` to help's quoted `'---'`; `MessageOutputArgs::fold_quotes` and
+`RenderCommand::fold_quotes` map code spans for `>` and
+`*(N quoted lines omitted)*` to the same help examples in single quotes. These
+mappings require the exact example text and exact source item. Changing an example,
+a default, or an omission rule on just one side still fails. There are no general
+wording exceptions; intentional short/full differences follow paragraph boundaries.
+
+String literals (including raw strings and Rust line continuations) and the two
+shared `account_param_doc!()`/`account_param_plain!()` macros are supported. The
+guard parses those macro bodies and their explicit Drive imports, so changing a
+shared string is checked at each parameter that uses it. Unsupported description
+expressions or macro shapes fail rather than silently disappearing from coverage.
+Add an explicit syntax resolver and regression when introducing another authoring
+form. Explicit `None` disables a derived clap description and has no prose pair;
+items without explicit overrides or without rustdoc have no paired text to compare.
+This guard is test-only and does not rewrite generated text or render general
+Markdown at runtime.
