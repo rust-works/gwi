@@ -13,6 +13,8 @@
 //! and appended drains probe before reading and every 1,024 lines on unix, even
 //! when a filter or `--limit` prevents writes. Backlog line acquisition also
 //! probes every 256 KiB consumed, before decoding or parsing an oversized line.
+//! Replacement newline recounts also probe before reading and every 256 KiB
+//! consumed, committing the new tail only after counting completes.
 //! Buffered prefetch, blocking I/O and parsing a completed line are outside
 //! this byte bound.
 //!
@@ -69,7 +71,7 @@ impl SkippedLines {
     }
 }
 
-/// Maximum bytes consumed into line storage between acquisition probes.
+/// Maximum bytes consumed between line-acquisition or replacement-recount probes.
 /// This is a probe budget, not a record-size limit; full records remain intact.
 const LINE_PROBE_BYTES: usize = 256 * 1024;
 
@@ -648,7 +650,13 @@ fn drain_appended<W: Write>(
         // Prune retains records already seen, and identity cannot tell it apart
         // from rotation. Never replay replacement contents, including records
         // written before this poll; follow only subsequent appends.
-        tail.lines = count_newlines(&file, len)?;
+        let mut source = &file;
+        source.seek(SeekFrom::Start(0))?;
+        let mut reader = BufReader::new(source.take(len));
+        let Some(lines) = count_newlines(&mut reader, len, &mut reader_gone)? else {
+            return Ok(Drain::ReaderGone);
+        };
+        tail.lines = lines;
         tail.pos = len;
     }
     tail.id = id.or(tail.id);
@@ -712,20 +720,42 @@ fn read_checkpoint(mut file: &File, pos: u64) -> io::Result<Vec<u8>> {
 
 /// Counts physical line boundaries up to the observed replacement end, without
 /// parsing or replaying its records or buffering an arbitrarily large line.
+/// Returns `None` on hangup, probing before reading and every [`LINE_PROBE_BYTES`]
+/// consumed bytes, including at the observed-end boundary. Caps consumption even
+/// for large exposed buffers. Buffered prefetch and blocking I/O are outside this
+/// bound. The caller commits the new tail only after a completed count.
 #[allow(clippy::naive_bytecount)] // Replacement-only scans do not warrant a bytecount dependency.
-fn count_newlines(mut file: &File, len: u64) -> io::Result<u64> {
-    file.seek(SeekFrom::Start(0))?;
-    let mut reader = BufReader::new(file.take(len));
+fn count_newlines<R: BufRead>(
+    reader: &mut R,
+    mut remaining: u64,
+    reader_gone: &mut impl FnMut() -> bool,
+) -> io::Result<Option<u64>> {
+    if reader_gone() {
+        return Ok(None);
+    }
+    let mut until_probe = LINE_PROBE_BYTES;
     let mut lines = 0;
-    loop {
+    while remaining > 0 {
         let buf = reader.fill_buf()?;
         if buf.is_empty() {
-            return Ok(lines);
+            break;
         }
-        lines += buf.iter().filter(|&&byte| byte == b'\n').count() as u64;
-        let consumed = buf.len();
+        let consumed = (buf.len().min(until_probe) as u64).min(remaining) as usize;
+        lines += buf[..consumed]
+            .iter()
+            .filter(|&&byte| byte == b'\n')
+            .count() as u64;
         reader.consume(consumed);
+        remaining -= consumed as u64;
+        until_probe -= consumed;
+        if until_probe == 0 {
+            if reader_gone() {
+                return Ok(None);
+            }
+            until_probe = LINE_PROBE_BYTES;
+        }
     }
+    Ok(Some(lines))
 }
 
 /// What one raw log line turned out to be.
@@ -1973,6 +2003,222 @@ mod tests {
     /// Enough lines that the scan cannot have buffered them all in one read.
     fn many_lines() -> String {
         sample_lines().repeat(4000)
+    }
+
+    #[test]
+    fn recount_probe_bounds_consumption_with_large_and_small_buffers() {
+        let input = b"x\n".repeat(LINE_PROBE_BYTES * 2);
+        for capacity in [7, input.len()] {
+            for stop_at in [1, 2, 3] {
+                let mut reader = BufReader::with_capacity(capacity, Cursor::new(&input));
+                let mut probes = 0;
+                let result = count_newlines(&mut reader, input.len() as u64, &mut || {
+                    probes += 1;
+                    probes == stop_at
+                })
+                .unwrap();
+                assert_eq!(result, None);
+                assert_eq!(probes, stop_at);
+                assert_eq!(
+                    reader.stream_position().unwrap(),
+                    ((stop_at - 1) * LINE_PROBE_BYTES) as u64
+                );
+                assert!(reader.stream_position().unwrap() < input.len() as u64);
+            }
+        }
+    }
+
+    #[test]
+    fn recount_live_reader_respects_observed_end_and_partial_lines() {
+        let input = format!("{}partial\nextra\n", "x\n".repeat(LINE_PROBE_BYTES));
+        for capacity in [7, input.len()] {
+            for len in [
+                0,
+                1,
+                LINE_PROBE_BYTES,
+                LINE_PROBE_BYTES * 2 + 7,
+                input.len() + 9,
+            ] {
+                let mut reader = BufReader::with_capacity(capacity, Cursor::new(&input));
+                let mut probes = 0;
+                let result = count_newlines(&mut reader, len as u64, &mut || {
+                    probes += 1;
+                    false
+                })
+                .unwrap();
+                let consumed = len.min(input.len());
+                assert_eq!(result, Some(input[..consumed].matches('\n').count() as u64));
+                assert_eq!(reader.stream_position().unwrap(), consumed as u64);
+                assert_eq!(probes, 1 + consumed / LINE_PROBE_BYTES);
+            }
+        }
+        // A hangup exactly at the observed end still cancels the count.
+        let mut reader = Cursor::new(vec![b'\n'; LINE_PROBE_BYTES]);
+        let mut probes = 0;
+        assert_eq!(
+            count_newlines(&mut reader, LINE_PROBE_BYTES as u64, &mut || {
+                probes += 1;
+                probes == 2
+            })
+            .unwrap(),
+            None
+        );
+    }
+
+    #[test]
+    fn recount_read_errors_propagate() {
+        for kind in [io::ErrorKind::Interrupted, io::ErrorKind::PermissionDenied] {
+            let mut reader = BufReader::new(ErrorOnce {
+                error: Some(kind),
+                input: Cursor::new(b"x\n".to_vec()),
+            });
+            assert_eq!(
+                count_newlines(&mut reader, 2, &mut || false)
+                    .unwrap_err()
+                    .kind(),
+                kind
+            );
+        }
+    }
+
+    /// Creates a large recount triggered either by shrinkage or identity replacement.
+    fn recount_fixture(path: &Path, replace: bool) -> Tail {
+        let original = if replace {
+            format!("{GOOD}\n")
+        } else {
+            "\n".repeat(LINE_PROBE_BYTES * 4)
+        };
+        std::fs::write(path, &original).unwrap();
+        let mut tail = tail_at_start();
+        drain_appended(
+            path,
+            &empty_filter(),
+            Format::Json,
+            &mut tail,
+            &mut Vec::new(),
+            || false,
+        )
+        .unwrap();
+        let replacement = format!("{}partial", "x\n".repeat(LINE_PROBE_BYTES));
+        if replace {
+            let sibling = path.with_extension("new");
+            std::fs::write(&sibling, &replacement).unwrap();
+            std::fs::rename(&sibling, path).unwrap();
+        } else {
+            std::fs::write(path, &replacement).unwrap();
+        }
+        tail
+    }
+
+    #[test]
+    fn recount_cancellation_preserves_tail_for_replacement_and_truncation() {
+        for replace in [false, true] {
+            let dir = tempfile::tempdir().unwrap();
+            let path = dir.path().join("log.jsonl");
+            let mut tail = recount_fixture(&path, replace);
+            let saved = (tail.pos, tail.lines, tail.id, tail.checkpoint.clone());
+            let mut probes = 0;
+            let mut out = Vec::new();
+            assert_eq!(
+                drain_appended(
+                    &path,
+                    &empty_filter(),
+                    Format::Json,
+                    &mut tail,
+                    &mut out,
+                    || {
+                        probes += 1;
+                        probes == 2
+                    }
+                )
+                .unwrap(),
+                Drain::ReaderGone
+            );
+            assert_eq!(probes, 2);
+            assert_eq!(
+                (tail.pos, tail.lines, tail.id, tail.checkpoint.clone()),
+                saved
+            );
+            #[cfg(unix)]
+            assert_eq!(file_id(tail.file.as_ref().unwrap()), saved.2);
+            assert!(out.is_empty());
+
+            // A completed recount skips every replacement byte, including its partial line.
+            assert_eq!(
+                drain_appended(
+                    &path,
+                    &empty_filter(),
+                    Format::Json,
+                    &mut tail,
+                    &mut out,
+                    || false
+                )
+                .unwrap(),
+                Drain::Complete {
+                    skipped: SkippedLines::default()
+                }
+            );
+            assert_eq!(tail.pos, std::fs::metadata(&path).unwrap().len());
+            assert_eq!(tail.lines, LINE_PROBE_BYTES as u64);
+            assert!(out.is_empty());
+            let mut file = std::fs::OpenOptions::new()
+                .append(true)
+                .open(&path)
+                .unwrap();
+            file.write_all(format!("bad\n{GOOD}\ninvalid\n").as_bytes())
+                .unwrap();
+            assert_eq!(
+                drain_appended(
+                    &path,
+                    &empty_filter(),
+                    Format::Json,
+                    &mut tail,
+                    &mut out,
+                    || false
+                )
+                .unwrap(),
+                Drain::Complete {
+                    skipped: skipped_lines(&[
+                        LINE_PROBE_BYTES as u64 + 1,
+                        LINE_PROBE_BYTES as u64 + 3
+                    ])
+                }
+            );
+            drain_appended(
+                &path,
+                &empty_filter(),
+                Format::Json,
+                &mut tail,
+                &mut out,
+                || false,
+            )
+            .unwrap();
+            assert_eq!(out, format!("{GOOD}\n").as_bytes());
+            assert_eq!(tail.lines, LINE_PROBE_BYTES as u64 + 3);
+        }
+    }
+
+    #[test]
+    fn follow_loop_exits_cleanly_when_recount_detects_hangup() {
+        for replace in [false, true] {
+            let dir = tempfile::tempdir().unwrap();
+            let path = dir.path().join("log.jsonl");
+            let tail = recount_fixture(&path, replace);
+            let mut probes = 0;
+            let mut out = Vec::new();
+            follow_loop(&path, &empty_filter(), Format::Json, tail, &mut out, || {
+                probes += 1;
+                assert!(
+                    probes <= 3,
+                    "follow polled again after recount cancellation"
+                );
+                // Outer probe, recount's initial probe, first byte-budget boundary.
+                probes == 3
+            })
+            .unwrap();
+            assert_eq!(probes, 3);
+            assert!(out.is_empty());
+        }
     }
 
     #[test]
