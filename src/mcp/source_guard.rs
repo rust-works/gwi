@@ -18,6 +18,10 @@ fn test_only(attributes: &[Attribute]) -> bool {
 /// structurally verified trailing test module. Other cfg forms stay scanned.
 pub(super) fn production(source: &str) -> Result<&str, String> {
     let file = syn::parse_file(source).map_err(|error| format!("cannot parse source: {error}"))?;
+    // parse_file removes these prefixes before tokenizing; its spans are relative
+    // to the remaining text, while our scanners need offsets in the original.
+    let prefix_bytes = usize::from(source.starts_with('\u{feff}')) * '\u{feff}'.len_utf8()
+        + file.shebang.as_ref().map_or(0, String::len);
     if test_only(&file.attrs) {
         return Ok("");
     }
@@ -51,7 +55,7 @@ pub(super) fn production(source: &str) -> Result<&str, String> {
                 item.span().start().line
             ));
         }
-        return Ok(&source[..item.span().byte_range().start]);
+        return Ok(&source[..prefix_bytes + item.span().byte_range().start]);
     }
     Ok(source)
 }
@@ -171,5 +175,18 @@ mod tests {
         let prefix = "const TEXT: &str = \"日🦀\";\n";
         let source = format!("{prefix}#[cfg(test)] mod tests {{}}");
         assert_eq!(production(&source).unwrap(), prefix);
+    }
+
+    #[test]
+    fn parser_removed_prefixes_preserve_production() {
+        for header in [
+            "\u{feff}",
+            "#!/usr/bin/env rust-script\n",
+            "\u{feff}#!/bin/rust-script\n",
+        ] {
+            let prefix = format!("{header}fn production() {{ std::fs::write(path, bytes); }}\n");
+            let source = format!("{prefix}#[cfg(test)] mod tests {{}}");
+            assert_eq!(production(&source).unwrap(), prefix);
+        }
     }
 }
