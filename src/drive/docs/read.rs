@@ -12,8 +12,10 @@
 //! read fans out into *N* `values.batchGet` requests and could return a
 //! partially-fetched workbook. `documents.get` is exactly one request whose
 //! result is all-or-nothing, so a cap could only refuse a document already
-//! in hand; `MAX_DOCUMENT_BYTES` is the analogous protection and it sits at
-//! the right layer.
+//! in hand. The API layer instead applies a best-effort response-length
+//! check (`MAX_DOCUMENT_BYTES`): it rejects a reported length over the
+//! threshold, but accepts a missing length and does not enforce a streaming
+//! byte limit. This is not a hard bound on decoded memory.
 
 use anyhow::Result;
 use serde::Serialize;
