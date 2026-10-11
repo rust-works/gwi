@@ -84,66 +84,66 @@ gh api repos/rust-works/gwi/check-runs/114111949012
 gh api repos/rust-works/gwi/pulls/194 --jq '{merged_at,merge_commit_sha}'
 ```
 
-## Remaining failed-check acceptance evidence
+## Failed-check queue rejection
 
-[Issue #205](https://github.com/rust-works/gwi/issues/205) still requires direct
-evidence that failed commit lint on a real merge-group head prevents merging
-without bypass. On 11 October 2026, the commit-lint workflow's merge-group
-queries returned zero runs with each conclusion `failure`, `timed_out` and
-`cancelled`. The paginated main rule-suite query returned no non-pass suite.
-These searches found no usable naturally occurring failure evidence; they do
-not prove that no queue rejection ever occurred. A queue removal may happen
-before any main-push rule evaluation, and an aggregate workflow conclusion is
-distinct from a job conclusion.
+The explicitly authorized disposable
+[probe PR #292](https://github.com/rust-works/gwi/pull/292) used signed head
+`9e93dc831b8de577f612f6f24c1bc3e8d74c3512`. Its normal required PR checks all
+passed. It added an immediate `exit 1` step to `Commit Message Lint` only on
+`merge_group`, deliberately failing the existing required context. This tests
+queue enforcement of the failed context, not detection of an invalid message.
+The later scopes step also failed because the initial failure skipped binary
+installation; both failures belong to the same job/context.
 
-Reproduce the searches with:
+An independent safeguard in the probe's existing required `Doc links` job
+sleeps 300 seconds and then unconditionally exits 1 on merge-group events.
+It cannot pass, so normal merging remains prevented if commit-lint enforcement
+is ineffective. Both jobs retain their normal PR behavior. Production protection
+was unchanged. The first enqueue attempt stopped before mutation because other
+PRs were queued; the probe waited until the queue was empty and revalidated
+protection, required PR results and its exact head before enqueueing. No other
+entries or sessions' checks were altered.
+
+The ordinary `enqueuePullRequest` mutation used `expectedHeadOid` and
+`jump: false`, without bypass. The resulting queue head was
+`e517162b5905f8302af17ce8e89bf9f67dd4e99b`. The
+[merge-group run 38134824570](https://github.com/rust-works/gwi/actions/runs/38134824570)
+reported a failed
+[Commit Message Lint job 114456443260](https://github.com/rust-works/gwi/actions/runs/38134824570/job/114456443260)
+from GitHub Actions app `15368`, completing on
+11 October 2026 at 22:14:33 AEDT. Its logs record the deliberate step exiting 1.
+
+The PR's `RemovedFromMergeQueueEvent` records removal at 22:14:52 AEDT,
+reason `failed_checks`, and `beforeCommit` equal to that exact queue head.
+The [API evidence snapshot](merge-queue-commit-lint-probe-205.json), captured
+after rejection and before cleanup, records all 22 check runs and no commit
+statuses. Commit lint was the sole failed check. The independent Doc links
+safeguard was still queued; other checks were pending or successful and are not
+claimed to have all passed. Same-head removal for failed checks while only the
+required commit-lint context had failed establishes rejection attributable to
+that check. No main update was attempted, so the queue timeline provides the
+rejection evidence rather than a failed main-push rule suite.
+
+Inspect the failure and exact queue removal with:
 
 ```bash
-gh api 'repos/rust-works/gwi/actions/workflows/commit-lint.yml/runs?event=merge_group&status=failure&per_page=100'
-gh api 'repos/rust-works/gwi/actions/workflows/commit-lint.yml/runs?event=merge_group&status=timed_out&per_page=100'
-gh api 'repos/rust-works/gwi/actions/workflows/commit-lint.yml/runs?event=merge_group&status=cancelled&per_page=100'
-gh api --paginate 'repos/rust-works/gwi/rulesets/rule-suites?ref=refs/heads/main&per_page=100'
+gh api repos/rust-works/gwi/check-runs/114456443260
+gh api repos/rust-works/gwi/actions/jobs/114456443260/logs
+gh run view 38134824570 --repo rust-works/gwi --json event,headSha,jobs,conclusion,url
+gh api graphql -f query='{repository(owner:"rust-works",name:"gwi"){pullRequest(number:292){merged timelineItems(last:10,itemTypes:[REMOVED_FROM_MERGE_QUEUE_EVENT]){nodes{... on RemovedFromMergeQueueEvent{createdAt reason beforeCommit{oid}}}}}}}'
 ```
 
-Required-check readback establishes configuration, not failed-check rejection.
-A generic blocked PR, an unrelated failed check, or administrator bypass cannot
-satisfy this acceptance criterion. Keep #205 unresolved until direct rejection
-and cleanup evidence are recorded.
-
-### Guarded commit-lint failure probe procedure
-
-Prefer naturally occurring evidence. Before a disposable probe, obtain explicit
-authorization for enqueueing: a queue entry can merge automatically, while the
-issue-to-pr skill prohibits merging. Use an owned disposable PR/branch with an
-independently enforced safeguard against probe changes reaching main. A plan to
-close the PR quickly is insufficient. Do not proceed if the safeguard requires
-changing production protection or prevents attribution to commit lint.
-
-Capture full ruleset and classic-protection snapshots first. Preserve all
-required contexts/app IDs, queue parameters, conditions, enforcement and bypass
-actors, and leave other sessions' queue entries and checks untouched. Use an
-ordinary queue operation without bypass; the authenticated actor in this
-investigation has `current_user_can_bypass: always`.
-
-Retain the probe PR/branch, queue head SHA, exact failed `Commit Message Lint`
-check from app `15368`, Actions job/logs and timestamps. Inspect all pages of
-check runs and commit statuses on that head to distinguish this failure from
-other required failures. Capture the PR's `RemovedFromMergeQueueEvent`, including
-`reason`, `beforeCommit` and timestamp, or an explicit rule evaluation rejecting
-the group because of commit lint. A `failed_checks` removal with commit lint as
-the sole failed required check on the matching head can establish attribution;
-record pending checks accurately rather than claiming they passed.
-
-After evidence capture, close the disposable PR without merging, cancel only
-its remaining runs and delete its branch. Confirm no probe changes reached main
-and compare fresh full protection snapshots with the originals. Explain any
-concurrent change instead of overwriting it. Record cleanup alongside rejection.
-
-This read-only investigation created no probe resources and changed no checks,
-queue entries or production settings. It did not enqueue, merge or exercise
-bypass. Full ruleset and classic-protection readbacks matched the initial
-snapshots exactly. The healthy path is verified; the failed-check path remains
-pending.
+The probe was closed without merging and its remote branch deleted. Remaining
+owned probe runs were cancelled; all probe runs are now completed. The failed
+commit-lint run retains its `failure` conclusion. The safeguard was cancelled
+before it produced a failed result. The queue was empty after cleanup. Full
+ruleset and classic-protection readbacks matched the pre-probe snapshots
+exactly, including required checks, app IDs, queue parameters and administrator
+bypass. The probe commit is not an ancestor of main, and both deliberate steps
+are absent from main and from this documentation PR. No protection changes or
+administrator bypass were used. Together with the post-update healthy merge,
+this establishes both acceptance paths for
+[issue #205](https://github.com/rust-works/gwi/issues/205).
 
 ## Empty HOME required context
 
