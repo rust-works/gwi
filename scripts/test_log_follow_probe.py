@@ -481,6 +481,28 @@ time.sleep(60)
         self.assertFalse(timer.is_alive())
         self.assert_not_running(live.child.pid)
 
+    def test_watchdog_start_failure_still_reaps_owned_capture(self):
+        with patch.object(runner.threading.Timer, 'start', side_effect=RuntimeError('no threads')):
+            with self.assertRaisesRegex(RuntimeError, 'no threads'):
+                self.probe.start('thread-failure', ['/bin/sh', '-c', 'exec sleep 60'], 'capture', 2)
+        self.probe.cleanup()
+        self.assertTrue(self.probe.runs[0].done)
+        self.assert_not_running(self.probe.runs[0].child.pid)
+
+    def test_finalization_preserves_already_expired_capture(self):
+        run, path, state, capture = self.live_fixture('expired-finalization')
+        capture.args.capture_timeout = 0.1
+        with patch.object(capture, 'command', return_value=['/bin/sh', '-c', 'exec sleep 60']):
+            time.sleep(0.02)
+            capture.tick()
+        time.sleep(0.3)
+        capture.finish()
+        record = capture.records[state['pid']]
+        self.assertEqual(record['outcome'], 'timeout')
+        self.assertTrue(record['results'][0]['capture_watchdog_expired'])
+        self.probe.cleanup()
+        self.assert_not_running(state['pid'])
+
     def test_capture_gates_phase_identity_and_remaining_budget(self):
         for index, changes, expected in (
                 (0, {'status': 'received'}, 'not-delayed-or-missed'),

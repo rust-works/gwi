@@ -102,8 +102,8 @@ process state only. The shared `--capture-timeout` budget defaults to two second
 process inspection consumes part of that budget rather than giving sampling a
 new deadline. The configured delay plus budget must be at most eight seconds.
 Late polling clamps the budget to the remaining receive window minus one second;
-expired budgets do not launch a command. An owned watchdog enforces each command's remaining budget independently of
-supervisor polling, including while workload cleanup is running. It signals the
+expired budgets do not launch a command. An owned watchdog enforces each command's
+remaining budget independently of supervisor polling, including while workload cleanup is running. It signals the
 capture group with KILL at expiry; its lock prevents concurrent reaping and PID
 reuse during signalling. Normal completion disarms and joins the watchdog;
 invocation exit or interruption cancels and joins it during command cleanup.
@@ -502,3 +502,21 @@ No live stack or startup milestone was captured there. Full-suite context remain
 distinct from this focused observation. Neither these passes nor the synthetic
 capture explain that historical timeout; no production stage, contention cause,
 failure rate or deadline change is established.
+
+A final synthetic validation with the independent watchdog and review fixes used
+revision `7e93e32be9046d31a9fb901bf3b45ae629fc51ac` plus uncommitted runner/regression
+fixes, with the same host, feature, workload and time bounds:
+
+```sh
+python3 "$WT/scripts/log-follow-probe.py" --output /private/tmp/gwi-294-watchdog \
+  --features both --repetitions 1 --capture-live --synthetic-delay 4 --max-seconds 1500
+```
+
+Both focused selections passed (9.633/9.811 seconds, default/MCP). All four captures
+passed and recorded `completed_before_fixture_cleanup: true`: followers
+28631/28655 (default) and 30727/30877 (MCP). Initial-receive capture ages were
+2.019/2.003 and 2.002/2.049 seconds; sample command durations were 1.246/1.238 and
+1.456/1.192 seconds. An independent audit found no live follower or member of the
+sixteen command groups. Raw evidence and `audit.json` are under
+`/private/tmp/gwi-294-watchdog`. This validates watchdog-enabled tooling with a
+known reader delay and does not add a historical-stall reproduction.

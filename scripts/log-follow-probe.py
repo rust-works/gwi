@@ -69,6 +69,7 @@ class CommandRun:
             if self.capture_timer is None:
                 return
             self.capture_expired = True
+            self.record["capture_watchdog_expired"] = True
             try:
                 os.killpg(self.child.pid, signal.SIGKILL)
             except ProcessLookupError:
@@ -81,7 +82,7 @@ class CommandRun:
             timer, self.capture_timer = self.capture_timer, None
             if timer is not None:
                 timer.cancel()
-        if timer is not None:
+        if timer is not None and timer.ident is not None:
             timer.join()
 
     def group_states(self):
@@ -438,8 +439,8 @@ class LiveCapture:
 
     def finish(self):
         for pid, (worker, stage, deadline) in list(self.active.items()):
-            result = worker.finish("stopped")
-            self.records[pid].update(outcome="stopped", ended_utc=datetime.now(timezone.utc).isoformat())
+            result = worker.poll() or worker.finish("stopped")
+            self.records[pid].update(outcome=result["outcome"], ended_utc=datetime.now(timezone.utc).isoformat())
             self.records[pid].setdefault("results", []).append(result.copy())
         self.active.clear()
         if self.args.capture_live:
