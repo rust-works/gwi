@@ -11,7 +11,7 @@
 //! metadata or grid-data fields each caller needs. Sheets excludes grid data
 //! by default; its masks limit metadata too. The decision to leave
 //! `documents.get` unmasked is deliberate — there is a test pinning it.
-//! Three reasons:
+//! Two structural reasons:
 //!
 //! 1. **A Docs mask cannot be made recursion-safe.** A `fields` mask spells
 //!    nesting depth out literally, and a table may contain a table to
@@ -23,15 +23,21 @@
 //!    the content lives under `tabs.documentTab.body.content…`, not
 //!    `body.content…`, so the mask's root depends on a query parameter. Two
 //!    masks that must agree is two masks that will diverge.
-//! 3. **The payload is bounded in a way a spreadsheet's is not.** Google
-//!    caps a Doc at roughly a million characters, so the worst-case response
-//!    is large but bounded; a spreadsheet's cell count has no comparable
-//!    ceiling.
 //!
-//! `MAX_DOCUMENT_BYTES` is the guard that replaces it. If payload size
-//! ever does become a problem, a mask belongs on the `info` path **only**
-//! (which needs a shallow skeleton and no recursion) and must never be
-//! applied to `read`.
+//! Both products have finite content limits. [Google's file-size limits]
+//! (verified 2026-10-11) list Docs at 1.02 million characters and Sheets at
+//! 20 million cells. These content units do not establish a maximum number
+//! of bytes in a serialized API response, which also includes structure
+//! and metadata. The no-mask decision rests on document completeness,
+//! not a claim that Sheets content is unbounded.
+//!
+//! `MAX_DOCUMENT_BYTES` is a separate, best-effort check of the reported
+//! response length, not an enforced bound on streamed bytes or decoded
+//! memory. If payload size becomes a problem, a mask belongs on the `info`
+//! path **only** (which needs a shallow skeleton and no recursion) and must
+//! never be applied to `read`.
+//!
+//! [Google's file-size limits]: https://support.google.com/drive/answer/37603?hl=en
 
 use anyhow::{Context, Result};
 use url::Url;
@@ -45,13 +51,15 @@ use crate::drive::docs::write_types::{
 use crate::drive::error::DriveError;
 use crate::drive::files_api::{append_write_scope_hint, WriteCapability};
 
-/// Maximum `documents.get` response accepted into memory.
+/// Threshold for rejecting a `documents.get` response's reported length.
 ///
-/// Best-effort, and honestly so: Google gzips and frequently uses chunked
-/// transfer encoding, so `Content-Length` is often absent and there is then
-/// nothing to check up front — the same caveat
-/// `files_api.rs::check_download_size` already carries. The real bound is
-/// Google's own document size cap; this catches the case it can see.
+/// Best-effort: `get_document` checks `response.content_length()` before
+/// parsing. That length can be absent, including for chunked responses or
+/// when the HTTP client automatically decompresses a response. A missing
+/// length is accepted, and no streaming byte count is enforced here. This
+/// threshold therefore does not guarantee a bound on response bytes or
+/// decoded memory; Google's character limit does not supply such a bound
+/// either.
 const MAX_DOCUMENT_BYTES: u64 = 64 * 1024 * 1024;
 
 /// How the API should render pending suggestions.
@@ -190,9 +198,10 @@ pub(in crate::drive) fn is_stale_revision(err: &anyhow::Error) -> bool {
     )
 }
 
-/// Refuses a `documents.get` whose declared `Content-Length` exceeds
+/// Refuses a `documents.get` whose reported response length exceeds
 /// [`MAX_DOCUMENT_BYTES`]. A missing length is allowed through — there is
-/// nothing to check up front in that case.
+/// nothing to check up front in that case, and this does not count bytes
+/// while the response is read.
 fn check_document_size(content_length: Option<u64>) -> Result<()> {
     if let Some(len) = content_length {
         anyhow::ensure!(
@@ -354,8 +363,8 @@ mod tests {
         assert!(check_document_size(Some(MAX_DOCUMENT_BYTES)).is_ok());
     }
 
-    /// Google gzips and chunks, so an absent length is the common case and
-    /// must not be treated as a refusal.
+    /// An absent response length is deliberately accepted: the check is
+    /// best-effort, not a streaming byte limit.
     #[test]
     fn check_document_size_allows_a_missing_content_length() {
         assert!(check_document_size(None).is_ok());
