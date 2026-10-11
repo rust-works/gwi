@@ -2057,7 +2057,10 @@ not a header**. Blank lines are rows too: each input line maps to exactly
 one sheet row, written as a single empty cell, so a blank line in the
 middle of pasted data doesn't shift every later row up by one.
 
-**`--input` is the one option whose wrong value silently mangles data:**
+JSON cell input has an accepted [private number-key limitation](json-passthrough.md):
+an object can become a numeric scalar before cell validation.
+
+**`--input` controls how Sheets interprets each cell string:**
 
 - **`user-entered`** (default) — parse each value as if typed into the UI:
   `=SUM(A1:A3)` becomes a formula, `2026-09-06` a date, `1,234` a number.

@@ -223,7 +223,9 @@ fn parse_delimited(content: &str, delimiter: u8) -> Result<Vec<Vec<String>>> {
 /// natural thing to write, and the API takes strings for every cell anyway.
 /// `null` becomes an empty cell. A nested array or object is an error: there
 /// is no sensible single-cell rendering of one, and silently writing
-/// `{"a":1}` into a cell would be worse than refusing.
+/// `{"a":1}` into a cell would be worse than refusing. The accepted
+/// [private number-key limitation](../../../../docs/json-passthrough.md) can
+/// turn an object into a number before this cell validation.
 fn parse_json(content: &str) -> Result<Vec<Vec<String>>> {
     let parsed: serde_json::Value =
         serde_json::from_str(content).context("Failed to parse --values as JSON")?;

@@ -794,8 +794,9 @@ impl Settings {
     /// library callers.
     ///
     /// The file is read and written as a generic JSON value, so every other
-    /// field (other profiles, unknown keys) is preserved verbatim. Because the
-    /// `env` maps hold credentials, the write is hardened: parent directory
+    /// field (other profiles, unknown keys) is retained subject to the
+    /// [JSON compatibility limitation](../../docs/json-passthrough.md). Because
+    /// the `env` maps hold credentials, the write is hardened: parent directory
     /// `0700`, file `0600` (see `write_settings`).
     pub fn upsert_env_vars_in(
         path: &Path,
@@ -1179,7 +1180,8 @@ pub(crate) fn write_settings_value(path: &Path, value: &serde_json::Value) -> Re
 }
 
 /// Reads and parses the settings file at `path` as a generic JSON value
-/// (preserving unknown fields), or returns `{}` when the file does not exist.
+/// (subject to the [JSON compatibility limitation](../../docs/json-passthrough.md)),
+/// or returns `{}` when the file does not exist.
 fn read_or_default_settings(path: &Path) -> Result<serde_json::Value> {
     if path.exists() {
         let content = fs::read_to_string(path)
