@@ -342,9 +342,221 @@ time.sleep(60)
         self.assertIsNone(record['returncode'])
         self.assertTrue((self.root / 'missing/stderr.log').exists())
 
+    def test_probe_configuration_is_scoped_to_focused_capture(self):
+        test = self.fake_test('env-test')
+        code = test.read_text().replace('import sys\n', "import sys, os\nif '--list' not in sys.argv:\n    focused = '--exact' in sys.argv\n    assert ('GWI_FOLLOW_PROBE_DIR' in os.environ) == focused\n    if focused:\n        assert os.environ['GWI_FOLLOW_PROBE_DELAY'] == '0'\n    else:\n        assert 'GWI_FOLLOW_PROBE_DELAY' not in os.environ\n")
+        test.write_text(code)
+        args = runner.arguments(['--output', str(self.root), '--repetitions', '1', '--capture-live',
+                                 '--workload', 'harness', '--concurrency', '1'])
+        marker = self.root / 'workload-env-checked'
+        readiness = f"""    import pathlib, time
+    marker = pathlib.Path({str(marker)!r})
+    if focused:
+        deadline = time.monotonic() + 5
+        while not marker.exists() and time.monotonic() < deadline:
+            time.sleep(0.01)
+        assert marker.exists()
+    else:
+        marker.write_text('checked')
+"""
+        test.write_text(test.read_text().replace("if '--list' in sys.argv:", readiness + "if '--list' in sys.argv:"))
+        summary = {'repetitions': []}
+        with patch.dict(os.environ, {'GWI_FOLLOW_PROBE_DIR': '/absent', 'GWI_FOLLOW_PROBE_DELAY': '99'}), \
+                contextlib.redirect_stdout(io.StringIO()):
+            self.assertTrue(runner.measure(self.probe, 'default', {'cli_test': test}, args, summary))
+        self.assertEqual(summary['repetitions'][0]['capture_evidence'], 'missing-fixture-state')
+        self.assertEqual(marker.read_text(), 'checked')
+
+    def live_fixture(self, name='live-fixture'):
+        directory = self.root / name
+        fixture = self.binary(name + '-binary', f"""import json, os, pathlib, subprocess, sys, time
+child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)'])
+state = {{'pid': child.pid, 'harness_pid': os.getpid(), 'phase': {runner.PHASES[0]!r},
+         'status': 'waiting', 'receive_started_unix_seconds': time.time(),
+         'receive_timeout_seconds': 10}}
+pathlib.Path({str(directory)!r}, 'follower-' + str(child.pid) + '.json').write_text(json.dumps(state))
+time.sleep(60)
+""")
+        run = self.probe.start(name, [str(fixture)], 'focused', 60)
+        deadline = time.monotonic() + 5
+        while not list(directory.glob('follower-*.json')) and time.monotonic() < deadline:
+            time.sleep(0.01)
+        paths = list(directory.glob('follower-*.json'))
+        self.assertEqual(len(paths), 1)
+        state = json.loads(paths[0].read_text())
+        args = runner.arguments(['--output', str(self.root), '--capture-live',
+                                 '--capture-after', '0.01', '--capture-timeout', '2'])
+        return run, paths[0], state, runner.LiveCapture(self.probe, run, args)
+
+    def drain_capture(self, capture):
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline:
+            capture.tick()
+            if capture.records and not capture.active:
+                return
+            time.sleep(0.01)
+        self.fail('capture did not finish within test bound')
+
+    def test_capture_targets_live_follower_and_retains_raw_results(self):
+        run, path, state, capture = self.live_fixture()
+        tool = self.binary('capture-tool', '')
+        tool.write_text('#!/bin/sh\nprintf "target %s\\n" "$1"\n')
+        with patch.object(capture, 'command', side_effect=lambda pid, stage: [str(tool), str(pid)]), \
+                patch.object(runner.sys, 'platform', 'darwin'):
+            time.sleep(0.02)
+            self.drain_capture(capture)
+        record = capture.records[state['pid']]
+        self.assertEqual(record['outcome'], 'passed')
+        self.assertEqual(len(record['results']), 2)
+        self.assertEqual(record['fixture_at_capture']['harness_pid'], run.child.pid)
+        self.assertNotEqual(state['pid'], run.child.pid)
+        self.assertIsNone(run.child.poll())
+        for command in record['commands']:
+            self.assertIn(str(state['pid']), (self.root / command / 'stdout.log').read_text())
+        capture.finish()
+        self.probe.cleanup()
+        self.assert_not_running(state['pid'])
+
+    def test_capture_failures_unavailable_and_hung_are_bounded(self):
+        for name, code, outcome in (
+                ('failed', 'import sys; sys.exit(7)\n', 'failed'),
+                ('missing', None, 'unavailable'),
+                ('hung', 'import signal,time; signal.signal(signal.SIGTERM, signal.SIG_IGN); time.sleep(60)\n', 'timeout')):
+            run, path, state, capture = self.live_fixture(name)
+            tool = self.root / 'absent' if code is None else self.binary('tool-' + name, code)
+            if name == 'failed':
+                tool.write_text('#!/bin/sh\nexit 7\n')
+            started = time.monotonic()
+            with patch.object(capture, 'command', return_value=[str(tool)]):
+                time.sleep(0.02)
+                self.drain_capture(capture)
+            record = capture.records[state['pid']]
+            self.assertEqual(record['outcome'], outcome)
+            self.assertLess(time.monotonic() - started, 4)
+            self.assertIsNone(run.child.poll(), 'capture must not kill the follower')
+            if name == 'failed':
+                self.assertEqual(record['results'][0]['returncode'], 7)
+            if name == 'missing':
+                self.assertEqual(json.loads((self.root / record['commands'][0] / 'command.json').read_text())['outcome'],
+                                 'launch-failed')
+            capture.finish()
+            self.probe.cleanup()
+            self.assert_not_running(state['pid'])
+
+    def test_sample_shares_process_budget_and_revalidates_phase(self):
+        for changed in (False, True):
+            run, path, state, capture = self.live_fixture('shared-' + str(changed))
+            process = self.binary('slow-process-' + str(changed), '')
+            process.write_text('#!/bin/sh\nsleep 0.15\n')
+            sample = self.binary('hung-sample-' + str(changed), 'import time; time.sleep(60)\n')
+            started = time.monotonic()
+            with patch.object(runner.sys, 'platform', 'darwin'), \
+                    patch.object(capture, 'command', side_effect=lambda pid, stage:
+                                 [str(process if stage == 'process' else sample)]):
+                time.sleep(0.02)
+                capture.tick()
+                if changed:
+                    state['status'] = 'received'
+                    path.write_text(json.dumps(state))
+                self.drain_capture(capture)
+            record = capture.records[state['pid']]
+            self.assertEqual(record['outcome'], 'late-or-exited' if changed else 'timeout')
+            self.assertLess(time.monotonic() - started, 4)
+            self.assertEqual(len(record['commands']), 1 if changed else 2)
+            if not changed:
+                self.assertLess(record['results'][1]['timeout_seconds'], 1.9)
+            capture.finish()
+        self.probe.cleanup()
+
+    def test_capture_watchdog_expires_without_supervisor_polling(self):
+        # A slow workload cleanup must not extend a running capture command.
+        run = self.probe.start('unpolled-capture', ['/bin/sh', '-c', 'exec sleep 60'], 'capture', 0.2)
+        time.sleep(0.5)
+        self.assert_not_running(run.child.pid)
+        self.assertEqual(run.poll()['outcome'], 'timeout')
+        self.assertIsNone(run.capture_timer)
+        live = self.probe.start('cancelled-capture', ['/bin/sh', '-c', 'exec sleep 60'], 'capture', 30)
+        timer = live.capture_timer
+        self.probe.cleanup()
+        self.assertFalse(timer.is_alive())
+        self.assert_not_running(live.child.pid)
+
+    def test_capture_gates_phase_identity_and_remaining_budget(self):
+        for index, changes, expected in (
+                (0, {'status': 'received'}, 'not-delayed-or-missed'),
+                (1, {'phase': runner.PHASES[1]}, 'not-delayed-or-missed'),
+                (2, {'receive_started_unix_seconds': time.time() - 20}, 'budget-exhausted'),
+                (3, {'pid': os.getpid()}, 'late-or-exited')):
+            run, path, state, capture = self.live_fixture('gate-' + str(index))
+            state.update(changes)
+            target = path.with_name('follower-' + str(state['pid']) + '.json')
+            path.unlink()
+            target.write_text(json.dumps(state))
+            with patch.object(capture, 'command') as command:
+                time.sleep(0.02)
+                capture.tick()
+                command.assert_not_called()
+            self.assertEqual(capture.records[state['pid']]['outcome'], expected)
+        self.probe.cleanup()
+
+    def test_interruption_during_capture_reaps_command_and_follower(self):
+        # Exercise the actual runner signal handlers and main finally block while
+        # a capture tool owns a TERM-ignoring descendant.
+        for sig in (signal.SIGINT, signal.SIGTERM):
+            output = self.root / f'capture-signal-{sig}'
+            pidfile = self.root / f'capture-worker-{sig}.pid'
+            fixture = self.binary(f'signal-test-{sig}', """import json,os,pathlib,subprocess,sys,time
+if '--list' in sys.argv:
+    print(""" + repr(runner.TEST + ': test') + """ )
+else:
+    child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)'])
+    directory = pathlib.Path(os.environ['GWI_FOLLOW_PROBE_DIR'])
+    state = {'pid': child.pid, 'harness_pid': os.getpid(), 'phase': 'initial backlog stdout',
+             'status': 'waiting', 'receive_started_unix_seconds': time.time(), 'receive_timeout_seconds': 10}
+    (directory / ('follower-' + str(child.pid) + '.json')).write_text(json.dumps(state))
+    time.sleep(60)
+""")
+            tool = self.binary(f'signal-tool-{sig}', f"""import os,pathlib,signal,subprocess,sys,time
+signal.signal(signal.SIGTERM, signal.SIG_IGN)
+child = subprocess.Popen([sys.executable, '-c', 'import signal,time; signal.signal(signal.SIGTERM, signal.SIG_IGN); time.sleep(60)'])
+pathlib.Path({str(pidfile)!r}).write_text(str(child.pid))
+time.sleep(60)
+""")
+            driver = self.binary(f'driver-{sig}', f"""import importlib.util,pathlib,shutil,sys
+spec=importlib.util.spec_from_file_location('runner', {runner.__file__!r})
+r=importlib.util.module_from_spec(spec); spec.loader.exec_module(r)
+def build(probe, feature, timeout):
+    return {{'cli_test': pathlib.Path({str(fixture)!r}), 'gwi': pathlib.Path({str(fixture)!r})}}
+r.build=build
+r.LiveCapture.command=lambda self,pid,stage: [{str(tool)!r}]
+sys.exit(r.main(['--output', {str(output)!r}, '--features', 'default', '--repetitions', '1',
+                 '--capture-live', '--capture-after', '0.01', '--capture-timeout', '4']))
+""")
+            child = subprocess.Popen([str(driver)], stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+            try:
+                deadline = time.monotonic() + 10
+                while not pidfile.exists() and time.monotonic() < deadline:
+                    time.sleep(0.01)
+                self.assertTrue(pidfile.exists())
+                child.send_signal(sig)
+                _, stderr = child.communicate(timeout=10)
+                self.assertEqual(child.returncode, 130, stderr.decode())
+                self.assert_not_running(int(pidfile.read_text()))
+                summary = json.loads((output / 'summary.json').read_text())
+                self.assertEqual(summary['status'], 130)
+                captures = json.loads((output / 'default-run-1/captures.json').read_text())
+                self.assertEqual(captures[0]['outcome'], 'stopped')
+                self.assert_not_running(captures[0]['pid'])
+                for command in summary['commands']:
+                    self.assert_not_running(command['pid'])
+            finally:
+                self.cleanup_runner(child, output, pidfile)
+
     def test_argument_bounds(self):
         for options in (['--run-timeout', 'nan'], ['--max-seconds', 'inf'], ['--repetitions', '0'],
-                        ['--cpu-workers', '-1'], ['--workload', 'startup'], ['--concurrency', '1']):
+                        ['--cpu-workers', '-1'], ['--workload', 'startup'], ['--concurrency', '1'],
+                        ['--synthetic-delay', '1'], ['--capture-live', '--synthetic-delay', 'nan'],
+                        ['--capture-after', '7'], ['--capture-timeout', '7']):
             with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
                 runner.arguments(['--output', str(self.root), *options])
 

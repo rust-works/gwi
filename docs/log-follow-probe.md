@@ -70,6 +70,72 @@ records fail it too. Exit status is zero only when all measured repetitions and
 completed workloads pass; interruption returns 130. File output already written is
 retained on failure and interruption.
 
+## Capture a live follower before cleanup
+
+[Issue #294](https://github.com/rust-works/gwi/issues/294) adds opt-in live capture:
+
+```sh
+python3 scripts/log-follow-probe.py --output /tmp/gwi-follow-capture \
+  --features both --repetitions 1 --capture-live
+python3 scripts/log-follow-probe.py --output /tmp/gwi-follow-synthetic \
+  --features both --repetitions 1 --capture-live --synthetic-delay 4
+```
+
+Only the focused recovery fixture receives `GWI_FOLLOW_PROBE_DIR` and
+`GWI_FOLLOW_PROBE_DELAY`. Inherited values are removed from focused runs without
+capture and from startup/harness workloads. Ordinary tests create no diagnostic
+files or capture processes. The fixture publishes atomic `follower-<pid>.json`
+snapshots beside its invocation logs, identifying the actual follower, harness,
+append scenario, pending receive, UTC epoch timestamps, synthetic delay, receive
+results with reader timestamps, and final kill/wait/join diagnostics. Sink write
+failures are reported in harness stderr and never bypass cleanup. The fixture
+never waits for capture, and diagnostic work consumes rather than extends the
+existing receive window.
+
+The runner polls approximately every 50 milliseconds. After `--capture-after`
+seconds (default two) of a pending initial receive, it checks that the follower
+still belongs to this harness's process group and that the harness is live. It
+starts `ps -p <pid> -o pid=,ppid=,pgid=,stat=,etime=,command=` in a separately owned
+session. On macOS, after successful process inspection, it rechecks phase and
+membership before starting `/usr/bin/sample <pid> 1 -file <path>`. Linux captures
+process state only. The shared `--capture-timeout` budget defaults to two seconds;
+process inspection consumes part of that budget rather than giving sampling a
+new deadline. The configured delay plus budget must be at most eight seconds.
+Late polling clamps the budget to the remaining receive window minus one second;
+expired budgets do not launch a command. An owned watchdog enforces each command's remaining budget independently of
+supervisor polling, including while workload cleanup is running. It signals the
+capture group with KILL at expiry; its lock prevents concurrent reaping and PID
+reuse during signalling. Normal completion disarms and joins the watchdog;
+invocation exit or interruption cancels and joins it during command cleanup.
+A command whose completion was not observed before watchdog expiry is a timeout,
+even if it exited earlier. Existing TERM/KILL/reap and group-exit observation
+allowances apply after command expiry; they can extend supervisor cleanup, but
+cannot postpone the fixture's independent kill/wait/join.
+
+`captures.json` and the repetition's `captures` records keep the initial snapshot,
+latest observed state, PID, phase, capture start/end, budget, command directories
+and results together. Each capture command directory retains raw stdout/stderr
+and `command.json`; macOS sample text is `sample-<pid>.txt` beside the fixture
+snapshots. The invocation-level summary supplies revision, dirty files, workload
+and selected binary paths. Missing snapshots, late/exited children, exhausted
+budgets, launch failures, command failures and timeouts are explicit evidence
+limits. Capture failure does not replace or retry the fixture result. A fast
+receive can be reported as `not-delayed-or-missed`: polling alone cannot distinguish
+those cases. A missing or unsuccessful sample cannot establish a failing stage.
+
+`--synthetic-delay` delays only the stdout reader, at most eight seconds. The real
+follower runs normally, its initial output remains pending at the test receiver,
+and all exact record/warning assertions run after the delay. This proves live PID
+targeting before termination; it does **not** model or establish production startup
+contention. A sample showing the follow loop during this synthetic delay is
+consistent with deliberately held reader observation. Sampling itself can perturb
+timing, and a sample describes its interval rather than the entire receive window.
+PID membership checks and signalling are separate operations, so an exit/reuse race
+cannot be eliminated. Poll timing uses wall-clock fixture timestamps; clock changes
+can cause missed or late evidence, while each launched command retains a monotonic
+budget. Use a writable local sink: filesystem stalls cannot be bounded by these
+command deadlines.
+
 ## Evidence
 
 `summary.json` records the revision, dirty-file list, platform, CPU count, configuration,
@@ -376,3 +442,63 @@ whole receive deadline. If sampling cannot distinguish the stages, add opt-in
 milestones at main entry, dispatch, scan start and first successful output write,
 with a separate diagnostic sink so the exact stderr assertion remains intact.
 No deadline or concurrency change is justified by this non-reproduction.
+
+The live-capture proposal above is now implemented by the opt-in tool described
+in this guide. Production milestones remain deferred pending evidence that
+process state and sampling cannot distinguish the stages.
+
+## Live-capture validation on macOS (#294)
+
+On 2026-10-11, macOS 26.5.2 arm64, two bounded invocations used base revision
+`36d876b3ec0c84d70602faddfc49b8c3ccd5172d` with this issue's uncommitted fixture/runner
+changes (dirty-file lists retained). Both used one repetition per feature, no CPU
+workers or added workload, two-second capture delay/budget, 60-second focused limit
+and a 1,500-second invocation limit. Concurrent worktree verification/builds were
+present; CPU utilization and caches were not controlled.
+
+```sh
+WT=/Users/jky/wrk/work-trees/gwi/issue-294-live-follower-capture
+python3 "$WT/scripts/log-follow-probe.py" --output /private/tmp/gwi-294-observation \
+  --features both --repetitions 1 --capture-live --max-seconds 1500
+python3 "$WT/scripts/log-follow-probe.py" --output /private/tmp/gwi-294-synthetic \
+  --features both --repetitions 1 --capture-live --synthetic-delay 4 --max-seconds 1500
+```
+
+Both returned zero, with six exact receive events per feature. Normal initial
+receives were 1.813/0.008 seconds (default, immediate/split) and 1.477/0.009 seconds
+(MCP). All were below the capture threshold; four follower records report
+`not-delayed-or-missed`, and no historical initial timeout or failing stack was
+captured. The focused test durations were 3.632 seconds (default) and 3.319 seconds
+(MCP).
+
+Synthetic initial receives were 4.004/4.006 seconds (default) and 4.006/4.006 seconds
+(MCP), followed by the unchanged recovered-record and warning assertions. Capture
+started at initial-receive ages 2.039/2.024 seconds (default) and 2.015/2.053 seconds
+(MCP). All four process inspections and one-second samples returned zero. Process
+output identified followers 15072/16496 under harness 15069 (default) and
+17951/19437 under harness 17949 (MCP), with the correct per-feature `gwi log --follow`
+path and harness process group. Sample reports identify those same child/parent
+PIDs. The retained stacks show the log follow loop sleeping during the deliberate
+reader delay, consistent with the injection rather than evidence of startup delay.
+Every sample command completed before its fixture's cleanup timestamp; the first
+sample consumed 1.938 seconds of its 1.943-second remaining budget. Capture can
+span readiness while the follower remains live, so its whole interval is not
+necessarily a pending initial receive.
+
+Independent `ps -axo pid=,pgid=,stat=` audits found no live member of any of the eight
+normal or sixteen synthetic command groups and no live observed follower PID.
+Raw summaries, command output, fixture snapshots, sample text and `audit.json` are
+retained in the two scratch directories above. These are temporary local artifacts;
+the measurements and limits here are the durable record. Subsequent regressions
+also validate an independent watchdog while supervisor polling is withheld,
+shared process/sample budgets, failed/unavailable/hung tools, phase revalidation,
+SIGINT/SIGTERM cleanup and diagnostic sink failure.
+
+The additional default-suite failure in
+[#205 / PR #288](https://github.com/rust-works/gwi/issues/294#issuecomment-6108865582)
+occurred before PR #290 merged: all 5,180 library tests passed, then the CLI fixture
+timed out waiting for initial output with a live child and zero reader/late output.
+No live stack or startup milestone was captured there. Full-suite context remains
+distinct from this focused observation. Neither these passes nor the synthetic
+capture explain that historical timeout; no production stage, contention cause,
+failure rate or deadline change is established.

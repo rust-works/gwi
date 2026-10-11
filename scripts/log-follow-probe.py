@@ -11,6 +11,7 @@ import re
 import signal
 import subprocess
 import sys
+import threading
 import time
 from datetime import datetime, timezone
 
@@ -40,6 +41,9 @@ class CommandRun:
                        "started_utc": datetime.now(timezone.utc).isoformat(), "timeout_seconds": timeout,
                        "cwd": str(ROOT)}
         self.done = False
+        self.capture_lock = threading.Lock()
+        self.capture_timer = None
+        self.capture_expired = False
         try:
             self.child = subprocess.Popen(command, cwd=ROOT, env=env, start_new_session=True,
                                           stdout=self.files[0], stderr=self.files[1])
@@ -51,6 +55,34 @@ class CommandRun:
             write_json(directory / "command.json", self.record)
             raise
         self.record["pid"] = self.child.pid
+
+    def start_capture_watchdog(self):
+        if self.record["role"] == "capture":
+            remaining = max(0, self.timeout - (time.monotonic() - self.started))
+            self.capture_timer = threading.Timer(remaining, self.expire_capture)
+            self.capture_timer.start()
+
+    def expire_capture(self):
+        # Do not depend on the supervisor polling while workload cleanup runs.
+        # The lock prevents reaping/PID reuse concurrently with group signalling.
+        with self.capture_lock:
+            if self.capture_timer is None:
+                return
+            self.capture_expired = True
+            try:
+                os.killpg(self.child.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            except OSError as error:
+                self.record["capture_watchdog_error"] = str(error)
+
+    def cancel_capture_watchdog(self):
+        with self.capture_lock:
+            timer, self.capture_timer = self.capture_timer, None
+            if timer is not None:
+                timer.cancel()
+        if timer is not None:
+            timer.join()
 
     def group_states(self):
         snapshot = subprocess.run(["ps", "-axo", "pgid=,stat="], capture_output=True,
@@ -91,6 +123,7 @@ class CommandRun:
     def finish(self, outcome):
         if self.done:
             return self.record
+        self.cancel_capture_watchdog()
         # Always signal the group, even if the direct child has already exited.
         # A follower may still own resources or output handles in that session.
         self.signal_group(signal.SIGTERM)
@@ -117,7 +150,17 @@ class CommandRun:
         return self.record
 
     def poll(self):
-        status = self.child.poll()
+        with self.capture_lock:
+            status = self.child.poll()
+            # Disarm before a reaped PID can be reused; join outside the lock.
+            timer = self.capture_timer if status is not None else None
+            if timer is not None:
+                self.capture_timer = None
+                timer.cancel()
+        if timer is not None:
+            timer.join()
+        if self.capture_expired:
+            return self.finish("timeout")
         if status is not None:
             return self.finish("passed" if status == 0 else "failed")
         if time.monotonic() - self.started >= self.timeout:
@@ -145,6 +188,7 @@ class Probe:
         self.check_deadline()
         run = CommandRun(self.output / name, command, role, timeout, env)
         self.runs.append(run)
+        run.start_capture_watchdog()
         # Register ownership before writing metadata: an I/O failure must still
         # leave the spawned session reachable by cleanup.
         write_json(run.directory / "command.json", run.record)
@@ -223,6 +267,8 @@ def test_passed(output, expected=None):
 def measure(probe, feature, binaries, args, summary):
     env = os.environ.copy()
     env["INSTA_WORKSPACE_ROOT"] = str(ROOT)
+    for name in ("GWI_FOLLOW_PROBE_DIR", "GWI_FOLLOW_PROBE_DELAY"):
+        env.pop(name, None)
     workers = []
     serial = 0
     for index in range(args.cpu_workers):
@@ -230,6 +276,7 @@ def measure(probe, feature, binaries, args, summary):
                                    "cpu", args.max_seconds))
     slots = [None] * args.concurrency
     success = True
+    capture = None
     try:
         for repetition in range(1, args.repetitions + 1):
             # Launch workload slots before the first focused invocation.
@@ -241,9 +288,15 @@ def measure(probe, feature, binaries, args, summary):
                                 "--test-threads", str(args.harness_threads), "--color", "never"])
                     slots[index] = probe.start(f"{feature}-workload-{serial}", command,
                                               args.workload, args.workload_timeout, env)
-            run = probe.start(f"{feature}-run-{repetition}",
+            name = f"{feature}-run-{repetition}"
+            focused_env = env.copy()
+            if args.capture_live:
+                focused_env["GWI_FOLLOW_PROBE_DIR"] = str(probe.output / name)
+                focused_env["GWI_FOLLOW_PROBE_DELAY"] = str(args.synthetic_delay)
+            run = probe.start(name,
                               [str(binaries["cli_test"]), TEST, "--exact", "--nocapture", "--color", "never"],
-                              "focused", args.run_timeout, env)
+                              "focused", args.run_timeout, focused_env)
+            capture = LiveCapture(probe, run, args)
             while True:
                 probe.check_deadline()
                 # Record all workload exits, including failures; replenish live slots.
@@ -258,8 +311,10 @@ def measure(probe, feature, binaries, args, summary):
                 for worker in workers:
                     if worker.poll() is not None:
                         success = False
+                capture.tick()
                 result = run.poll()
                 if result is not None:
+                    capture.finish()
                     break
                 time.sleep(0.05)
             output = run.output()
@@ -274,6 +329,8 @@ def measure(probe, feature, binaries, args, summary):
             success &= entry["outcome"] == "passed"
             print(f"{feature} repetition {repetition}: {entry['outcome']} ({result['elapsed_seconds']:.3f}s)", flush=True)
     finally:
+        if capture is not None:
+            capture.finish()
         # Capture completed failures before intentionally stopping ongoing activity.
         for worker in workers + [slot for slot in slots if slot is not None]:
             if not worker.done:
@@ -284,6 +341,118 @@ def measure(probe, feature, binaries, args, summary):
                     success = False
                 worker.finish("stopped")
     return success
+
+
+class LiveCapture:
+    """Poll fixture snapshots; own capture commands without blocking its receive."""
+
+    def __init__(self, probe, run, args):
+        self.probe, self.run, self.args = probe, run, args
+        self.records = {}
+        self.active = {}
+
+    def retain(self):
+        for record in self.records.values():
+            if record.get("outcome") != "running" and "started_utc" in record:
+                record.setdefault("ended_utc", datetime.now(timezone.utc).isoformat())
+        write_json(self.run.directory / "captures.json", list(self.records.values()))
+
+    def command(self, pid, stage):
+        if stage == "process":
+            return ["ps", "-p", str(pid), "-o", "pid=,ppid=,pgid=,stat=,etime=,command="]
+        return ["/usr/bin/sample", str(pid), "1", "-file",
+                str(self.run.directory / f"sample-{pid}.txt")]
+
+    def start(self, pid, stage, deadline):
+        record = self.records[pid]
+        # Revalidate membership and pending phase immediately before each spawn.
+        try:
+            current = json.loads((self.run.directory / f"follower-{pid}.json").read_text())
+            if (current.get("status") != "waiting" or current.get("phase") != PHASES[0]
+                    or os.getpgid(pid) != self.run.child.pid or self.run.child.poll() is not None):
+                record["outcome"] = "late-or-exited"
+                return
+        except (OSError, ValueError) as error:
+            record.update(outcome="unavailable", error=str(error))
+            return
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            record["outcome"] = "budget-exhausted"
+            return
+        name = f"{self.run.directory.name}-capture-{pid}-{stage}"
+        record.setdefault("commands", []).append(name)
+        try:
+            worker = self.probe.start(name, self.command(pid, stage), "capture", remaining)
+        except OSError as error:
+            record.update(outcome="unavailable", error=str(error))
+            return
+        self.active[pid] = (worker, stage, deadline)
+        record["outcome"] = "running"
+
+    def tick(self, allow_start=True):
+        if not self.args.capture_live:
+            return
+        for pid, (worker, stage, deadline) in list(self.active.items()):
+            result = worker.poll()
+            if result is None:
+                continue
+            del self.active[pid]
+            record = self.records[pid]
+            record.setdefault("results", []).append(result.copy())
+            if result["outcome"] == "passed" and stage == "process" and sys.platform == "darwin":
+                self.start(pid, "sample", deadline)
+            else:
+                record["outcome"] = result["outcome"]
+                record["ended_utc"] = datetime.now(timezone.utc).isoformat()
+        for path in self.run.directory.glob("follower-*.json"):
+            try:
+                state = json.loads(path.read_text())
+                pid = int(state["pid"])
+                if pid in self.records:
+                    self.records[pid]["fixture_latest"] = state
+                    continue
+                if state["harness_pid"] != self.run.child.pid:
+                    raise ValueError("fixture harness PID does not match invocation")
+                age = time.time() - state["receive_started_unix_seconds"]
+                if state.get("phase") != PHASES[0] or state.get("status") != "waiting":
+                    self.records[pid] = {"pid": pid, "outcome": "not-delayed-or-missed",
+                                         "fixture_latest": state}
+                    continue
+                if age < self.args.capture_after:
+                    continue
+                remaining = state["receive_timeout_seconds"] - age - 1
+                record = {"pid": pid, "phase": PHASES[0], "fixture_at_capture": state,
+                          "started_utc": datetime.now(timezone.utc).isoformat(),
+                          "initial_receive_age_seconds": age,
+                          "budget_seconds": min(self.args.capture_timeout, max(0, remaining))}
+                self.records[pid] = record
+                if not allow_start:
+                    record["outcome"] = "not-captured-before-cleanup"
+                    continue
+                deadline = time.monotonic() + record["budget_seconds"]
+                self.start(pid, "process", deadline)
+            except (OSError, ValueError, KeyError, TypeError) as error:
+                # Retain malformed/missing evidence rather than attributing a stage.
+                self.run.record.setdefault("capture_errors", {})[path.name] = str(error)
+        self.retain()
+
+    def finish(self):
+        for pid, (worker, stage, deadline) in list(self.active.items()):
+            result = worker.finish("stopped")
+            self.records[pid].update(outcome="stopped", ended_utc=datetime.now(timezone.utc).isoformat())
+            self.records[pid].setdefault("results", []).append(result.copy())
+        self.active.clear()
+        if self.args.capture_live:
+            self.tick(allow_start=False)
+            for record in self.records.values():
+                cleanup = record.get("fixture_latest", {}).get("cleanup_started_unix_seconds")
+                if cleanup is not None and "ended_utc" in record:
+                    ended = datetime.fromisoformat(record["ended_utc"]).timestamp()
+                    record["completed_before_fixture_cleanup"] = ended < cleanup
+            self.retain()
+            self.run.record["capture_evidence"] = "present" if self.records else "missing-fixture-state"
+            self.run.record["captures"] = list(self.records.values())
+            write_json(self.run.directory / "command.json", self.run.record)
 
 
 def positive(value):
@@ -305,6 +474,10 @@ def arguments(argv):
     parser.add_argument("--output", required=True, type=Path, help="new directory for builds, logs and metadata")
     parser.add_argument("--features", choices=("both", "default", "mcp"), default="both")
     parser.add_argument("--repetitions", type=int, default=3)
+    parser.add_argument("--capture-live", action="store_true", help="capture delayed initial receives")
+    parser.add_argument("--capture-after", type=positive, default=2, help="initial receive age before capture")
+    parser.add_argument("--capture-timeout", type=positive, default=2, help="shared process/sample budget")
+    parser.add_argument("--synthetic-delay", type=float, default=0, help="opt-in stdout reader delay, at most 8s")
     parser.add_argument("--cpu-workers", type=count, default=0)
     parser.add_argument("--workload", choices=("none", "startup", "harness"), default="none")
     parser.add_argument("--concurrency", type=count, default=0)
@@ -316,6 +489,12 @@ def arguments(argv):
         parser.error("repetitions and harness-threads must be positive")
     if (args.workload == "none") != (args.concurrency == 0):
         parser.error("workload and positive concurrency must be specified together")
+    if args.capture_after + args.capture_timeout > 8:
+        parser.error("capture-after plus capture-timeout must be at most eight seconds")
+    if not math.isfinite(args.synthetic_delay) or not 0 <= args.synthetic_delay <= 8:
+        parser.error("synthetic-delay must be finite and between zero and eight seconds")
+    if args.synthetic_delay and not args.capture_live:
+        parser.error("synthetic-delay requires capture-live")
     return args
 
 
