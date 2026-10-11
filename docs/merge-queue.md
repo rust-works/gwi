@@ -266,25 +266,84 @@ workflow has neither probe step. Full ruleset and classic-protection readbacks
 matched the pre-probe snapshots exactly. The probe's remote branch was retained
 for the evidence PR. This demonstrates the failed-result path only.
 
-### Remaining negative acceptance evidence
+### Missing-context scratch queue rejection
 
-[Issue #179](https://github.com/rust-works/gwi/issues/179) still requires direct
-evidence of an absent expected context preventing an ordinary non-bypass merge.
-Issue #220 was closed by [PR #260](https://github.com/rust-works/gwi/pull/260)
-without establishing either negative case; #179 remains the open tracker. The
-failed-result case is now recorded above; the missing-context case is tracked in
-[issue #298](https://github.com/rust-works/gwi/issues/298).
+[Issue #298](https://github.com/rust-works/gwi/issues/298) verifies the missing-context
+case separately from the failed-result production probe recorded in
+[PR #296](https://github.com/rust-works/gwi/pull/296). The explicitly authorized
+[disposable scratch PR #1](https://github.com/rust-works/gwi-issue-298-missing-context-probe/pull/1)
+used a copy of production's queue parameters and all twelve required
+context/app pairs from ruleset `24584603` and classic protection. The scratch
+ruleset `24880589` had no bypass actors, and classic protection enforced checks
+for administrators. Repository isolation ensured that even an unexpected merge
+could only change the disposable fixture, never production main.
 
-The 15-minute `Docs` guard of the failed-result probe is unsuitable for the
-missing-context case. The current queue check-response timeout is **60 minutes**,
-so the guard would fail before the response window ends, and even a longer
-pending guard would make a timeout ambiguous. A required-check readback, a
-briefly pending expected context, or a PR blocked while unrelated required
-checks are pending does not establish the case. Evidence must capture the
-expected-context wait and eventual queue rejection or timeout, or an explicit
-GitHub rule evaluation refusing a merge without that result. A skipped,
-cancelled or failed job is not evidence of absence, and neither is a renamed
-check.
+The failed-result probe's 15-minute `Docs` guard would fail before the missing
+context's response window ended. Extending a pending guard past 60 minutes
+would leave two missing required results and make timeout attribution
+ambiguous. Scratch isolation avoids that production safeguard problem.
+
+The copied queue used merge commits, `ALLGREEN`, at most five build entries,
+one entry per merge, a five-minute minimum-entry wait, and the **60-minute**
+check-response timeout. All required contexts used GitHub Actions app `15368`.
+Minimal successful fixture jobs reported all twelve contexts on PR events.
+A separate merge-group workflow reported the other eleven exact contexts and
+contained no Empty HOME job, conditional skip, renamed substitute or safeguard
+check. These jobs exercise check reporting and queue enforcement, not the Rust
+suite or the behavior of the production CI jobs.
+
+One ordinary `enqueuePullRequest` mutation, with `expectedHeadOid` and
+`jump: false`, enqueued PR head `7f16d1477337ef45c47222de8e2ae8f0d15cac86` on
+12 October 2026 at **00:48:58 AEDT**. The resulting queue head was
+`9cfe8c9ba4c710a911e7e5dfdcc99ffd5083f797`. The
+[merge-group run 38144696487](https://github.com/rust-works/gwi-issue-298-missing-context-probe/actions/runs/38144696487)
+completed successfully at 00:49:23 AEDT. Every other required check had passed
+from app `15368` by the first observation at 00:49:33 AEDT.
+
+The queue remained `AWAITING_CHECKS` on that exact head. Its status-details UI
+explicitly showed **11 successful and 1 expected required checks**, naming
+`Empty HOME Test` as **Expected — Waiting for status to be reported**.
+Sixty-eight timestamped API snapshots, through removal, found eleven successful
+check runs and no commit statuses. Every page was inspected with `filter=all`;
+there was no `Empty HOME Test` check run or status, including no skipped,
+cancelled or failed result.
+
+At **01:52:24 AEDT**, GitHub's merge queue removed the PR with reason
+`checks_timed_out`; the removal's `beforeCommit.oid` is the exact queue head
+above. This was **63 minutes 26 seconds after enqueue**, so the configured
+60-minute response window was fully observed; the recorded removal was not
+exactly at the 60-minute boundary. Empty HOME was the sole missing requirement,
+with no other pending or failed required context to explain the timeout.
+GitHub documents this timeout as waiting for a CI response before assuming
+checks failed; see [Managing a merge queue](https://docs.github.com/en/enterprise-cloud%40latest/repositories/configuring-branches-and-merges-in-your-repository/configuring-pull-request-merges/managing-a-merge-queue).
+
+The [evidence snapshot](merge-queue-missing-empty-home-probe-298.json) preserves
+both configurations, fixture workflows, successful PR-head results, enqueue
+response, expected-context UI observation, poll history, complete final
+check/status pages, exact-head removal timeline, and cleanup readbacks.
+Inspect the live records with:
+
+```bash
+gh run view 38144696487 --repo rust-works/gwi-issue-298-missing-context-probe --json event,headSha,jobs,conclusion,url
+gh api --paginate --slurp 'repos/rust-works/gwi-issue-298-missing-context-probe/commits/9cfe8c9ba4c710a911e7e5dfdcc99ffd5083f797/check-runs?per_page=100&filter=all'
+gh api --paginate --slurp 'repos/rust-works/gwi-issue-298-missing-context-probe/commits/9cfe8c9ba4c710a911e7e5dfdcc99ffd5083f797/statuses?per_page=100'
+gh api graphql -f query='{repository(owner:"rust-works",name:"gwi-issue-298-missing-context-probe"){pullRequest(number:1){merged timelineItems(first:100,itemTypes:[REMOVED_FROM_MERGE_QUEUE_EVENT]){pageInfo{hasNextPage} nodes{... on RemovedFromMergeQueueEvent{createdAt reason beforeCommit{oid}}}}}}}'
+```
+
+The probe was closed without merging, its feature branch deleted, and the
+scratch repository archived to retain evidence links. Both owned runs were
+already completed successfully, so no cancellation was needed. The scratch
+queue was empty and its main SHA remained the original fixture commit.
+Scratch protection matched the pre-enqueue snapshots through the probe.
+Production ruleset `24584603` and classic protection matched their full pre-run
+snapshots exactly. No production queue operation, check mutation, protection
+change or administrator bypass occurred.
+
+This establishes missing-context rejection for the copied queue/check
+configuration. It is **not a live negative evaluation of production ruleset
+24584603**: the scratch repository uses fixture workflows and disables bypass.
+Keep this limitation distinct from the failed-result production evidence and
+the post-update healthy production merge.
 
 ### Guarded negative verification procedure
 
@@ -327,9 +386,10 @@ ruleset and classic-protection readbacks with the snapshots; explain any
 concurrent settings change rather than overwriting it. Record cleanup and the
 final protection comparison alongside the negative evidence.
 
-The procedure was followed for the failed-result case above. The
-missing-context case remains pending: #179 must stay open until its evidence
-and cleanup are recorded.
+The procedure was followed for the failed-result case above. The scratch
+probe uses repository isolation as its safeguard. A future production probe
+must still meet these prerequisites; the copied-configuration result does
+not authorize a production queue operation.
 
 ## Hostile environment required context
 

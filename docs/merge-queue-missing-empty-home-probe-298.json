@@ -1,0 +1,4738 @@
+{
+  "issue": 298,
+  "method": "Disposable scratch repository; copied production queue/check configuration; no production queue operation",
+  "limitation": "Configuration-equivalent GitHub behavior, not a live negative evaluation of production ruleset 24584603. Scratch bypass actors removed and classic admin enforcement enabled. Fixture checks test reporting/enforcement, not Rust behavior.",
+  "authorization": "User explicitly authorized one ordinary scratch enqueue at PR head 7f16d1477337ef45c47222de8e2ae8f0d15cac86, timeout observation and cleanup in this chat.",
+  "scratch_repository": "rust-works/gwi-issue-298-missing-context-probe",
+  "scratch_pr": 1,
+  "scratch_ruleset_id": 24880589,
+  "production_ruleset_id": 24584603,
+  "production_ruleset_before": {
+    "id": 24584603,
+    "name": "main merge queue",
+    "target": "branch",
+    "source_type": "Repository",
+    "source": "rust-works/gwi",
+    "enforcement": "active",
+    "conditions": {
+      "ref_name": {
+        "exclude": [],
+        "include": [
+          "~DEFAULT_BRANCH"
+        ]
+      }
+    },
+    "rules": [
+      {
+        "type": "merge_queue",
+        "parameters": {
+          "merge_method": "MERGE",
+          "max_entries_to_build": 5,
+          "min_entries_to_merge": 1,
+          "max_entries_to_merge": 1,
+          "min_entries_to_merge_wait_minutes": 5,
+          "grouping_strategy": "ALLGREEN",
+          "check_response_timeout_minutes": 60
+        }
+      },
+      {
+        "type": "required_status_checks",
+        "parameters": {
+          "strict_required_status_checks_policy": true,
+          "do_not_enforce_on_create": false,
+          "required_status_checks": [
+            {
+              "context": "Doc links",
+              "integration_id": 15368
+            },
+            {
+              "context": "Commit Message Lint",
+              "integration_id": 15368
+            },
+            {
+              "context": "Empty HOME Test",
+              "integration_id": 15368
+            },
+            {
+              "context": "Hostile Environment Test",
+              "integration_id": 15368
+            },
+            {
+              "context": "Windows Clippy",
+              "integration_id": 15368
+            }
+          ]
+        }
+      }
+    ],
+    "node_id": "RRS_lACqUmVwb3NpdG9yec5T4sZjzgF3IZs",
+    "created_at": "2026-10-07T00:41:44.346+11:00",
+    "updated_at": "2026-10-11T00:23:08.655+11:00",
+    "bypass_actors": [
+      {
+        "actor_id": 5,
+        "actor_type": "RepositoryRole",
+        "bypass_mode": "always"
+      }
+    ],
+    "current_user_can_bypass": "always",
+    "_links": {
+      "self": {
+        "href": "https://api.github.com/repos/rust-works/gwi/rulesets/24584603"
+      },
+      "html": {
+        "href": "https://github.com/rust-works/gwi/rules/24584603"
+      }
+    }
+  },
+  "production_classic_protection_before": {
+    "url": "https://api.github.com/repos/rust-works/gwi/branches/main/protection",
+    "required_status_checks": {
+      "url": "https://api.github.com/repos/rust-works/gwi/branches/main/protection/required_status_checks",
+      "strict": true,
+      "contexts": [
+        "Test (stable)",
+        "Test (nightly)",
+        "Windows Build",
+        "Rustfmt",
+        "Clippy",
+        "Docs",
+        "Changelog fragments"
+      ],
+      "contexts_url": "https://api.github.com/repos/rust-works/gwi/branches/main/protection/required_status_checks/contexts",
+      "checks": [
+        {
+          "context": "Test (stable)",
+          "app_id": 15368
+        },
+        {
+          "context": "Test (nightly)",
+          "app_id": 15368
+        },
+        {
+          "context": "Windows Build",
+          "app_id": 15368
+        },
+        {
+          "context": "Rustfmt",
+          "app_id": 15368
+        },
+        {
+          "context": "Clippy",
+          "app_id": 15368
+        },
+        {
+          "context": "Docs",
+          "app_id": 15368
+        },
+        {
+          "context": "Changelog fragments",
+          "app_id": 15368
+        }
+      ]
+    },
+    "required_signatures": {
+      "url": "https://api.github.com/repos/rust-works/gwi/branches/main/protection/required_signatures",
+      "enabled": false
+    },
+    "enforce_admins": {
+      "url": "https://api.github.com/repos/rust-works/gwi/branches/main/protection/enforce_admins",
+      "enabled": false
+    },
+    "required_linear_history": {
+      "enabled": false
+    },
+    "allow_force_pushes": {
+      "enabled": false
+    },
+    "allow_deletions": {
+      "enabled": false
+    },
+    "block_creations": {
+      "enabled": false
+    },
+    "required_conversation_resolution": {
+      "enabled": false
+    },
+    "lock_branch": {
+      "enabled": false
+    },
+    "allow_fork_syncing": {
+      "enabled": false
+    }
+  },
+  "scratch_ruleset_before": {
+    "id": 24880589,
+    "name": "main merge queue",
+    "target": "branch",
+    "source_type": "Repository",
+    "source": "rust-works/gwi-issue-298-missing-context-probe",
+    "enforcement": "active",
+    "conditions": {
+      "ref_name": {
+        "exclude": [],
+        "include": [
+          "~DEFAULT_BRANCH"
+        ]
+      }
+    },
+    "rules": [
+      {
+        "type": "merge_queue",
+        "parameters": {
+          "merge_method": "MERGE",
+          "max_entries_to_build": 5,
+          "min_entries_to_merge": 1,
+          "max_entries_to_merge": 1,
+          "min_entries_to_merge_wait_minutes": 5,
+          "grouping_strategy": "ALLGREEN",
+          "check_response_timeout_minutes": 60
+        }
+      },
+      {
+        "type": "required_status_checks",
+        "parameters": {
+          "strict_required_status_checks_policy": true,
+          "do_not_enforce_on_create": false,
+          "required_status_checks": [
+            {
+              "context": "Doc links",
+              "integration_id": 15368
+            },
+            {
+              "context": "Commit Message Lint",
+              "integration_id": 15368
+            },
+            {
+              "context": "Empty HOME Test",
+              "integration_id": 15368
+            },
+            {
+              "context": "Hostile Environment Test",
+              "integration_id": 15368
+            },
+            {
+              "context": "Windows Clippy",
+              "integration_id": 15368
+            }
+          ]
+        }
+      }
+    ],
+    "node_id": "RRS_lACqUmVwb3NpdG9yec5UTXxczgF7pc0",
+    "created_at": "2026-10-12T00:22:54.800+11:00",
+    "updated_at": "2026-10-12T00:22:54.862+11:00",
+    "bypass_actors": [],
+    "current_user_can_bypass": "never",
+    "_links": {
+      "self": {
+        "href": "https://api.github.com/repos/rust-works/gwi-issue-298-missing-context-probe/rulesets/24880589"
+      },
+      "html": {
+        "href": "https://github.com/rust-works/gwi-issue-298-missing-context-probe/rules/24880589"
+      }
+    }
+  },
+  "scratch_classic_protection_before": {
+    "url": "https://api.github.com/repos/rust-works/gwi-issue-298-missing-context-probe/branches/main/protection",
+    "required_status_checks": {
+      "url": "https://api.github.com/repos/rust-works/gwi-issue-298-missing-context-probe/branches/main/protection/required_status_checks",
+      "strict": true,
+      "contexts": [
+        "Test (stable)",
+        "Test (nightly)",
+        "Windows Build",
+        "Rustfmt",
+        "Clippy",
+        "Docs",
+        "Changelog fragments"
+      ],
+      "contexts_url": "https://api.github.com/repos/rust-works/gwi-issue-298-missing-context-probe/branches/main/protection/required_status_checks/contexts",
+      "checks": [
+        {
+          "context": "Test (stable)",
+          "app_id": 15368
+        },
+        {
+          "context": "Test (nightly)",
+          "app_id": 15368
+        },
+        {
+          "context": "Windows Build",
+          "app_id": 15368
+        },
+        {
+          "context": "Rustfmt",
+          "app_id": 15368
+        },
+        {
+          "context": "Clippy",
+          "app_id": 15368
+        },
+        {
+          "context": "Docs",
+          "app_id": 15368
+        },
+        {
+          "context": "Changelog fragments",
+          "app_id": 15368
+        }
+      ]
+    },
+    "required_signatures": {
+      "url": "https://api.github.com/repos/rust-works/gwi-issue-298-missing-context-probe/branches/main/protection/required_signatures",
+      "enabled": false
+    },
+    "enforce_admins": {
+      "url": "https://api.github.com/repos/rust-works/gwi-issue-298-missing-context-probe/branches/main/protection/enforce_admins",
+      "enabled": true
+    },
+    "required_linear_history": {
+      "enabled": false
+    },
+    "allow_force_pushes": {
+      "enabled": false
+    },
+    "allow_deletions": {
+      "enabled": false
+    },
+    "block_creations": {
+      "enabled": false
+    },
+    "required_conversation_resolution": {
+      "enabled": false
+    },
+    "lock_branch": {
+      "enabled": false
+    },
+    "allow_fork_syncing": {
+      "enabled": false
+    }
+  },
+  "fixture_workflows": {
+    "queue-checks.yml": "name: queue-checks\non:\n  merge_group:\npermissions:\n  contents: read\njobs:\n  check-0:\n    name: Doc links\n    runs-on: ubuntu-latest\n    timeout-minutes: 5\n    steps:\n      - run: echo \"Successful fixture check for merge_group\"\n  check-1:\n    name: Commit Message Lint\n    runs-on: ubuntu-latest\n    timeout-minutes: 5\n    steps:\n      - run: echo \"Successful fixture check for merge_group\"\n  check-2:\n    name: Hostile Environment Test\n    runs-on: ubuntu-latest\n    timeout-minutes: 5\n    steps:\n      - run: echo \"Successful fixture check for merge_group\"\n  check-3:\n    name: Windows Clippy\n    runs-on: ubuntu-latest\n    timeout-minutes: 5\n    steps:\n      - run: echo \"Successful fixture check for merge_group\"\n  check-4:\n    name: Test (stable)\n    runs-on: ubuntu-latest\n    timeout-minutes: 5\n    steps:\n      - run: echo \"Successful fixture check for merge_group\"\n  check-5:\n    name: Test (nightly)\n    runs-on: ubuntu-latest\n    timeout-minutes: 5\n    steps:\n      - run: echo \"Successful fixture check for merge_group\"\n  check-6:\n    name: Windows Build\n    runs-on: ubuntu-latest\n    timeout-minutes: 5\n    steps:\n      - run: echo \"Successful fixture check for merge_group\"\n  check-7:\n    name: Rustfmt\n    runs-on: ubuntu-latest\n    timeout-minutes: 5\n    steps:\n      - run: echo \"Successful fixture check for merge_group\"\n  check-8:\n    name: Clippy\n    runs-on: ubuntu-latest\n    timeout-minutes: 5\n    steps:\n      - run: echo \"Successful fixture check for merge_group\"\n  check-9:\n    name: Docs\n    runs-on: ubuntu-latest\n    timeout-minutes: 5\n    steps:\n      - run: echo \"Successful fixture check for merge_group\"\n  check-10:\n    name: Changelog fragments\n    runs-on: ubuntu-latest\n    timeout-minutes: 5\n    steps:\n      - run: echo \"Successful fixture check for merge_group\"\n",
+    "pr-checks.yml": "name: pr-checks\non:\n  pull_request:\npermissions:\n  contents: read\njobs:\n  check-0:\n    name: Doc links\n    runs-on: ubuntu-latest\n    timeout-minutes: 5\n    steps:\n      - run: echo \"Successful fixture check for pull_request\"\n  check-1:\n    name: Commit Message Lint\n    runs-on: ubuntu-latest\n    timeout-minutes: 5\n    steps:\n      - run: echo \"Successful fixture check for pull_request\"\n  check-2:\n    name: Empty HOME Test\n    runs-on: ubuntu-latest\n    timeout-minutes: 5\n    steps:\n      - run: echo \"Successful fixture check for pull_request\"\n  check-3:\n    name: Hostile Environment Test\n    runs-on: ubuntu-latest\n    timeout-minutes: 5\n    steps:\n      - run: echo \"Successful fixture check for pull_request\"\n  check-4:\n    name: Windows Clippy\n    runs-on: ubuntu-latest\n    timeout-minutes: 5\n    steps:\n      - run: echo \"Successful fixture check for pull_request\"\n  check-5:\n    name: Test (stable)\n    runs-on: ubuntu-latest\n    timeout-minutes: 5\n    steps:\n      - run: echo \"Successful fixture check for pull_request\"\n  check-6:\n    name: Test (nightly)\n    runs-on: ubuntu-latest\n    timeout-minutes: 5\n    steps:\n      - run: echo \"Successful fixture check for pull_request\"\n  check-7:\n    name: Windows Build\n    runs-on: ubuntu-latest\n    timeout-minutes: 5\n    steps:\n      - run: echo \"Successful fixture check for pull_request\"\n  check-8:\n    name: Rustfmt\n    runs-on: ubuntu-latest\n    timeout-minutes: 5\n    steps:\n      - run: echo \"Successful fixture check for pull_request\"\n  check-9:\n    name: Clippy\n    runs-on: ubuntu-latest\n    timeout-minutes: 5\n    steps:\n      - run: echo \"Successful fixture check for pull_request\"\n  check-10:\n    name: Docs\n    runs-on: ubuntu-latest\n    timeout-minutes: 5\n    steps:\n      - run: echo \"Successful fixture check for pull_request\"\n  check-11:\n    name: Changelog fragments\n    runs-on: ubuntu-latest\n    timeout-minutes: 5\n    steps:\n      - run: echo \"Successful fixture check for pull_request\"\n"
+  },
+  "pr_head_check_run_pages": [
+    {
+      "total_count": 12,
+      "check_runs": [
+        {
+          "id": 114480430675,
+          "name": "Changelog fragments",
+          "node_id": "CR_kwDOVE18XM8AAAAap5C-Uw",
+          "head_sha": "7f16d1477337ef45c47222de8e2ae8f0d15cac86",
+          "external_id": "e2698dc2-675c-5061-ad72-ee856caa530c",
+          "url": "https://api.github.com/repos/rust-works/gwi-issue-298-missing-context-probe/check-runs/114480430675",
+          "html_url": "https://github.com/rust-works/gwi-issue-298-missing-context-probe/actions/runs/38142970768/job/114480430675",
+          "details_url": "https://github.com/rust-works/gwi-issue-298-missing-context-probe/actions/runs/38142970768/job/114480430675",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-10-11T13:23:24Z",
+          "completed_at": "2026-10-11T13:23:28Z",
+          "output": {
+            "title": null,
+            "summary": null,
+            "text": null,
+            "annotations_count": 1,
+            "annotations_url": "https://api.github.com/repos/rust-works/gwi-issue-298-missing-context-probe/check-runs/114480430675/annotations"
+          },
+          "check_suite": {
+            "id": 103342231472
+          },
+          "app": {
+            "id": 15368,
+            "client_id": "Iv1.05c79e9ad1f6bdfa",
+            "slug": "github-actions",
+            "node_id": "MDM6QXBwMTUzNjg=",
+            "owner": {
+              "login": "github",
+              "id": 9919,
+              "node_id": "MDEyOk9yZ2FuaXphdGlvbjk5MTk=",
+              "avatar_url": "https://avatars.githubusercontent.com/u/9919?v=4",
+              "gravatar_id": "",
+              "url": "https://api.github.com/users/github",
+              "html_url": "https://github.com/github",
+              "followers_url": "https://api.github.com/users/github/followers",
+              "following_url": "https://api.github.com/users/github/following{/other_user}",
+              "gists_url": "https://api.github.com/users/github/gists{/gist_id}",
+              "starred_url": "https://api.github.com/users/github/starred{/owner}{/repo}",
+              "subscriptions_url": "https://api.github.com/users/github/subscriptions",
+              "organizations_url": "https://api.github.com/users/github/orgs",
+              "repos_url": "https://api.github.com/users/github/repos",
+              "events_url": "https://api.github.com/users/github/events{/privacy}",
+              "received_events_url": "https://api.github.com/users/github/received_events",
+              "type": "Organization",
+              "user_view_type": "public",
+              "site_admin": false
+            },
+            "name": "GitHub Actions",
+            "description": "Automate your workflow from idea to production",
+            "external_url": "https://help.github.com/en/actions",
+            "html_url": "https://github.com/apps/github-actions",
+            "created_at": "2018-07-30T09:30:17Z",
+            "updated_at": "2026-06-18T16:17:48Z",
+            "permissions": {
+              "actions": "write",
+              "administration": "read",
+              "artifact_metadata": "write",
+              "attestations": "write",
+              "checks": "write",
+              "code_quality": "write",
+              "contents": "write",
+              "copilot_requests": "write",
+              "deployments": "write",
+              "discussions": "write",
+              "drives": "write",
+              "issues": "write",
+              "merge_queues": "write",
+              "metadata": "read",
+              "models": "read",
+              "packages": "write",
+              "pages": "write",
+              "pull_requests": "write",
+              "repository_hooks": "write",
+              "repository_projects": "write",
+              "security_events": "write",
+              "statuses": "write",
+              "vulnerability_alerts": "read"
+            },
+            "events": [
+              "branch_protection_rule",
+              "check_run",
+              "check_suite",
+              "create",
+              "delete",
+              "deployment",
+              "deployment_status",
+              "discussion",
+              "discussion_comment",
+              "fork",
+              "gollum",
+              "issues",
+              "issue_comment",
+              "label",
+              "merge_group",
+              "milestone",
+              "page_build",
+              "public",
+              "pull_request",
+              "pull_request_review",
+              "pull_request_review_comment",
+              "push",
+              "registry_package",
+              "release",
+              "repository",
+              "repository_dispatch",
+              "status",
+              "watch",
+              "workflow_dispatch",
+              "workflow_run"
+            ]
+          },
+          "pull_requests": [
+            {
+              "url": "https://api.github.com/repos/rust-works/gwi-issue-298-missing-context-probe/pulls/1",
+              "id": 4819372158,
+              "number": 1,
+              "head": {
+                "ref": "missing-empty-home",
+                "sha": "7f16d1477337ef45c47222de8e2ae8f0d15cac86",
+                "repo": {
+                  "id": 1414364252,
+                  "url": "https://api.github.com/repos/rust-works/gwi-issue-298-missing-context-probe",
+                  "name": "gwi-issue-298-missing-context-probe"
+                }
+              },
+              "base": {
+                "ref": "main",
+                "sha": "b28244d58f7760758b4630297200c536c945a6cb",
+                "repo": {
+                  "id": 1414364252,
+                  "url": "https://api.github.com/repos/rust-works/gwi-issue-298-missing-context-probe",
+                  "name": "gwi-issue-298-missing-context-probe"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "id": 114480430638,
+          "name": "Commit Message Lint",
+          "node_id": "CR_kwDOVE18XM8AAAAap5C-Lg",
+          "head_sha": "7f16d1477337ef45c47222de8e2ae8f0d15cac86",
+          "external_id": "b47e9b52-fca7-5641-92da-c4c1bab725f3",
+          "url": "https://api.github.com/repos/rust-works/gwi-issue-298-missing-context-probe/check-runs/114480430638",
+          "html_url": "https://github.com/rust-works/gwi-issue-298-missing-context-probe/actions/runs/38142970768/job/114480430638",
+          "details_url": "https://github.com/rust-works/gwi-issue-298-missing-context-probe/actions/runs/38142970768/job/114480430638",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-10-11T13:23:24Z",
+          "completed_at": "2026-10-11T13:23:27Z",
+          "output": {
+            "title": null,
+            "summary": null,
+            "text": null,
+            "annotations_count": 1,
+            "annotations_url": "https://api.github.com/repos/rust-works/gwi-issue-298-missing-context-probe/check-runs/114480430638/annotations"
+          },
+          "check_suite": {
+            "id": 103342231472
+          },
+          "app": {
+            "id": 15368,
+            "client_id": "Iv1.05c79e9ad1f6bdfa",
+            "slug": "github-actions",
+            "node_id": "MDM6QXBwMTUzNjg=",
+            "owner": {
+              "login": "github",
+              "id": 9919,
+              "node_id": "MDEyOk9yZ2FuaXphdGlvbjk5MTk=",
+              "avatar_url": "https://avatars.githubusercontent.com/u/9919?v=4",
+              "gravatar_id": "",
+              "url": "https://api.github.com/users/github",
+              "html_url": "https://github.com/github",
+              "followers_url": "https://api.github.com/users/github/followers",
+              "following_url": "https://api.github.com/users/github/following{/other_user}",
+              "gists_url": "https://api.github.com/users/github/gists{/gist_id}",
+              "starred_url": "https://api.github.com/users/github/starred{/owner}{/repo}",
+              "subscriptions_url": "https://api.github.com/users/github/subscriptions",
+              "organizations_url": "https://api.github.com/users/github/orgs",
+              "repos_url": "https://api.github.com/users/github/repos",
+              "events_url": "https://api.github.com/users/github/events{/privacy}",
+              "received_events_url": "https://api.github.com/users/github/received_events",
+              "type": "Organization",
+              "user_view_type": "public",
+              "site_admin": false
+            },
+            "name": "GitHub Actions",
+            "description": "Automate your workflow from idea to production",
+            "external_url": "https://help.github.com/en/actions",
+            "html_url": "https://github.com/apps/github-actions",
+            "created_at": "2018-07-30T09:30:17Z",
+            "updated_at": "2026-06-18T16:17:48Z",
+            "permissions": {
+              "actions": "write",
+              "administration": "read",
+              "artifact_metadata": "write",
+              "attestations": "write",
+              "checks": "write",
+              "code_quality": "write",
+              "contents": "write",
+              "copilot_requests": "write",
+              "deployments": "write",
+              "discussions": "write",
+              "drives": "write",
+              "issues": "write",
+              "merge_queues": "write",
+              "metadata": "read",
+              "models": "read",
+              "packages": "write",
+              "pages": "write",
+              "pull_requests": "write",
+              "repository_hooks": "write",
+              "repository_projects": "write",
+              "security_events": "write",
+              "statuses": "write",
+              "vulnerability_alerts": "read"
+            },
+            "events": [
+              "branch_protection_rule",
+              "check_run",
+              "check_suite",
+              "create",
+              "delete",
+              "deployment",
+              "deployment_status",
+              "discussion",
+              "discussion_comment",
+              "fork",
+              "gollum",
+              "issues",
+              "issue_comment",
+              "label",
+              "merge_group",
+              "milestone",
+              "page_build",
+              "public",
+              "pull_request",
+              "pull_request_review",
+              "pull_request_review_comment",
+              "push",
+              "registry_package",
+              "release",
+              "repository",
+              "repository_dispatch",
+              "status",
+              "watch",
+              "workflow_dispatch",
+              "workflow_run"
+            ]
+          },
+          "pull_requests": [
+            {
+              "url": "https://api.github.com/repos/rust-works/gwi-issue-298-missing-context-probe/pulls/1",
+              "id": 4819372158,
+              "number": 1,
+              "head": {
+                "ref": "missing-empty-home",
+                "sha": "7f16d1477337ef45c47222de8e2ae8f0d15cac86",
+                "repo": {
+                  "id": 1414364252,
+                  "url": "https://api.github.com/repos/rust-works/gwi-issue-298-missing-context-probe",
+                  "name": "gwi-issue-298-missing-context-probe"
+                }
+              },
+              "base": {
+                "ref": "main",
+                "sha": "b28244d58f7760758b4630297200c536c945a6cb",
+                "repo": {
+                  "id": 1414364252,
+                  "url": "https://api.github.com/repos/rust-works/gwi-issue-298-missing-context-probe",
+                  "name": "gwi-issue-298-missing-context-probe"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "id": 114480430608,
+          "name": "Doc links",
+          "node_id": "CR_kwDOVE18XM8AAAAap5C-EA",
+          "head_sha": "7f16d1477337ef45c47222de8e2ae8f0d15cac86",
+          "external_id": "73e2e7b9-57e2-5506-a6ee-6a8f38baee5e",
+          "url": "https://api.github.com/repos/rust-works/gwi-issue-298-missing-context-probe/check-runs/114480430608",
+          "html_url": "https://github.com/rust-works/gwi-issue-298-missing-context-probe/actions/runs/38142970768/job/114480430608",
+          "details_url": "https://github.com/rust-works/gwi-issue-298-missing-context-probe/actions/runs/38142970768/job/114480430608",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-10-11T13:23:24Z",
+          "completed_at": "2026-10-11T13:23:26Z",
+          "output": {
+            "title": null,
+            "summary": null,
+            "text": null,
+            "annotations_count": 1,
+            "annotations_url": "https://api.github.com/repos/rust-works/gwi-issue-298-missing-context-probe/check-runs/114480430608/annotations"
+          },
+          "check_suite": {
+            "id": 103342231472
+          },
+          "app": {
+            "id": 15368,
+            "client_id": "Iv1.05c79e9ad1f6bdfa",
+            "slug": "github-actions",
+            "node_id": "MDM6QXBwMTUzNjg=",
+            "owner": {
+              "login": "github",
+              "id": 9919,
+              "node_id": "MDEyOk9yZ2FuaXphdGlvbjk5MTk=",
+              "avatar_url": "https://avatars.githubusercontent.com/u/9919?v=4",
+              "gravatar_id": "",
+              "url": "https://api.github.com/users/github",
+              "html_url": "https://github.com/github",
+              "followers_url": "https://api.github.com/users/github/followers",
+              "following_url": "https://api.github.com/users/github/following{/other_user}",
+              "gists_url": "https://api.github.com/users/github/gists{/gist_id}",
+              "starred_url": "https://api.github.com/users/github/starred{/owner}{/repo}",
+              "subscriptions_url": "https://api.github.com/users/github/subscriptions",
+              "organizations_url": "https://api.github.com/users/github/orgs",
+              "repos_url": "https://api.github.com/users/github/repos",
+              "events_url": "https://api.github.com/users/github/events{/privacy}",
+              "received_events_url": "https://api.github.com/users/github/received_events",
+              "type": "Organization",
+              "user_view_type": "public",
+              "site_admin": false
+            },
+            "name": "GitHub Actions",
+            "description": "Automate your workflow from idea to production",
+            "external_url": "https://help.github.com/en/actions",
+            "html_url": "https://github.com/apps/github-actions",
+            "created_at": "2018-07-30T09:30:17Z",
+            "updated_at": "2026-06-18T16:17:48Z",
+            "permissions": {
+              "actions": "write",
+              "administration": "read",
+              "artifact_metadata": "write",
+              "attestations": "write",
+              "checks": "write",
+              "code_quality": "write",
+              "contents": "write",
+              "copilot_requests": "write",
+              "deployments": "write",
+              "discussions": "write",
+              "drives": "write",
+              "issues": "write",
+              "merge_queues": "write",
+              "metadata": "read",
+              "models": "read",
+              "packages": "write",
+              "pages": "write",
+              "pull_requests": "write",
+              "repository_hooks": "write",
+              "repository_projects": "write",
+              "security_events": "write",
+              "statuses": "write",
+              "vulnerability_alerts": "read"
+            },
+            "events": [
+              "branch_protection_rule",
+              "check_run",
+              "check_suite",
+              "create",
+              "delete",
+              "deployment",
+              "deployment_status",
+              "discussion",
+              "discussion_comment",
+              "fork",
+              "gollum",
+              "issues",
+              "issue_comment",
+              "label",
+              "merge_group",
+              "milestone",
+              "page_build",
+              "public",
+              "pull_request",
+              "pull_request_review",
+              "pull_request_review_comment",
+              "push",
+              "registry_package",
+              "release",
+              "repository",
+              "repository_dispatch",
+              "status",
+              "watch",
+              "workflow_dispatch",
+              "workflow_run"
+            ]
+          },
+          "pull_requests": [
+            {
+              "url": "https://api.github.com/repos/rust-works/gwi-issue-298-missing-context-probe/pulls/1",
+              "id": 4819372158,
+              "number": 1,
+              "head": {
+                "ref": "missing-empty-home",
+                "sha": "7f16d1477337ef45c47222de8e2ae8f0d15cac86",
+                "repo": {
+                  "id": 1414364252,
+                  "url": "https://api.github.com/repos/rust-works/gwi-issue-298-missing-context-probe",
+                  "name": "gwi-issue-298-missing-context-probe"
+                }
+              },
+              "base": {
+                "ref": "main",
+                "sha": "b28244d58f7760758b4630297200c536c945a6cb",
+                "repo": {
+                  "id": 1414364252,
+                  "url": "https://api.github.com/repos/rust-works/gwi-issue-298-missing-context-probe",
+                  "name": "gwi-issue-298-missing-context-probe"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "id": 114480430605,
+          "name": "Windows Build",
+          "node_id": "CR_kwDOVE18XM8AAAAap5C-DQ",
+          "head_sha": "7f16d1477337ef45c47222de8e2ae8f0d15cac86",
+          "external_id": "a882256b-0559-5049-bbc1-9be646f5af95",
+          "url": "https://api.github.com/repos/rust-works/gwi-issue-298-missing-context-probe/check-runs/114480430605",
+          "html_url": "https://github.com/rust-works/gwi-issue-298-missing-context-probe/actions/runs/38142970768/job/114480430605",
+          "details_url": "https://github.com/rust-works/gwi-issue-298-missing-context-probe/actions/runs/38142970768/job/114480430605",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-10-11T13:23:24Z",
+          "completed_at": "2026-10-11T13:23:26Z",
+          "output": {
+            "title": null,
+            "summary": null,
+            "text": null,
+            "annotations_count": 1,
+            "annotations_url": "https://api.github.com/repos/rust-works/gwi-issue-298-missing-context-probe/check-runs/114480430605/annotations"
+          },
+          "check_suite": {
+            "id": 103342231472
+          },
+          "app": {
+            "id": 15368,
+            "client_id": "Iv1.05c79e9ad1f6bdfa",
+            "slug": "github-actions",
+            "node_id": "MDM6QXBwMTUzNjg=",
+            "owner": {
+              "login": "github",
+              "id": 9919,
+              "node_id": "MDEyOk9yZ2FuaXphdGlvbjk5MTk=",
+              "avatar_url": "https://avatars.githubusercontent.com/u/9919?v=4",
+              "gravatar_id": "",
+              "url": "https://api.github.com/users/github",
+              "html_url": "https://github.com/github",
+              "followers_url": "https://api.github.com/users/github/followers",
+              "following_url": "https://api.github.com/users/github/following{/other_user}",
+              "gists_url": "https://api.github.com/users/github/gists{/gist_id}",
+              "starred_url": "https://api.github.com/users/github/starred{/owner}{/repo}",
+              "subscriptions_url": "https://api.github.com/users/github/subscriptions",
+              "organizations_url": "https://api.github.com/users/github/orgs",
+              "repos_url": "https://api.github.com/users/github/repos",
+              "events_url": "https://api.github.com/users/github/events{/privacy}",
+              "received_events_url": "https://api.github.com/users/github/received_events",
+              "type": "Organization",
+              "user_view_type": "public",
+              "site_admin": false
+            },
+            "name": "GitHub Actions",
+            "description": "Automate your workflow from idea to production",
+            "external_url": "https://help.github.com/en/actions",
+            "html_url": "https://github.com/apps/github-actions",
+            "created_at": "2018-07-30T09:30:17Z",
+            "updated_at": "2026-06-18T16:17:48Z",
+            "permissions": {
+              "actions": "write",
+              "administration": "read",
+              "artifact_metadata": "write",
+              "attestations": "write",
+              "checks": "write",
+              "code_quality": "write",
+              "contents": "write",
+              "copilot_requests": "write",
+              "deployments": "write",
+              "discussions": "write",
+              "drives": "write",
+              "issues": "write",
+              "merge_queues": "write",
+              "metadata": "read",
+              "models": "read",
+              "packages": "write",
+              "pages": "write",
+              "pull_requests": "write",
+              "repository_hooks": "write",
+              "repository_projects": "write",
+              "security_events": "write",
+              "statuses": "write",
+              "vulnerability_alerts": "read"
+            },
+            "events": [
+              "branch_protection_rule",
+              "check_run",
+              "check_suite",
+              "create",
+              "delete",
+              "deployment",
+              "deployment_status",
+              "discussion",
+              "discussion_comment",
+              "fork",
+              "gollum",
+              "issues",
+              "issue_comment",
+              "label",
+              "merge_group",
+              "milestone",
+              "page_build",
+              "public",
+              "pull_request",
+              "pull_request_review",
+              "pull_request_review_comment",
+              "push",
+              "registry_package",
+              "release",
+              "repository",
+              "repository_dispatch",
+              "status",
+              "watch",
+              "workflow_dispatch",
+              "workflow_run"
+            ]
+          },
+          "pull_requests": [
+            {
+              "url": "https://api.github.com/repos/rust-works/gwi-issue-298-missing-context-probe/pulls/1",
+              "id": 4819372158,
+              "number": 1,
+              "head": {
+                "ref": "missing-empty-home",
+                "sha": "7f16d1477337ef45c47222de8e2ae8f0d15cac86",
+                "repo": {
+                  "id": 1414364252,
+                  "url": "https://api.github.com/repos/rust-works/gwi-issue-298-missing-context-probe",
+                  "name": "gwi-issue-298-missing-context-probe"
+                }
+              },
+              "base": {
+                "ref": "main",
+                "sha": "b28244d58f7760758b4630297200c536c945a6cb",
+                "repo": {
+                  "id": 1414364252,
+                  "url": "https://api.github.com/repos/rust-works/gwi-issue-298-missing-context-probe",
+                  "name": "gwi-issue-298-missing-context-probe"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "id": 114480430599,
+          "name": "Windows Clippy",
+          "node_id": "CR_kwDOVE18XM8AAAAap5C-Bw",
+          "head_sha": "7f16d1477337ef45c47222de8e2ae8f0d15cac86",
+          "external_id": "61cdbd09-c71e-59b4-9120-37a450688223",
+          "url": "https://api.github.com/repos/rust-works/gwi-issue-298-missing-context-probe/check-runs/114480430599",
+          "html_url": "https://github.com/rust-works/gwi-issue-298-missing-context-probe/actions/runs/38142970768/job/114480430599",
+          "details_url": "https://github.com/rust-works/gwi-issue-298-missing-context-probe/actions/runs/38142970768/job/114480430599",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-10-11T13:23:24Z",
+          "completed_at": "2026-10-11T13:23:26Z",
+          "output": {
+            "title": null,
+            "summary": null,
+            "text": null,
+            "annotations_count": 1,
+            "annotations_url": "https://api.github.com/repos/rust-works/gwi-issue-298-missing-context-probe/check-runs/114480430599/annotations"
+          },
+          "check_suite": {
+            "id": 103342231472
+          },
+          "app": {
+            "id": 15368,
+            "client_id": "Iv1.05c79e9ad1f6bdfa",
+            "slug": "github-actions",
+            "node_id": "MDM6QXBwMTUzNjg=",
+            "owner": {
+              "login": "github",
+              "id": 9919,
+              "node_id": "MDEyOk9yZ2FuaXphdGlvbjk5MTk=",
+              "avatar_url": "https://avatars.githubusercontent.com/u/9919?v=4",
+              "gravatar_id": "",
+              "url": "https://api.github.com/users/github",
+              "html_url": "https://github.com/github",
+              "followers_url": "https://api.github.com/users/github/followers",
+              "following_url": "https://api.github.com/users/github/following{/other_user}",
+              "gists_url": "https://api.github.com/users/github/gists{/gist_id}",
+              "starred_url": "https://api.github.com/users/github/starred{/owner}{/repo}",
+              "subscriptions_url": "https://api.github.com/users/github/subscriptions",
+              "organizations_url": "https://api.github.com/users/github/orgs",
+              "repos_url": "https://api.github.com/users/github/repos",
+              "events_url": "https://api.github.com/users/github/events{/privacy}",
+              "received_events_url": "https://api.github.com/users/github/received_events",
+              "type": "Organization",
+              "user_view_type": "public",
+              "site_admin": false
+            },
+            "name": "GitHub Actions",
+            "description": "Automate your workflow from idea to production",
+            "external_url": "https://help.github.com/en/actions",
+            "html_url": "https://github.com/apps/github-actions",
+            "created_at": "2018-07-30T09:30:17Z",
+            "updated_at": "2026-06-18T16:17:48Z",
+            "permissions": {
+              "actions": "write",
+              "administration": "read",
+              "artifact_metadata": "write",
+              "attestations": "write",
+              "checks": "write",
+              "code_quality": "write",
+              "contents": "write",
+              "copilot_requests": "write",
+              "deployments": "write",
+              "discussions": "write",
+              "drives": "write",
+              "issues": "write",
+              "merge_queues": "write",
+              "metadata": "read",
+              "models": "read",
+              "packages": "write",
+              "pages": "write",
+              "pull_requests": "write",
+              "repository_hooks": "write",
+              "repository_projects": "write",
+              "security_events": "write",
+              "statuses": "write",
+              "vulnerability_alerts": "read"
+            },
+            "events": [
+              "branch_protection_rule",
+              "check_run",
+              "check_suite",
+              "create",
+              "delete",
+              "deployment",
+              "deployment_status",
+              "discussion",
+              "discussion_comment",
+              "fork",
+              "gollum",
+              "issues",
+              "issue_comment",
+              "label",
+              "merge_group",
+              "milestone",
+              "page_build",
+              "public",
+              "pull_request",
+              "pull_request_review",
+              "pull_request_review_comment",
+              "push",
+              "registry_package",
+              "release",
+              "repository",
+              "repository_dispatch",
+              "status",
+              "watch",
+              "workflow_dispatch",
+              "workflow_run"
+            ]
+          },
+          "pull_requests": [
+            {
+              "url": "https://api.github.com/repos/rust-works/gwi-issue-298-missing-context-probe/pulls/1",
+              "id": 4819372158,
+              "number": 1,
+              "head": {
+                "ref": "missing-empty-home",
+                "sha": "7f16d1477337ef45c47222de8e2ae8f0d15cac86",
+                "repo": {
+                  "id": 1414364252,
+                  "url": "https://api.github.com/repos/rust-works/gwi-issue-298-missing-context-probe",
+                  "name": "gwi-issue-298-missing-context-probe"
+                }
+              },
+              "base": {
+                "ref": "main",
+                "sha": "b28244d58f7760758b4630297200c536c945a6cb",
+                "repo": {
+                  "id": 1414364252,
+                  "url": "https://api.github.com/repos/rust-works/gwi-issue-298-missing-context-probe",
+                  "name": "gwi-issue-298-missing-context-probe"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "id": 114480430590,
+          "name": "Hostile Environment Test",
+          "node_id": "CR_kwDOVE18XM8AAAAap5C9_g",
+          "head_sha": "7f16d1477337ef45c47222de8e2ae8f0d15cac86",
+          "external_id": "e52569a3-3809-50bc-ba91-914e55dd1169",
+          "url": "https://api.github.com/repos/rust-works/gwi-issue-298-missing-context-probe/check-runs/114480430590",
+          "html_url": "https://github.com/rust-works/gwi-issue-298-missing-context-probe/actions/runs/38142970768/job/114480430590",
+          "details_url": "https://github.com/rust-works/gwi-issue-298-missing-context-probe/actions/runs/38142970768/job/114480430590",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-10-11T13:23:24Z",
+          "completed_at": "2026-10-11T13:23:27Z",
+          "output": {
+            "title": null,
+            "summary": null,
+            "text": null,
+            "annotations_count": 1,
+            "annotations_url": "https://api.github.com/repos/rust-works/gwi-issue-298-missing-context-probe/check-runs/114480430590/annotations"
+          },
+          "check_suite": {
+            "id": 103342231472
+          },
+          "app": {
+            "id": 15368,
+            "client_id": "Iv1.05c79e9ad1f6bdfa",
+            "slug": "github-actions",
+            "node_id": "MDM6QXBwMTUzNjg=",
+            "owner": {
+              "login": "github",
+              "id": 9919,
+              "node_id": "MDEyOk9yZ2FuaXphdGlvbjk5MTk=",
+              "avatar_url": "https://avatars.githubusercontent.com/u/9919?v=4",
+              "gravatar_id": "",
+              "url": "https://api.github.com/users/github",
+              "html_url": "https://github.com/github",
+              "followers_url": "https://api.github.com/users/github/followers",
+              "following_url": "https://api.github.com/users/github/following{/other_user}",
+              "gists_url": "https://api.github.com/users/github/gists{/gist_id}",
+              "starred_url": "https://api.github.com/users/github/starred{/owner}{/repo}",
+              "subscriptions_url": "https://api.github.com/users/github/subscriptions",
+              "organizations_url": "https://api.github.com/users/github/orgs",
+              "repos_url": "https://api.github.com/users/github/repos",
+              "events_url": "https://api.github.com/users/github/events{/privacy}",
+              "received_events_url": "https://api.github.com/users/github/received_events",
+              "type": "Organization",
+              "user_view_type": "public",
+              "site_admin": false
+            },
+            "name": "GitHub Actions",
+            "description": "Automate your workflow from idea to production",
+            "external_url": "https://help.github.com/en/actions",
+            "html_url": "https://github.com/apps/github-actions",
+            "created_at": "2018-07-30T09:30:17Z",
+            "updated_at": "2026-06-18T16:17:48Z",
+            "permissions": {
+              "actions": "write",
+              "administration": "read",
+              "artifact_metadata": "write",
+              "attestations": "write",
+              "checks": "write",
+              "code_quality": "write",
+              "contents": "write",
+              "copilot_requests": "write",
+              "deployments": "write",
+              "discussions": "write",
+              "drives": "write",
+              "issues": "write",
+              "merge_queues": "write",
+              "metadata": "read",
+              "models": "read",
+              "packages": "write",
+              "pages": "write",
+              "pull_requests": "write",
+              "repository_hooks": "write",
+              "repository_projects": "write",
+              "security_events": "write",
+              "statuses": "write",
+              "vulnerability_alerts": "read"
+            },
+            "events": [
+              "branch_protection_rule",
+              "check_run",
+              "check_suite",
+              "create",
+              "delete",
+              "deployment",
+              "deployment_status",
+              "discussion",
+              "discussion_comment",
+              "fork",
+              "gollum",
+              "issues",
+              "issue_comment",
+              "label",
+              "merge_group",
+              "milestone",
+              "page_build",
+              "public",
+              "pull_request",
+              "pull_request_review",
+              "pull_request_review_comment",
+              "push",
+              "registry_package",
+              "release",
+              "repository",
+              "repository_dispatch",
+              "status",
+              "watch",
+              "workflow_dispatch",
+              "workflow_run"
+            ]
+          },
+          "pull_requests": [
+            {
+              "url": "https://api.github.com/repos/rust-works/gwi-issue-298-missing-context-probe/pulls/1",
+              "id": 4819372158,
+              "number": 1,
+              "head": {
+                "ref": "missing-empty-home",
+                "sha": "7f16d1477337ef45c47222de8e2ae8f0d15cac86",
+                "repo": {
+                  "id": 1414364252,
+                  "url": "https://api.github.com/repos/rust-works/gwi-issue-298-missing-context-probe",
+                  "name": "gwi-issue-298-missing-context-probe"
+                }
+              },
+              "base": {
+                "ref": "main",
+                "sha": "b28244d58f7760758b4630297200c536c945a6cb",
+                "repo": {
+                  "id": 1414364252,
+                  "url": "https://api.github.com/repos/rust-works/gwi-issue-298-missing-context-probe",
+                  "name": "gwi-issue-298-missing-context-probe"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "id": 114480430556,
+          "name": "Test (stable)",
+          "node_id": "CR_kwDOVE18XM8AAAAap5C93A",
+          "head_sha": "7f16d1477337ef45c47222de8e2ae8f0d15cac86",
+          "external_id": "d763d8f6-da38-5616-946f-70b62ce1695b",
+          "url": "https://api.github.com/repos/rust-works/gwi-issue-298-missing-context-probe/check-runs/114480430556",
+          "html_url": "https://github.com/rust-works/gwi-issue-298-missing-context-probe/actions/runs/38142970768/job/114480430556",
+          "details_url": "https://github.com/rust-works/gwi-issue-298-missing-context-probe/actions/runs/38142970768/job/114480430556",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-10-11T13:23:24Z",
+          "completed_at": "2026-10-11T13:23:26Z",
+          "output": {
+            "title": null,
+            "summary": null,
+            "text": null,
+            "annotations_count": 1,
+            "annotations_url": "https://api.github.com/repos/rust-works/gwi-issue-298-missing-context-probe/check-runs/114480430556/annotations"
+          },
+          "check_suite": {
+            "id": 103342231472
+          },
+          "app": {
+            "id": 15368,
+            "client_id": "Iv1.05c79e9ad1f6bdfa",
+            "slug": "github-actions",
+            "node_id": "MDM6QXBwMTUzNjg=",
+            "owner": {
+              "login": "github",
+              "id": 9919,
+              "node_id": "MDEyOk9yZ2FuaXphdGlvbjk5MTk=",
+              "avatar_url": "https://avatars.githubusercontent.com/u/9919?v=4",
+              "gravatar_id": "",
+              "url": "https://api.github.com/users/github",
+              "html_url": "https://github.com/github",
+              "followers_url": "https://api.github.com/users/github/followers",
+              "following_url": "https://api.github.com/users/github/following{/other_user}",
+              "gists_url": "https://api.github.com/users/github/gists{/gist_id}",
+              "starred_url": "https://api.github.com/users/github/starred{/owner}{/repo}",
+              "subscriptions_url": "https://api.github.com/users/github/subscriptions",
+              "organizations_url": "https://api.github.com/users/github/orgs",
+              "repos_url": "https://api.github.com/users/github/repos",
+              "events_url": "https://api.github.com/users/github/events{/privacy}",
+              "received_events_url": "https://api.github.com/users/github/received_events",
+              "type": "Organization",
+              "user_view_type": "public",
+              "site_admin": false
+            },
+            "name": "GitHub Actions",
+            "description": "Automate your workflow from idea to production",
+            "external_url": "https://help.github.com/en/actions",
+            "html_url": "https://github.com/apps/github-actions",
+            "created_at": "2018-07-30T09:30:17Z",
+            "updated_at": "2026-06-18T16:17:48Z",
+            "permissions": {
+              "actions": "write",
+              "administration": "read",
+              "artifact_metadata": "write",
+              "attestations": "write",
+              "checks": "write",
+              "code_quality": "write",
+              "contents": "write",
+              "copilot_requests": "write",
+              "deployments": "write",
+              "discussions": "write",
+              "drives": "write",
+              "issues": "write",
+              "merge_queues": "write",
+              "metadata": "read",
+              "models": "read",
+              "packages": "write",
+              "pages": "write",
+              "pull_requests": "write",
+              "repository_hooks": "write",
+              "repository_projects": "write",
+              "security_events": "write",
+              "statuses": "write",
+              "vulnerability_alerts": "read"
+            },
+            "events": [
+              "branch_protection_rule",
+              "check_run",
+              "check_suite",
+              "create",
+              "delete",
+              "deployment",
+              "deployment_status",
+              "discussion",
+              "discussion_comment",
+              "fork",
+              "gollum",
+              "issues",
+              "issue_comment",
+              "label",
+              "merge_group",
+              "milestone",
+              "page_build",
+              "public",
+              "pull_request",
+              "pull_request_review",
+              "pull_request_review_comment",
+              "push",
+              "registry_package",
+              "release",
+              "repository",
+              "repository_dispatch",
+              "status",
+              "watch",
+              "workflow_dispatch",
+              "workflow_run"
+            ]
+          },
+          "pull_requests": [
+            {
+              "url": "https://api.github.com/repos/rust-works/gwi-issue-298-missing-context-probe/pulls/1",
+              "id": 4819372158,
+              "number": 1,
+              "head": {
+                "ref": "missing-empty-home",
+                "sha": "7f16d1477337ef45c47222de8e2ae8f0d15cac86",
+                "repo": {
+                  "id": 1414364252,
+                  "url": "https://api.github.com/repos/rust-works/gwi-issue-298-missing-context-probe",
+                  "name": "gwi-issue-298-missing-context-probe"
+                }
+              },
+              "base": {
+                "ref": "main",
+                "sha": "b28244d58f7760758b4630297200c536c945a6cb",
+                "repo": {
+                  "id": 1414364252,
+                  "url": "https://api.github.com/repos/rust-works/gwi-issue-298-missing-context-probe",
+                  "name": "gwi-issue-298-missing-context-probe"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "id": 114480430555,
+          "name": "Clippy",
+          "node_id": "CR_kwDOVE18XM8AAAAap5C92w",
+          "head_sha": "7f16d1477337ef45c47222de8e2ae8f0d15cac86",
+          "external_id": "be73b9a1-bb72-537a-a034-195085983649",
+          "url": "https://api.github.com/repos/rust-works/gwi-issue-298-missing-context-probe/check-runs/114480430555",
+          "html_url": "https://github.com/rust-works/gwi-issue-298-missing-context-probe/actions/runs/38142970768/job/114480430555",
+          "details_url": "https://github.com/rust-works/gwi-issue-298-missing-context-probe/actions/runs/38142970768/job/114480430555",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-10-11T13:23:24Z",
+          "completed_at": "2026-10-11T13:23:27Z",
+          "output": {
+            "title": null,
+            "summary": null,
+            "text": null,
+            "annotations_count": 1,
+            "annotations_url": "https://api.github.com/repos/rust-works/gwi-issue-298-missing-context-probe/check-runs/114480430555/annotations"
+          },
+          "check_suite": {
+            "id": 103342231472
+          },
+          "app": {
+            "id": 15368,
+            "client_id": "Iv1.05c79e9ad1f6bdfa",
+            "slug": "github-actions",
+            "node_id": "MDM6QXBwMTUzNjg=",
+            "owner": {
+              "login": "github",
+              "id": 9919,
+              "node_id": "MDEyOk9yZ2FuaXphdGlvbjk5MTk=",
+              "avatar_url": "https://avatars.githubusercontent.com/u/9919?v=4",
+              "gravatar_id": "",
+              "url": "https://api.github.com/users/github",
+              "html_url": "https://github.com/github",
+              "followers_url": "https://api.github.com/users/github/followers",
+              "following_url": "https://api.github.com/users/github/following{/other_user}",
+              "gists_url": "https://api.github.com/users/github/gists{/gist_id}",
+              "starred_url": "https://api.github.com/users/github/starred{/owner}{/repo}",
+              "subscriptions_url": "https://api.github.com/users/github/subscriptions",
+              "organizations_url": "https://api.github.com/users/github/orgs",
+              "repos_url": "https://api.github.com/users/github/repos",
+              "events_url": "https://api.github.com/users/github/events{/privacy}",
+              "received_events_url": "https://api.github.com/users/github/received_events",
+              "type": "Organization",
+              "user_view_type": "public",
+              "site_admin": false
+            },
+            "name": "GitHub Actions",
+            "description": "Automate your workflow from idea to production",
+            "external_url": "https://help.github.com/en/actions",
+            "html_url": "https://github.com/apps/github-actions",
+            "created_at": "2018-07-30T09:30:17Z",
+            "updated_at": "2026-06-18T16:17:48Z",
+            "permissions": {
+              "actions": "write",
+              "administration": "read",
+              "artifact_metadata": "write",
+              "attestations": "write",
+              "checks": "write",
+              "code_quality": "write",
+              "contents": "write",
+              "copilot_requests": "write",
+              "deployments": "write",
+              "discussions": "write",
+              "drives": "write",
+              "issues": "write",
+              "merge_queues": "write",
+              "metadata": "read",
+              "models": "read",
+              "packages": "write",
+              "pages": "write",
+              "pull_requests": "write",
+              "repository_hooks": "write",
+              "repository_projects": "write",
+              "security_events": "write",
+              "statuses": "write",
+              "vulnerability_alerts": "read"
+            },
+            "events": [
+              "branch_protection_rule",
+              "check_run",
+              "check_suite",
+              "create",
+              "delete",
+              "deployment",
+              "deployment_status",
+              "discussion",
+              "discussion_comment",
+              "fork",
+              "gollum",
+              "issues",
+              "issue_comment",
+              "label",
+              "merge_group",
+              "milestone",
+              "page_build",
+              "public",
+              "pull_request",
+              "pull_request_review",
+              "pull_request_review_comment",
+              "push",
+              "registry_package",
+              "release",
+              "repository",
+              "repository_dispatch",
+              "status",
+              "watch",
+              "workflow_dispatch",
+              "workflow_run"
+            ]
+          },
+          "pull_requests": [
+            {
+              "url": "https://api.github.com/repos/rust-works/gwi-issue-298-missing-context-probe/pulls/1",
+              "id": 4819372158,
+              "number": 1,
+              "head": {
+                "ref": "missing-empty-home",
+                "sha": "7f16d1477337ef45c47222de8e2ae8f0d15cac86",
+                "repo": {
+                  "id": 1414364252,
+                  "url": "https://api.github.com/repos/rust-works/gwi-issue-298-missing-context-probe",
+                  "name": "gwi-issue-298-missing-context-probe"
+                }
+              },
+              "base": {
+                "ref": "main",
+                "sha": "b28244d58f7760758b4630297200c536c945a6cb",
+                "repo": {
+                  "id": 1414364252,
+                  "url": "https://api.github.com/repos/rust-works/gwi-issue-298-missing-context-probe",
+                  "name": "gwi-issue-298-missing-context-probe"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "id": 114480430552,
+          "name": "Test (nightly)",
+          "node_id": "CR_kwDOVE18XM8AAAAap5C92A",
+          "head_sha": "7f16d1477337ef45c47222de8e2ae8f0d15cac86",
+          "external_id": "b51aca3b-b2f0-5645-a685-d84178f8d389",
+          "url": "https://api.github.com/repos/rust-works/gwi-issue-298-missing-context-probe/check-runs/114480430552",
+          "html_url": "https://github.com/rust-works/gwi-issue-298-missing-context-probe/actions/runs/38142970768/job/114480430552",
+          "details_url": "https://github.com/rust-works/gwi-issue-298-missing-context-probe/actions/runs/38142970768/job/114480430552",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-10-11T13:23:24Z",
+          "completed_at": "2026-10-11T13:23:27Z",
+          "output": {
+            "title": null,
+            "summary": null,
+            "text": null,
+            "annotations_count": 1,
+            "annotations_url": "https://api.github.com/repos/rust-works/gwi-issue-298-missing-context-probe/check-runs/114480430552/annotations"
+          },
+          "check_suite": {
+            "id": 103342231472
+          },
+          "app": {
+            "id": 15368,
+            "client_id": "Iv1.05c79e9ad1f6bdfa",
+            "slug": "github-actions",
+            "node_id": "MDM6QXBwMTUzNjg=",
+            "owner": {
+              "login": "github",
+              "id": 9919,
+              "node_id": "MDEyOk9yZ2FuaXphdGlvbjk5MTk=",
+              "avatar_url": "https://avatars.githubusercontent.com/u/9919?v=4",
+              "gravatar_id": "",
+              "url": "https://api.github.com/users/github",
+              "html_url": "https://github.com/github",
+              "followers_url": "https://api.github.com/users/github/followers",
+              "following_url": "https://api.github.com/users/github/following{/other_user}",
+              "gists_url": "https://api.github.com/users/github/gists{/gist_id}",
+              "starred_url": "https://api.github.com/users/github/starred{/owner}{/repo}",
+              "subscriptions_url": "https://api.github.com/users/github/subscriptions",
+              "organizations_url": "https://api.github.com/users/github/orgs",
+              "repos_url": "https://api.github.com/users/github/repos",
+              "events_url": "https://api.github.com/users/github/events{/privacy}",
+              "received_events_url": "https://api.github.com/users/github/received_events",
+              "type": "Organization",
+              "user_view_type": "public",
+              "site_admin": false
+            },
+            "name": "GitHub Actions",
+            "description": "Automate your workflow from idea to production",
+            "external_url": "https://help.github.com/en/actions",
+            "html_url": "https://github.com/apps/github-actions",
+            "created_at": "2018-07-30T09:30:17Z",
+            "updated_at": "2026-06-18T16:17:48Z",
+            "permissions": {
+              "actions": "write",
+              "administration": "read",
+              "artifact_metadata": "write",
+              "attestations": "write",
+              "checks": "write",
+              "code_quality": "write",
+              "contents": "write",
+              "copilot_requests": "write",
+              "deployments": "write",
+              "discussions": "write",
+              "drives": "write",
+              "issues": "write",
+              "merge_queues": "write",
+              "metadata": "read",
+              "models": "read",
+              "packages": "write",
+              "pages": "write",
+              "pull_requests": "write",
+              "repository_hooks": "write",
+              "repository_projects": "write",
+              "security_events": "write",
+              "statuses": "write",
+              "vulnerability_alerts": "read"
+            },
+            "events": [
+              "branch_protection_rule",
+              "check_run",
+              "check_suite",
+              "create",
+              "delete",
+              "deployment",
+              "deployment_status",
+              "discussion",
+              "discussion_comment",
+              "fork",
+              "gollum",
+              "issues",
+              "issue_comment",
+              "label",
+              "merge_group",
+              "milestone",
+              "page_build",
+              "public",
+              "pull_request",
+              "pull_request_review",
+              "pull_request_review_comment",
+              "push",
+              "registry_package",
+              "release",
+              "repository",
+              "repository_dispatch",
+              "status",
+              "watch",
+              "workflow_dispatch",
+              "workflow_run"
+            ]
+          },
+          "pull_requests": [
+            {
+              "url": "https://api.github.com/repos/rust-works/gwi-issue-298-missing-context-probe/pulls/1",
+              "id": 4819372158,
+              "number": 1,
+              "head": {
+                "ref": "missing-empty-home",
+                "sha": "7f16d1477337ef45c47222de8e2ae8f0d15cac86",
+                "repo": {
+                  "id": 1414364252,
+                  "url": "https://api.github.com/repos/rust-works/gwi-issue-298-missing-context-probe",
+                  "name": "gwi-issue-298-missing-context-probe"
+                }
+              },
+              "base": {
+                "ref": "main",
+                "sha": "b28244d58f7760758b4630297200c536c945a6cb",
+                "repo": {
+                  "id": 1414364252,
+                  "url": "https://api.github.com/repos/rust-works/gwi-issue-298-missing-context-probe",
+                  "name": "gwi-issue-298-missing-context-probe"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "id": 114480430550,
+          "name": "Rustfmt",
+          "node_id": "CR_kwDOVE18XM8AAAAap5C91g",
+          "head_sha": "7f16d1477337ef45c47222de8e2ae8f0d15cac86",
+          "external_id": "c0a262e4-614d-54ec-bfe2-25d16641bc5e",
+          "url": "https://api.github.com/repos/rust-works/gwi-issue-298-missing-context-probe/check-runs/114480430550",
+          "html_url": "https://github.com/rust-works/gwi-issue-298-missing-context-probe/actions/runs/38142970768/job/114480430550",
+          "details_url": "https://github.com/rust-works/gwi-issue-298-missing-context-probe/actions/runs/38142970768/job/114480430550",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-10-11T13:23:24Z",
+          "completed_at": "2026-10-11T13:23:27Z",
+          "output": {
+            "title": null,
+            "summary": null,
+            "text": null,
+            "annotations_count": 1,
+            "annotations_url": "https://api.github.com/repos/rust-works/gwi-issue-298-missing-context-probe/check-runs/114480430550/annotations"
+          },
+          "check_suite": {
+            "id": 103342231472
+          },
+          "app": {
+            "id": 15368,
+            "client_id": "Iv1.05c79e9ad1f6bdfa",
+            "slug": "github-actions",
+            "node_id": "MDM6QXBwMTUzNjg=",
+            "owner": {
+              "login": "github",
+              "id": 9919,
+              "node_id": "MDEyOk9yZ2FuaXphdGlvbjk5MTk=",
+              "avatar_url": "https://avatars.githubusercontent.com/u/9919?v=4",
+              "gravatar_id": "",
+              "url": "https://api.github.com/users/github",
+              "html_url": "https://github.com/github",
+              "followers_url": "https://api.github.com/users/github/followers",
+              "following_url": "https://api.github.com/users/github/following{/other_user}",
+              "gists_url": "https://api.github.com/users/github/gists{/gist_id}",
+              "starred_url": "https://api.github.com/users/github/starred{/owner}{/repo}",
+              "subscriptions_url": "https://api.github.com/users/github/subscriptions",
+              "organizations_url": "https://api.github.com/users/github/orgs",
+              "repos_url": "https://api.github.com/users/github/repos",
+              "events_url": "https://api.github.com/users/github/events{/privacy}",
+              "received_events_url": "https://api.github.com/users/github/received_events",
+              "type": "Organization",
+              "user_view_type": "public",
+              "site_admin": false
+            },
+            "name": "GitHub Actions",
+            "description": "Automate your workflow from idea to production",
+            "external_url": "https://help.github.com/en/actions",
+            "html_url": "https://github.com/apps/github-actions",
+            "created_at": "2018-07-30T09:30:17Z",
+            "updated_at": "2026-06-18T16:17:48Z",
+            "permissions": {
+              "actions": "write",
+              "administration": "read",
+              "artifact_metadata": "write",
+              "attestations": "write",
+              "checks": "write",
+              "code_quality": "write",
+              "contents": "write",
+              "copilot_requests": "write",
+              "deployments": "write",
+              "discussions": "write",
+              "drives": "write",
+              "issues": "write",
+              "merge_queues": "write",
+              "metadata": "read",
+              "models": "read",
+              "packages": "write",
+              "pages": "write",
+              "pull_requests": "write",
+              "repository_hooks": "write",
+              "repository_projects": "write",
+              "security_events": "write",
+              "statuses": "write",
+              "vulnerability_alerts": "read"
+            },
+            "events": [
+              "branch_protection_rule",
+              "check_run",
+              "check_suite",
+              "create",
+              "delete",
+              "deployment",
+              "deployment_status",
+              "discussion",
+              "discussion_comment",
+              "fork",
+              "gollum",
+              "issues",
+              "issue_comment",
+              "label",
+              "merge_group",
+              "milestone",
+              "page_build",
+              "public",
+              "pull_request",
+              "pull_request_review",
+              "pull_request_review_comment",
+              "push",
+              "registry_package",
+              "release",
+              "repository",
+              "repository_dispatch",
+              "status",
+              "watch",
+              "workflow_dispatch",
+              "workflow_run"
+            ]
+          },
+          "pull_requests": [
+            {
+              "url": "https://api.github.com/repos/rust-works/gwi-issue-298-missing-context-probe/pulls/1",
+              "id": 4819372158,
+              "number": 1,
+              "head": {
+                "ref": "missing-empty-home",
+                "sha": "7f16d1477337ef45c47222de8e2ae8f0d15cac86",
+                "repo": {
+                  "id": 1414364252,
+                  "url": "https://api.github.com/repos/rust-works/gwi-issue-298-missing-context-probe",
+                  "name": "gwi-issue-298-missing-context-probe"
+                }
+              },
+              "base": {
+                "ref": "main",
+                "sha": "b28244d58f7760758b4630297200c536c945a6cb",
+                "repo": {
+                  "id": 1414364252,
+                  "url": "https://api.github.com/repos/rust-works/gwi-issue-298-missing-context-probe",
+                  "name": "gwi-issue-298-missing-context-probe"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "id": 114480430543,
+          "name": "Docs",
+          "node_id": "CR_kwDOVE18XM8AAAAap5C9zw",
+          "head_sha": "7f16d1477337ef45c47222de8e2ae8f0d15cac86",
+          "external_id": "d199356d-3913-50d5-b5c7-28a7b722e891",
+          "url": "https://api.github.com/repos/rust-works/gwi-issue-298-missing-context-probe/check-runs/114480430543",
+          "html_url": "https://github.com/rust-works/gwi-issue-298-missing-context-probe/actions/runs/38142970768/job/114480430543",
+          "details_url": "https://github.com/rust-works/gwi-issue-298-missing-context-probe/actions/runs/38142970768/job/114480430543",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-10-11T13:23:24Z",
+          "completed_at": "2026-10-11T13:23:28Z",
+          "output": {
+            "title": null,
+            "summary": null,
+            "text": null,
+            "annotations_count": 1,
+            "annotations_url": "https://api.github.com/repos/rust-works/gwi-issue-298-missing-context-probe/check-runs/114480430543/annotations"
+          },
+          "check_suite": {
+            "id": 103342231472
+          },
+          "app": {
+            "id": 15368,
+            "client_id": "Iv1.05c79e9ad1f6bdfa",
+            "slug": "github-actions",
+            "node_id": "MDM6QXBwMTUzNjg=",
+            "owner": {
+              "login": "github",
+              "id": 9919,
+              "node_id": "MDEyOk9yZ2FuaXphdGlvbjk5MTk=",
+              "avatar_url": "https://avatars.githubusercontent.com/u/9919?v=4",
+              "gravatar_id": "",
+              "url": "https://api.github.com/users/github",
+              "html_url": "https://github.com/github",
+              "followers_url": "https://api.github.com/users/github/followers",
+              "following_url": "https://api.github.com/users/github/following{/other_user}",
+              "gists_url": "https://api.github.com/users/github/gists{/gist_id}",
+              "starred_url": "https://api.github.com/users/github/starred{/owner}{/repo}",
+              "subscriptions_url": "https://api.github.com/users/github/subscriptions",
+              "organizations_url": "https://api.github.com/users/github/orgs",
+              "repos_url": "https://api.github.com/users/github/repos",
+              "events_url": "https://api.github.com/users/github/events{/privacy}",
+              "received_events_url": "https://api.github.com/users/github/received_events",
+              "type": "Organization",
+              "user_view_type": "public",
+              "site_admin": false
+            },
+            "name": "GitHub Actions",
+            "description": "Automate your workflow from idea to production",
+            "external_url": "https://help.github.com/en/actions",
+            "html_url": "https://github.com/apps/github-actions",
+            "created_at": "2018-07-30T09:30:17Z",
+            "updated_at": "2026-06-18T16:17:48Z",
+            "permissions": {
+              "actions": "write",
+              "administration": "read",
+              "artifact_metadata": "write",
+              "attestations": "write",
+              "checks": "write",
+              "code_quality": "write",
+              "contents": "write",
+              "copilot_requests": "write",
+              "deployments": "write",
+              "discussions": "write",
+              "drives": "write",
+              "issues": "write",
+              "merge_queues": "write",
+              "metadata": "read",
+              "models": "read",
+              "packages": "write",
+              "pages": "write",
+              "pull_requests": "write",
+              "repository_hooks": "write",
+              "repository_projects": "write",
+              "security_events": "write",
+              "statuses": "write",
+              "vulnerability_alerts": "read"
+            },
+            "events": [
+              "branch_protection_rule",
+              "check_run",
+              "check_suite",
+              "create",
+              "delete",
+              "deployment",
+              "deployment_status",
+              "discussion",
+              "discussion_comment",
+              "fork",
+              "gollum",
+              "issues",
+              "issue_comment",
+              "label",
+              "merge_group",
+              "milestone",
+              "page_build",
+              "public",
+              "pull_request",
+              "pull_request_review",
+              "pull_request_review_comment",
+              "push",
+              "registry_package",
+              "release",
+              "repository",
+              "repository_dispatch",
+              "status",
+              "watch",
+              "workflow_dispatch",
+              "workflow_run"
+            ]
+          },
+          "pull_requests": [
+            {
+              "url": "https://api.github.com/repos/rust-works/gwi-issue-298-missing-context-probe/pulls/1",
+              "id": 4819372158,
+              "number": 1,
+              "head": {
+                "ref": "missing-empty-home",
+                "sha": "7f16d1477337ef45c47222de8e2ae8f0d15cac86",
+                "repo": {
+                  "id": 1414364252,
+                  "url": "https://api.github.com/repos/rust-works/gwi-issue-298-missing-context-probe",
+                  "name": "gwi-issue-298-missing-context-probe"
+                }
+              },
+              "base": {
+                "ref": "main",
+                "sha": "b28244d58f7760758b4630297200c536c945a6cb",
+                "repo": {
+                  "id": 1414364252,
+                  "url": "https://api.github.com/repos/rust-works/gwi-issue-298-missing-context-probe",
+                  "name": "gwi-issue-298-missing-context-probe"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "id": 114480430425,
+          "name": "Empty HOME Test",
+          "node_id": "CR_kwDOVE18XM8AAAAap5C9WQ",
+          "head_sha": "7f16d1477337ef45c47222de8e2ae8f0d15cac86",
+          "external_id": "2e760d4e-3d8d-5cef-958a-268789cfae00",
+          "url": "https://api.github.com/repos/rust-works/gwi-issue-298-missing-context-probe/check-runs/114480430425",
+          "html_url": "https://github.com/rust-works/gwi-issue-298-missing-context-probe/actions/runs/38142970768/job/114480430425",
+          "details_url": "https://github.com/rust-works/gwi-issue-298-missing-context-probe/actions/runs/38142970768/job/114480430425",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-10-11T13:23:24Z",
+          "completed_at": "2026-10-11T13:23:26Z",
+          "output": {
+            "title": null,
+            "summary": null,
+            "text": null,
+            "annotations_count": 1,
+            "annotations_url": "https://api.github.com/repos/rust-works/gwi-issue-298-missing-context-probe/check-runs/114480430425/annotations"
+          },
+          "check_suite": {
+            "id": 103342231472
+          },
+          "app": {
+            "id": 15368,
+            "client_id": "Iv1.05c79e9ad1f6bdfa",
+            "slug": "github-actions",
+            "node_id": "MDM6QXBwMTUzNjg=",
+            "owner": {
+              "login": "github",
+              "id": 9919,
+              "node_id": "MDEyOk9yZ2FuaXphdGlvbjk5MTk=",
+              "avatar_url": "https://avatars.githubusercontent.com/u/9919?v=4",
+              "gravatar_id": "",
+              "url": "https://api.github.com/users/github",
+              "html_url": "https://github.com/github",
+              "followers_url": "https://api.github.com/users/github/followers",
+              "following_url": "https://api.github.com/users/github/following{/other_user}",
+              "gists_url": "https://api.github.com/users/github/gists{/gist_id}",
+              "starred_url": "https://api.github.com/users/github/starred{/owner}{/repo}",
+              "subscriptions_url": "https://api.github.com/users/github/subscriptions",
+              "organizations_url": "https://api.github.com/users/github/orgs",
+              "repos_url": "https://api.github.com/users/github/repos",
+              "events_url": "https://api.github.com/users/github/events{/privacy}",
+              "received_events_url": "https://api.github.com/users/github/received_events",
+              "type": "Organization",
+              "user_view_type": "public",
+              "site_admin": false
+            },
+            "name": "GitHub Actions",
+            "description": "Automate your workflow from idea to production",
+            "external_url": "https://help.github.com/en/actions",
+            "html_url": "https://github.com/apps/github-actions",
+            "created_at": "2018-07-30T09:30:17Z",
+            "updated_at": "2026-06-18T16:17:48Z",
+            "permissions": {
+              "actions": "write",
+              "administration": "read",
+              "artifact_metadata": "write",
+              "attestations": "write",
+              "checks": "write",
+              "code_quality": "write",
+              "contents": "write",
+              "copilot_requests": "write",
+              "deployments": "write",
+              "discussions": "write",
+              "drives": "write",
+              "issues": "write",
+              "merge_queues": "write",
+              "metadata": "read",
+              "models": "read",
+              "packages": "write",
+              "pages": "write",
+              "pull_requests": "write",
+              "repository_hooks": "write",
+              "repository_projects": "write",
+              "security_events": "write",
+              "statuses": "write",
+              "vulnerability_alerts": "read"
+            },
+            "events": [
+              "branch_protection_rule",
+              "check_run",
+              "check_suite",
+              "create",
+              "delete",
+              "deployment",
+              "deployment_status",
+              "discussion",
+              "discussion_comment",
+              "fork",
+              "gollum",
+              "issues",
+              "issue_comment",
+              "label",
+              "merge_group",
+              "milestone",
+              "page_build",
+              "public",
+              "pull_request",
+              "pull_request_review",
+              "pull_request_review_comment",
+              "push",
+              "registry_package",
+              "release",
+              "repository",
+              "repository_dispatch",
+              "status",
+              "watch",
+              "workflow_dispatch",
+              "workflow_run"
+            ]
+          },
+          "pull_requests": [
+            {
+              "url": "https://api.github.com/repos/rust-works/gwi-issue-298-missing-context-probe/pulls/1",
+              "id": 4819372158,
+              "number": 1,
+              "head": {
+                "ref": "missing-empty-home",
+                "sha": "7f16d1477337ef45c47222de8e2ae8f0d15cac86",
+                "repo": {
+                  "id": 1414364252,
+                  "url": "https://api.github.com/repos/rust-works/gwi-issue-298-missing-context-probe",
+                  "name": "gwi-issue-298-missing-context-probe"
+                }
+              },
+              "base": {
+                "ref": "main",
+                "sha": "b28244d58f7760758b4630297200c536c945a6cb",
+                "repo": {
+                  "id": 1414364252,
+                  "url": "https://api.github.com/repos/rust-works/gwi-issue-298-missing-context-probe",
+                  "name": "gwi-issue-298-missing-context-probe"
+                }
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "pr_head_commit_status_pages": [
+    []
+  ],
+  "expected_context_ui": {
+    "captured_at": "2026-10-11T13:56:38.741993+00:00",
+    "url": "https://github.com/rust-works/gwi-issue-298-missing-context-probe/queue/main",
+    "source": "Chrome accessibility tree of Queue entry status details, observed through cua_repl",
+    "heading": "Some required checks haven't completed yet",
+    "summary": "11 successful and 1 expected required checks.",
+    "missing_context": {
+      "name": "Empty HOME Test",
+      "state": "Expected",
+      "message": "Waiting for status to be reported",
+      "required": true
+    }
+  },
+  "enqueue_response": {
+    "data": {
+      "enqueuePullRequest": {
+        "mergeQueueEntry": {
+          "id": "MQE_lQDOVE18XM8AAAABH0HIfs4ABJv2zgM0yFI",
+          "enqueuedAt": "2026-10-11T13:48:58Z",
+          "state": "QUEUED",
+          "headCommit": null,
+          "baseCommit": null
+        }
+      }
+    }
+  },
+  "merge_group_run": {
+    "conclusion": "success",
+    "event": "merge_group",
+    "headSha": "9cfe8c9ba4c710a911e7e5dfdcc99ffd5083f797",
+    "jobs": [
+      {
+        "completedAt": "2026-10-11T13:49:21Z",
+        "conclusion": "success",
+        "databaseId": 114485491509,
+        "name": "Windows Build",
+        "startedAt": "2026-10-11T13:49:18Z",
+        "status": "completed",
+        "steps": [
+          {
+            "completedAt": "2026-10-11T13:49:19Z",
+            "conclusion": "success",
+            "name": "Set up job",
+            "number": 1,
+            "startedAt": "2026-10-11T13:49:19Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-10-11T13:49:19Z",
+            "conclusion": "success",
+            "name": "Run echo \"Successful fixture check for merge_group\"",
+            "number": 2,
+            "startedAt": "2026-10-11T13:49:19Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-10-11T13:49:19Z",
+            "conclusion": "success",
+            "name": "Complete job",
+            "number": 3,
+            "startedAt": "2026-10-11T13:49:19Z",
+            "status": "completed"
+          }
+        ],
+        "url": "https://github.com/rust-works/gwi-issue-298-missing-context-probe/actions/runs/38144696487/job/114485491509"
+      },
+      {
+        "completedAt": "2026-10-11T13:49:21Z",
+        "conclusion": "success",
+        "databaseId": 114485491567,
+        "name": "Hostile Environment Test",
+        "startedAt": "2026-10-11T13:49:18Z",
+        "status": "completed",
+        "steps": [
+          {
+            "completedAt": "2026-10-11T13:49:19Z",
+            "conclusion": "success",
+            "name": "Set up job",
+            "number": 1,
+            "startedAt": "2026-10-11T13:49:19Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-10-11T13:49:19Z",
+            "conclusion": "success",
+            "name": "Run echo \"Successful fixture check for merge_group\"",
+            "number": 2,
+            "startedAt": "2026-10-11T13:49:19Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-10-11T13:49:19Z",
+            "conclusion": "success",
+            "name": "Complete job",
+            "number": 3,
+            "startedAt": "2026-10-11T13:49:19Z",
+            "status": "completed"
+          }
+        ],
+        "url": "https://github.com/rust-works/gwi-issue-298-missing-context-probe/actions/runs/38144696487/job/114485491567"
+      },
+      {
+        "completedAt": "2026-10-11T13:49:22Z",
+        "conclusion": "success",
+        "databaseId": 114485491623,
+        "name": "Test (stable)",
+        "startedAt": "2026-10-11T13:49:18Z",
+        "status": "completed",
+        "steps": [
+          {
+            "completedAt": "2026-10-11T13:49:19Z",
+            "conclusion": "success",
+            "name": "Set up job",
+            "number": 1,
+            "startedAt": "2026-10-11T13:49:19Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-10-11T13:49:19Z",
+            "conclusion": "success",
+            "name": "Run echo \"Successful fixture check for merge_group\"",
+            "number": 2,
+            "startedAt": "2026-10-11T13:49:19Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-10-11T13:49:19Z",
+            "conclusion": "success",
+            "name": "Complete job",
+            "number": 3,
+            "startedAt": "2026-10-11T13:49:19Z",
+            "status": "completed"
+          }
+        ],
+        "url": "https://github.com/rust-works/gwi-issue-298-missing-context-probe/actions/runs/38144696487/job/114485491623"
+      },
+      {
+        "completedAt": "2026-10-11T13:49:22Z",
+        "conclusion": "success",
+        "databaseId": 114485491642,
+        "name": "Test (nightly)",
+        "startedAt": "2026-10-11T13:49:18Z",
+        "status": "completed",
+        "steps": [
+          {
+            "completedAt": "2026-10-11T13:49:19Z",
+            "conclusion": "success",
+            "name": "Set up job",
+            "number": 1,
+            "startedAt": "2026-10-11T13:49:19Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-10-11T13:49:19Z",
+            "conclusion": "success",
+            "name": "Run echo \"Successful fixture check for merge_group\"",
+            "number": 2,
+            "startedAt": "2026-10-11T13:49:19Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-10-11T13:49:19Z",
+            "conclusion": "success",
+            "name": "Complete job",
+            "number": 3,
+            "startedAt": "2026-10-11T13:49:19Z",
+            "status": "completed"
+          }
+        ],
+        "url": "https://github.com/rust-works/gwi-issue-298-missing-context-probe/actions/runs/38144696487/job/114485491642"
+      },
+      {
+        "completedAt": "2026-10-11T13:49:22Z",
+        "conclusion": "success",
+        "databaseId": 114485491651,
+        "name": "Doc links",
+        "startedAt": "2026-10-11T13:49:18Z",
+        "status": "completed",
+        "steps": [
+          {
+            "completedAt": "2026-10-11T13:49:19Z",
+            "conclusion": "success",
+            "name": "Set up job",
+            "number": 1,
+            "startedAt": "2026-10-11T13:49:19Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-10-11T13:49:19Z",
+            "conclusion": "success",
+            "name": "Run echo \"Successful fixture check for merge_group\"",
+            "number": 2,
+            "startedAt": "2026-10-11T13:49:19Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-10-11T13:49:19Z",
+            "conclusion": "success",
+            "name": "Complete job",
+            "number": 3,
+            "startedAt": "2026-10-11T13:49:19Z",
+            "status": "completed"
+          }
+        ],
+        "url": "https://github.com/rust-works/gwi-issue-298-missing-context-probe/actions/runs/38144696487/job/114485491651"
+      },
+      {
+        "completedAt": "2026-10-11T13:49:20Z",
+        "conclusion": "success",
+        "databaseId": 114485491662,
+        "name": "Commit Message Lint",
+        "startedAt": "2026-10-11T13:49:17Z",
+        "status": "completed",
+        "steps": [
+          {
+            "completedAt": "2026-10-11T13:49:18Z",
+            "conclusion": "success",
+            "name": "Set up job",
+            "number": 1,
+            "startedAt": "2026-10-11T13:49:18Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-10-11T13:49:18Z",
+            "conclusion": "success",
+            "name": "Run echo \"Successful fixture check for merge_group\"",
+            "number": 2,
+            "startedAt": "2026-10-11T13:49:18Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-10-11T13:49:18Z",
+            "conclusion": "success",
+            "name": "Complete job",
+            "number": 3,
+            "startedAt": "2026-10-11T13:49:18Z",
+            "status": "completed"
+          }
+        ],
+        "url": "https://github.com/rust-works/gwi-issue-298-missing-context-probe/actions/runs/38144696487/job/114485491662"
+      },
+      {
+        "completedAt": "2026-10-11T13:49:22Z",
+        "conclusion": "success",
+        "databaseId": 114485491676,
+        "name": "Clippy",
+        "startedAt": "2026-10-11T13:49:18Z",
+        "status": "completed",
+        "steps": [
+          {
+            "completedAt": "2026-10-11T13:49:19Z",
+            "conclusion": "success",
+            "name": "Set up job",
+            "number": 1,
+            "startedAt": "2026-10-11T13:49:19Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-10-11T13:49:19Z",
+            "conclusion": "success",
+            "name": "Run echo \"Successful fixture check for merge_group\"",
+            "number": 2,
+            "startedAt": "2026-10-11T13:49:19Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-10-11T13:49:19Z",
+            "conclusion": "success",
+            "name": "Complete job",
+            "number": 3,
+            "startedAt": "2026-10-11T13:49:19Z",
+            "status": "completed"
+          }
+        ],
+        "url": "https://github.com/rust-works/gwi-issue-298-missing-context-probe/actions/runs/38144696487/job/114485491676"
+      },
+      {
+        "completedAt": "2026-10-11T13:49:22Z",
+        "conclusion": "success",
+        "databaseId": 114485491716,
+        "name": "Docs",
+        "startedAt": "2026-10-11T13:49:18Z",
+        "status": "completed",
+        "steps": [
+          {
+            "completedAt": "2026-10-11T13:49:19Z",
+            "conclusion": "success",
+            "name": "Set up job",
+            "number": 1,
+            "startedAt": "2026-10-11T13:49:19Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-10-11T13:49:19Z",
+            "conclusion": "success",
+            "name": "Run echo \"Successful fixture check for merge_group\"",
+            "number": 2,
+            "startedAt": "2026-10-11T13:49:19Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-10-11T13:49:20Z",
+            "conclusion": "success",
+            "name": "Complete job",
+            "number": 3,
+            "startedAt": "2026-10-11T13:49:19Z",
+            "status": "completed"
+          }
+        ],
+        "url": "https://github.com/rust-works/gwi-issue-298-missing-context-probe/actions/runs/38144696487/job/114485491716"
+      },
+      {
+        "completedAt": "2026-10-11T13:49:21Z",
+        "conclusion": "success",
+        "databaseId": 114485491723,
+        "name": "Rustfmt",
+        "startedAt": "2026-10-11T13:49:18Z",
+        "status": "completed",
+        "steps": [
+          {
+            "completedAt": "2026-10-11T13:49:19Z",
+            "conclusion": "success",
+            "name": "Set up job",
+            "number": 1,
+            "startedAt": "2026-10-11T13:49:18Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-10-11T13:49:19Z",
+            "conclusion": "success",
+            "name": "Run echo \"Successful fixture check for merge_group\"",
+            "number": 2,
+            "startedAt": "2026-10-11T13:49:19Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-10-11T13:49:19Z",
+            "conclusion": "success",
+            "name": "Complete job",
+            "number": 3,
+            "startedAt": "2026-10-11T13:49:19Z",
+            "status": "completed"
+          }
+        ],
+        "url": "https://github.com/rust-works/gwi-issue-298-missing-context-probe/actions/runs/38144696487/job/114485491723"
+      },
+      {
+        "completedAt": "2026-10-11T13:49:20Z",
+        "conclusion": "success",
+        "databaseId": 114485491733,
+        "name": "Changelog fragments",
+        "startedAt": "2026-10-11T13:49:18Z",
+        "status": "completed",
+        "steps": [
+          {
+            "completedAt": "2026-10-11T13:49:18Z",
+            "conclusion": "success",
+            "name": "Set up job",
+            "number": 1,
+            "startedAt": "2026-10-11T13:49:18Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-10-11T13:49:19Z",
+            "conclusion": "success",
+            "name": "Run echo \"Successful fixture check for merge_group\"",
+            "number": 2,
+            "startedAt": "2026-10-11T13:49:18Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-10-11T13:49:19Z",
+            "conclusion": "success",
+            "name": "Complete job",
+            "number": 3,
+            "startedAt": "2026-10-11T13:49:19Z",
+            "status": "completed"
+          }
+        ],
+        "url": "https://github.com/rust-works/gwi-issue-298-missing-context-probe/actions/runs/38144696487/job/114485491733"
+      },
+      {
+        "completedAt": "2026-10-11T13:49:20Z",
+        "conclusion": "success",
+        "databaseId": 114485491737,
+        "name": "Windows Clippy",
+        "startedAt": "2026-10-11T13:49:18Z",
+        "status": "completed",
+        "steps": [
+          {
+            "completedAt": "2026-10-11T13:49:19Z",
+            "conclusion": "success",
+            "name": "Set up job",
+            "number": 1,
+            "startedAt": "2026-10-11T13:49:18Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-10-11T13:49:19Z",
+            "conclusion": "success",
+            "name": "Run echo \"Successful fixture check for merge_group\"",
+            "number": 2,
+            "startedAt": "2026-10-11T13:49:19Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-10-11T13:49:19Z",
+            "conclusion": "success",
+            "name": "Complete job",
+            "number": 3,
+            "startedAt": "2026-10-11T13:49:19Z",
+            "status": "completed"
+          }
+        ],
+        "url": "https://github.com/rust-works/gwi-issue-298-missing-context-probe/actions/runs/38144696487/job/114485491737"
+      }
+    ],
+    "url": "https://github.com/rust-works/gwi-issue-298-missing-context-probe/actions/runs/38144696487"
+  },
+  "first_awaiting_checks_observation": {
+    "captured_at": "2026-10-11T13:49:33.701624+00:00",
+    "pull_request": {
+      "number": 1,
+      "state": "OPEN",
+      "merged": false,
+      "mergedAt": null,
+      "mergeCommit": null,
+      "headRefOid": "7f16d1477337ef45c47222de8e2ae8f0d15cac86",
+      "mergeQueueEntry": {
+        "id": "MQE_lQDOVE18XM8AAAABH0HIfs4ABJv2zgM0yFI",
+        "enqueuedAt": "2026-10-11T13:48:58Z",
+        "state": "AWAITING_CHECKS",
+        "headCommit": {
+          "oid": "9cfe8c9ba4c710a911e7e5dfdcc99ffd5083f797"
+        },
+        "baseCommit": {
+          "oid": "b28244d58f7760758b4630297200c536c945a6cb"
+        },
+        "enqueuer": {
+          "login": "newhoggy"
+        }
+      },
+      "timelineItems": {
+        "pageInfo": {
+          "hasNextPage": false,
+          "endCursor": "Y3Vyc29yOnYyOpPPAAABoSs5TRABqzMyOTg3ODA1NjQ2"
+        },
+        "nodes": [
+          {
+            "__typename": "AddedToMergeQueueEvent",
+            "createdAt": "2026-10-11T13:48:58Z",
+            "actor": {
+              "login": "newhoggy"
+            }
+          }
+        ]
+      }
+    },
+    "queue_head": "9cfe8c9ba4c710a911e7e5dfdcc99ffd5083f797",
+    "check_and_status_pages_identical_to_final_observation": true
+  },
+  "poll_history": [
+    {
+      "captured_at": "2026-10-11T13:49:33.701624+00:00",
+      "queue_head": "9cfe8c9ba4c710a911e7e5dfdcc99ffd5083f797",
+      "queue_state": "AWAITING_CHECKS",
+      "check_count": 11,
+      "all_checks_successful_from_app_15368": true,
+      "empty_home_check_count": 0,
+      "commit_status_count": 0
+    },
+    {
+      "captured_at": "2026-10-11T13:50:30.665489+00:00",
+      "queue_head": "9cfe8c9ba4c710a911e7e5dfdcc99ffd5083f797",
+      "queue_state": "AWAITING_CHECKS",
+      "check_count": 11,
+      "all_checks_successful_from_app_15368": true,
+      "empty_home_check_count": 0,
+      "commit_status_count": 0
+    },
+    {
+      "captured_at": "2026-10-11T13:51:27.203781+00:00",
+      "queue_head": "9cfe8c9ba4c710a911e7e5dfdcc99ffd5083f797",
+      "queue_state": "AWAITING_CHECKS",
+      "check_count": 11,
+      "all_checks_successful_from_app_15368": true,
+      "empty_home_check_count": 0,
+      "commit_status_count": 0
+    },
+    {
+      "captured_at": "2026-10-11T13:52:24.085539+00:00",
+      "queue_head": "9cfe8c9ba4c710a911e7e5dfdcc99ffd5083f797",
+      "queue_state": "AWAITING_CHECKS",
+      "check_count": 11,
+      "all_checks_successful_from_app_15368": true,
+      "empty_home_check_count": 0,
+      "commit_status_count": 0
+    },
+    {
+      "captured_at": "2026-10-11T13:53:20.746646+00:00",
+      "queue_head": "9cfe8c9ba4c710a911e7e5dfdcc99ffd5083f797",
+      "queue_state": "AWAITING_CHECKS",
+      "check_count": 11,
+      "all_checks_successful_from_app_15368": true,
+      "empty_home_check_count": 0,
+      "commit_status_count": 0
+    },
+    {
+      "captured_at": "2026-10-11T13:54:17.357537+00:00",
+      "queue_head": "9cfe8c9ba4c710a911e7e5dfdcc99ffd5083f797",
+      "queue_state": "AWAITING_CHECKS",
+      "check_count": 11,
+      "all_checks_successful_from_app_15368": true,
+      "empty_home_check_count": 0,
+      "commit_status_count": 0
+    },
+    {
+      "captured_at": "2026-10-11T13:55:14.096248+00:00",
+      "queue_head": "9cfe8c9ba4c710a911e7e5dfdcc99ffd5083f797",
+      "queue_state": "AWAITING_CHECKS",
+      "check_count": 11,
+      "all_checks_successful_from_app_15368": true,
+      "empty_home_check_count": 0,
+      "commit_status_count": 0
+    },
+    {
+      "captured_at": "2026-10-11T13:56:10.930100+00:00",
+      "queue_head": "9cfe8c9ba4c710a911e7e5dfdcc99ffd5083f797",
+      "queue_state": "AWAITING_CHECKS",
+      "check_count": 11,
+      "all_checks_successful_from_app_15368": true,
+      "empty_home_check_count": 0,
+      "commit_status_count": 0
+    },
+    {
+      "captured_at": "2026-10-11T13:57:07.541299+00:00",
+      "queue_head": "9cfe8c9ba4c710a911e7e5dfdcc99ffd5083f797",
+      "queue_state": "AWAITING_CHECKS",
+      "check_count": 11,
+      "all_checks_successful_from_app_15368": true,
+      "empty_home_check_count": 0,
+      "commit_status_count": 0
+    },
+    {
+      "captured_at": "2026-10-11T13:58:04.399127+00:00",
+      "queue_head": "9cfe8c9ba4c710a911e7e5dfdcc99ffd5083f797",
+      "queue_state": "AWAITING_CHECKS",
+      "check_count": 11,
+      "all_checks_successful_from_app_15368": true,
+      "empty_home_check_count": 0,
+      "commit_status_count": 0
+    },
+    {
+      "captured_at": "2026-10-11T13:59:01.149482+00:00",
+      "queue_head": "9cfe8c9ba4c710a911e7e5dfdcc99ffd5083f797",
+      "queue_state": "AWAITING_CHECKS",
+      "check_count": 11,
+      "all_checks_successful_from_app_15368": true,
+      "empty_home_check_count": 0,
+      "commit_status_count": 0
+    },
+    {
+      "captured_at": "2026-10-11T13:59:57.779243+00:00",
+      "queue_head": "9cfe8c9ba4c710a911e7e5dfdcc99ffd5083f797",
+      "queue_state": "AWAITING_CHECKS",
+      "check_count": 11,
+      "all_checks_successful_from_app_15368": true,
+      "empty_home_check_count": 0,
+      "commit_status_count": 0
+    },
+    {
+      "captured_at": "2026-10-11T14:00:54.369559+00:00",
+      "queue_head": "9cfe8c9ba4c710a911e7e5dfdcc99ffd5083f797",
+      "queue_state": "AWAITING_CHECKS",
+      "check_count": 11,
+      "all_checks_successful_from_app_15368": true,
+      "empty_home_check_count": 0,
+      "commit_status_count": 0
+    },
+    {
+      "captured_at": "2026-10-11T14:01:50.926720+00:00",
+      "queue_head": "9cfe8c9ba4c710a911e7e5dfdcc99ffd5083f797",
+      "queue_state": "AWAITING_CHECKS",
+      "check_count": 11,
+      "all_checks_successful_from_app_15368": true,
+      "empty_home_check_count": 0,
+      "commit_status_count": 0
+    },
+    {
+      "captured_at": "2026-10-11T14:02:47.421579+00:00",
+      "queue_head": "9cfe8c9ba4c710a911e7e5dfdcc99ffd5083f797",
+      "queue_state": "AWAITING_CHECKS",
+      "check_count": 11,
+      "all_checks_successful_from_app_15368": true,
+      "empty_home_check_count": 0,
+      "commit_status_count": 0
+    },
+    {
+      "captured_at": "2026-10-11T14:03:44.316231+00:00",
+      "queue_head": "9cfe8c9ba4c710a911e7e5dfdcc99ffd5083f797",
+      "queue_state": "AWAITING_CHECKS",
+      "check_count": 11,
+      "all_checks_successful_from_app_15368": true,
+      "empty_home_check_count": 0,
+      "commit_status_count": 0
+    },
+    {
+      "captured_at": "2026-10-11T14:04:41.321924+00:00",
+      "queue_head": "9cfe8c9ba4c710a911e7e5dfdcc99ffd5083f797",
+      "queue_state": "AWAITING_CHECKS",
+      "check_count": 11,
+      "all_checks_successful_from_app_15368": true,
+      "empty_home_check_count": 0,
+      "commit_status_count": 0
+    },
+    {
+      "captured_at": "2026-10-11T14:05:38.097103+00:00",
+      "queue_head": "9cfe8c9ba4c710a911e7e5dfdcc99ffd5083f797",
+      "queue_state": "AWAITING_CHECKS",
+      "check_count": 11,
+      "all_checks_successful_from_app_15368": true,
+      "empty_home_check_count": 0,
+      "commit_status_count": 0
+    },
+    {
+      "captured_at": "2026-10-11T14:06:34.621269+00:00",
+      "queue_head": "9cfe8c9ba4c710a911e7e5dfdcc99ffd5083f797",
+      "queue_state": "AWAITING_CHECKS",
+      "check_count": 11,
+      "all_checks_successful_from_app_15368": true,
+      "empty_home_check_count": 0,
+      "commit_status_count": 0
+    },
+    {
+      "captured_at": "2026-10-11T14:07:31.909094+00:00",
+      "queue_head": "9cfe8c9ba4c710a911e7e5dfdcc99ffd5083f797",
+      "queue_state": "AWAITING_CHECKS",
+      "check_count": 11,
+      "all_checks_successful_from_app_15368": true,
+      "empty_home_check_count": 0,
+      "commit_status_count": 0
+    },
+    {
+      "captured_at": "2026-10-11T14:08:28.940061+00:00",
+      "queue_head": "9cfe8c9ba4c710a911e7e5dfdcc99ffd5083f797",
+      "queue_state": "AWAITING_CHECKS",
+      "check_count": 11,
+      "all_checks_successful_from_app_15368": true,
+      "empty_home_check_count": 0,
+      "commit_status_count": 0
+    },
+    {
+      "captured_at": "2026-10-11T14:09:25.454329+00:00",
+      "queue_head": "9cfe8c9ba4c710a911e7e5dfdcc99ffd5083f797",
+      "queue_state": "AWAITING_CHECKS",
+      "check_count": 11,
+      "all_checks_successful_from_app_15368": true,
+      "empty_home_check_count": 0,
+      "commit_status_count": 0
+    },
+    {
+      "captured_at": "2026-10-11T14:10:22.166546+00:00",
+      "queue_head": "9cfe8c9ba4c710a911e7e5dfdcc99ffd5083f797",
+      "queue_state": "AWAITING_CHECKS",
+      "check_count": 11,
+      "all_checks_successful_from_app_15368": true,
+      "empty_home_check_count": 0,
+      "commit_status_count": 0
+    },
+    {
+      "captured_at": "2026-10-11T14:11:18.771724+00:00",
+      "queue_head": "9cfe8c9ba4c710a911e7e5dfdcc99ffd5083f797",
+      "queue_state": "AWAITING_CHECKS",
+      "check_count": 11,
+      "all_checks_successful_from_app_15368": true,
+      "empty_home_check_count": 0,
+      "commit_status_count": 0
+    },
+    {
+      "captured_at": "2026-10-11T14:12:15.357569+00:00",
+      "queue_head": "9cfe8c9ba4c710a911e7e5dfdcc99ffd5083f797",
+      "queue_state": "AWAITING_CHECKS",
+      "check_count": 11,
+      "all_checks_successful_from_app_15368": true,
+      "empty_home_check_count": 0,
+      "commit_status_count": 0
+    },
+    {
+      "captured_at": "2026-10-11T14:13:12.061131+00:00",
+      "queue_head": "9cfe8c9ba4c710a911e7e5dfdcc99ffd5083f797",
+      "queue_state": "AWAITING_CHECKS",
+      "check_count": 11,
+      "all_checks_successful_from_app_15368": true,
+      "empty_home_check_count": 0,
+      "commit_status_count": 0
+    },
+    {
+      "captured_at": "2026-10-11T14:14:08.891532+00:00",
+      "queue_head": "9cfe8c9ba4c710a911e7e5dfdcc99ffd5083f797",
+      "queue_state": "AWAITING_CHECKS",
+      "check_count": 11,
+      "all_checks_successful_from_app_15368": true,
+      "empty_home_check_count": 0,
+      "commit_status_count": 0
+    },
+    {
+      "captured_at": "2026-10-11T14:15:05.544725+00:00",
+      "queue_head": "9cfe8c9ba4c710a911e7e5dfdcc99ffd5083f797",
+      "queue_state": "AWAITING_CHECKS",
+      "check_count": 11,
+      "all_checks_successful_from_app_15368": true,
+      "empty_home_check_count": 0,
+      "commit_status_count": 0
+    },
+    {
+      "captured_at": "2026-10-11T14:16:02.275658+00:00",
+      "queue_head": "9cfe8c9ba4c710a911e7e5dfdcc99ffd5083f797",
+      "queue_state": "AWAITING_CHECKS",
+      "check_count": 11,
+      "all_checks_successful_from_app_15368": true,
+      "empty_home_check_count": 0,
+      "commit_status_count": 0
+    },
+    {
+      "captured_at": "2026-10-11T14:17:00.528156+00:00",
+      "queue_head": "9cfe8c9ba4c710a911e7e5dfdcc99ffd5083f797",
+      "queue_state": "AWAITING_CHECKS",
+      "check_count": 11,
+      "all_checks_successful_from_app_15368": true,
+      "empty_home_check_count": 0,
+      "commit_status_count": 0
+    },
+    {
+      "captured_at": "2026-10-11T14:17:57.836269+00:00",
+      "queue_head": "9cfe8c9ba4c710a911e7e5dfdcc99ffd5083f797",
+      "queue_state": "AWAITING_CHECKS",
+      "check_count": 11,
+      "all_checks_successful_from_app_15368": true,
+      "empty_home_check_count": 0,
+      "commit_status_count": 0
+    },
+    {
+      "captured_at": "2026-10-11T14:18:54.450040+00:00",
+      "queue_head": "9cfe8c9ba4c710a911e7e5dfdcc99ffd5083f797",
+      "queue_state": "AWAITING_CHECKS",
+      "check_count": 11,
+      "all_checks_successful_from_app_15368": true,
+      "empty_home_check_count": 0,
+      "commit_status_count": 0
+    },
+    {
+      "captured_at": "2026-10-11T14:19:51.286132+00:00",
+      "queue_head": "9cfe8c9ba4c710a911e7e5dfdcc99ffd5083f797",
+      "queue_state": "AWAITING_CHECKS",
+      "check_count": 11,
+      "all_checks_successful_from_app_15368": true,
+      "empty_home_check_count": 0,
+      "commit_status_count": 0
+    },
+    {
+      "captured_at": "2026-10-11T14:20:47.903075+00:00",
+      "queue_head": "9cfe8c9ba4c710a911e7e5dfdcc99ffd5083f797",
+      "queue_state": "AWAITING_CHECKS",
+      "check_count": 11,
+      "all_checks_successful_from_app_15368": true,
+      "empty_home_check_count": 0,
+      "commit_status_count": 0
+    },
+    {
+      "captured_at": "2026-10-11T14:21:44.618494+00:00",
+      "queue_head": "9cfe8c9ba4c710a911e7e5dfdcc99ffd5083f797",
+      "queue_state": "AWAITING_CHECKS",
+      "check_count": 11,
+      "all_checks_successful_from_app_15368": true,
+      "empty_home_check_count": 0,
+      "commit_status_count": 0
+    },
+    {
+      "captured_at": "2026-10-11T14:22:41.113725+00:00",
+      "queue_head": "9cfe8c9ba4c710a911e7e5dfdcc99ffd5083f797",
+      "queue_state": "AWAITING_CHECKS",
+      "check_count": 11,
+      "all_checks_successful_from_app_15368": true,
+      "empty_home_check_count": 0,
+      "commit_status_count": 0
+    },
+    {
+      "captured_at": "2026-10-11T14:23:37.675320+00:00",
+      "queue_head": "9cfe8c9ba4c710a911e7e5dfdcc99ffd5083f797",
+      "queue_state": "AWAITING_CHECKS",
+      "check_count": 11,
+      "all_checks_successful_from_app_15368": true,
+      "empty_home_check_count": 0,
+      "commit_status_count": 0
+    },
+    {
+      "captured_at": "2026-10-11T14:24:34.259868+00:00",
+      "queue_head": "9cfe8c9ba4c710a911e7e5dfdcc99ffd5083f797",
+      "queue_state": "AWAITING_CHECKS",
+      "check_count": 11,
+      "all_checks_successful_from_app_15368": true,
+      "empty_home_check_count": 0,
+      "commit_status_count": 0
+    },
+    {
+      "captured_at": "2026-10-11T14:25:30.806746+00:00",
+      "queue_head": "9cfe8c9ba4c710a911e7e5dfdcc99ffd5083f797",
+      "queue_state": "AWAITING_CHECKS",
+      "check_count": 11,
+      "all_checks_successful_from_app_15368": true,
+      "empty_home_check_count": 0,
+      "commit_status_count": 0
+    },
+    {
+      "captured_at": "2026-10-11T14:26:27.527957+00:00",
+      "queue_head": "9cfe8c9ba4c710a911e7e5dfdcc99ffd5083f797",
+      "queue_state": "AWAITING_CHECKS",
+      "check_count": 11,
+      "all_checks_successful_from_app_15368": true,
+      "empty_home_check_count": 0,
+      "commit_status_count": 0
+    },
+    {
+      "captured_at": "2026-10-11T14:27:24.127408+00:00",
+      "queue_head": "9cfe8c9ba4c710a911e7e5dfdcc99ffd5083f797",
+      "queue_state": "AWAITING_CHECKS",
+      "check_count": 11,
+      "all_checks_successful_from_app_15368": true,
+      "empty_home_check_count": 0,
+      "commit_status_count": 0
+    },
+    {
+      "captured_at": "2026-10-11T14:28:20.699617+00:00",
+      "queue_head": "9cfe8c9ba4c710a911e7e5dfdcc99ffd5083f797",
+      "queue_state": "AWAITING_CHECKS",
+      "check_count": 11,
+      "all_checks_successful_from_app_15368": true,
+      "empty_home_check_count": 0,
+      "commit_status_count": 0
+    },
+    {
+      "captured_at": "2026-10-11T14:29:17.175394+00:00",
+      "queue_head": "9cfe8c9ba4c710a911e7e5dfdcc99ffd5083f797",
+      "queue_state": "AWAITING_CHECKS",
+      "check_count": 11,
+      "all_checks_successful_from_app_15368": true,
+      "empty_home_check_count": 0,
+      "commit_status_count": 0
+    },
+    {
+      "captured_at": "2026-10-11T14:30:13.837819+00:00",
+      "queue_head": "9cfe8c9ba4c710a911e7e5dfdcc99ffd5083f797",
+      "queue_state": "AWAITING_CHECKS",
+      "check_count": 11,
+      "all_checks_successful_from_app_15368": true,
+      "empty_home_check_count": 0,
+      "commit_status_count": 0
+    },
+    {
+      "captured_at": "2026-10-11T14:31:10.409095+00:00",
+      "queue_head": "9cfe8c9ba4c710a911e7e5dfdcc99ffd5083f797",
+      "queue_state": "AWAITING_CHECKS",
+      "check_count": 11,
+      "all_checks_successful_from_app_15368": true,
+      "empty_home_check_count": 0,
+      "commit_status_count": 0
+    },
+    {
+      "captured_at": "2026-10-11T14:32:07.151843+00:00",
+      "queue_head": "9cfe8c9ba4c710a911e7e5dfdcc99ffd5083f797",
+      "queue_state": "AWAITING_CHECKS",
+      "check_count": 11,
+      "all_checks_successful_from_app_15368": true,
+      "empty_home_check_count": 0,
+      "commit_status_count": 0
+    },
+    {
+      "captured_at": "2026-10-11T14:33:03.676175+00:00",
+      "queue_head": "9cfe8c9ba4c710a911e7e5dfdcc99ffd5083f797",
+      "queue_state": "AWAITING_CHECKS",
+      "check_count": 11,
+      "all_checks_successful_from_app_15368": true,
+      "empty_home_check_count": 0,
+      "commit_status_count": 0
+    },
+    {
+      "captured_at": "2026-10-11T14:34:00.164419+00:00",
+      "queue_head": "9cfe8c9ba4c710a911e7e5dfdcc99ffd5083f797",
+      "queue_state": "AWAITING_CHECKS",
+      "check_count": 11,
+      "all_checks_successful_from_app_15368": true,
+      "empty_home_check_count": 0,
+      "commit_status_count": 0
+    },
+    {
+      "captured_at": "2026-10-11T14:34:56.746690+00:00",
+      "queue_head": "9cfe8c9ba4c710a911e7e5dfdcc99ffd5083f797",
+      "queue_state": "AWAITING_CHECKS",
+      "check_count": 11,
+      "all_checks_successful_from_app_15368": true,
+      "empty_home_check_count": 0,
+      "commit_status_count": 0
+    },
+    {
+      "captured_at": "2026-10-11T14:35:53.205856+00:00",
+      "queue_head": "9cfe8c9ba4c710a911e7e5dfdcc99ffd5083f797",
+      "queue_state": "AWAITING_CHECKS",
+      "check_count": 11,
+      "all_checks_successful_from_app_15368": true,
+      "empty_home_check_count": 0,
+      "commit_status_count": 0
+    },
+    {
+      "captured_at": "2026-10-11T14:36:49.782172+00:00",
+      "queue_head": "9cfe8c9ba4c710a911e7e5dfdcc99ffd5083f797",
+      "queue_state": "AWAITING_CHECKS",
+      "check_count": 11,
+      "all_checks_successful_from_app_15368": true,
+      "empty_home_check_count": 0,
+      "commit_status_count": 0
+    },
+    {
+      "captured_at": "2026-10-11T14:37:46.297601+00:00",
+      "queue_head": "9cfe8c9ba4c710a911e7e5dfdcc99ffd5083f797",
+      "queue_state": "AWAITING_CHECKS",
+      "check_count": 11,
+      "all_checks_successful_from_app_15368": true,
+      "empty_home_check_count": 0,
+      "commit_status_count": 0
+    },
+    {
+      "captured_at": "2026-10-11T14:38:42.867473+00:00",
+      "queue_head": "9cfe8c9ba4c710a911e7e5dfdcc99ffd5083f797",
+      "queue_state": "AWAITING_CHECKS",
+      "check_count": 11,
+      "all_checks_successful_from_app_15368": true,
+      "empty_home_check_count": 0,
+      "commit_status_count": 0
+    },
+    {
+      "captured_at": "2026-10-11T14:39:39.431548+00:00",
+      "queue_head": "9cfe8c9ba4c710a911e7e5dfdcc99ffd5083f797",
+      "queue_state": "AWAITING_CHECKS",
+      "check_count": 11,
+      "all_checks_successful_from_app_15368": true,
+      "empty_home_check_count": 0,
+      "commit_status_count": 0
+    },
+    {
+      "captured_at": "2026-10-11T14:40:35.985132+00:00",
+      "queue_head": "9cfe8c9ba4c710a911e7e5dfdcc99ffd5083f797",
+      "queue_state": "AWAITING_CHECKS",
+      "check_count": 11,
+      "all_checks_successful_from_app_15368": true,
+      "empty_home_check_count": 0,
+      "commit_status_count": 0
+    },
+    {
+      "captured_at": "2026-10-11T14:41:32.542364+00:00",
+      "queue_head": "9cfe8c9ba4c710a911e7e5dfdcc99ffd5083f797",
+      "queue_state": "AWAITING_CHECKS",
+      "check_count": 11,
+      "all_checks_successful_from_app_15368": true,
+      "empty_home_check_count": 0,
+      "commit_status_count": 0
+    },
+    {
+      "captured_at": "2026-10-11T14:42:29.064713+00:00",
+      "queue_head": "9cfe8c9ba4c710a911e7e5dfdcc99ffd5083f797",
+      "queue_state": "AWAITING_CHECKS",
+      "check_count": 11,
+      "all_checks_successful_from_app_15368": true,
+      "empty_home_check_count": 0,
+      "commit_status_count": 0
+    },
+    {
+      "captured_at": "2026-10-11T14:43:25.702262+00:00",
+      "queue_head": "9cfe8c9ba4c710a911e7e5dfdcc99ffd5083f797",
+      "queue_state": "AWAITING_CHECKS",
+      "check_count": 11,
+      "all_checks_successful_from_app_15368": true,
+      "empty_home_check_count": 0,
+      "commit_status_count": 0
+    },
+    {
+      "captured_at": "2026-10-11T14:44:22.204788+00:00",
+      "queue_head": "9cfe8c9ba4c710a911e7e5dfdcc99ffd5083f797",
+      "queue_state": "AWAITING_CHECKS",
+      "check_count": 11,
+      "all_checks_successful_from_app_15368": true,
+      "empty_home_check_count": 0,
+      "commit_status_count": 0
+    },
+    {
+      "captured_at": "2026-10-11T14:45:18.805789+00:00",
+      "queue_head": "9cfe8c9ba4c710a911e7e5dfdcc99ffd5083f797",
+      "queue_state": "AWAITING_CHECKS",
+      "check_count": 11,
+      "all_checks_successful_from_app_15368": true,
+      "empty_home_check_count": 0,
+      "commit_status_count": 0
+    },
+    {
+      "captured_at": "2026-10-11T14:46:15.302905+00:00",
+      "queue_head": "9cfe8c9ba4c710a911e7e5dfdcc99ffd5083f797",
+      "queue_state": "AWAITING_CHECKS",
+      "check_count": 11,
+      "all_checks_successful_from_app_15368": true,
+      "empty_home_check_count": 0,
+      "commit_status_count": 0
+    },
+    {
+      "captured_at": "2026-10-11T14:47:11.820598+00:00",
+      "queue_head": "9cfe8c9ba4c710a911e7e5dfdcc99ffd5083f797",
+      "queue_state": "AWAITING_CHECKS",
+      "check_count": 11,
+      "all_checks_successful_from_app_15368": true,
+      "empty_home_check_count": 0,
+      "commit_status_count": 0
+    },
+    {
+      "captured_at": "2026-10-11T14:48:08.772292+00:00",
+      "queue_head": "9cfe8c9ba4c710a911e7e5dfdcc99ffd5083f797",
+      "queue_state": "AWAITING_CHECKS",
+      "check_count": 11,
+      "all_checks_successful_from_app_15368": true,
+      "empty_home_check_count": 0,
+      "commit_status_count": 0
+    },
+    {
+      "captured_at": "2026-10-11T14:49:05.686493+00:00",
+      "queue_head": "9cfe8c9ba4c710a911e7e5dfdcc99ffd5083f797",
+      "queue_state": "AWAITING_CHECKS",
+      "check_count": 11,
+      "all_checks_successful_from_app_15368": true,
+      "empty_home_check_count": 0,
+      "commit_status_count": 0
+    },
+    {
+      "captured_at": "2026-10-11T14:50:02.330938+00:00",
+      "queue_head": "9cfe8c9ba4c710a911e7e5dfdcc99ffd5083f797",
+      "queue_state": "AWAITING_CHECKS",
+      "check_count": 11,
+      "all_checks_successful_from_app_15368": true,
+      "empty_home_check_count": 0,
+      "commit_status_count": 0
+    },
+    {
+      "captured_at": "2026-10-11T14:50:59.060867+00:00",
+      "queue_head": "9cfe8c9ba4c710a911e7e5dfdcc99ffd5083f797",
+      "queue_state": "AWAITING_CHECKS",
+      "check_count": 11,
+      "all_checks_successful_from_app_15368": true,
+      "empty_home_check_count": 0,
+      "commit_status_count": 0
+    },
+    {
+      "captured_at": "2026-10-11T14:51:55.623868+00:00",
+      "queue_head": "9cfe8c9ba4c710a911e7e5dfdcc99ffd5083f797",
+      "queue_state": "AWAITING_CHECKS",
+      "check_count": 11,
+      "all_checks_successful_from_app_15368": true,
+      "empty_home_check_count": 0,
+      "commit_status_count": 0
+    },
+    {
+      "captured_at": "2026-10-11T14:52:52.299703+00:00",
+      "queue_head": "9cfe8c9ba4c710a911e7e5dfdcc99ffd5083f797",
+      "queue_state": null,
+      "check_count": 11,
+      "all_checks_successful_from_app_15368": true,
+      "empty_home_check_count": 0,
+      "commit_status_count": 0
+    }
+  ],
+  "final_observation": {
+    "captured_at": "2026-10-11T14:52:52.299703+00:00",
+    "pull_request": {
+      "number": 1,
+      "state": "OPEN",
+      "merged": false,
+      "mergedAt": null,
+      "mergeCommit": null,
+      "headRefOid": "7f16d1477337ef45c47222de8e2ae8f0d15cac86",
+      "mergeQueueEntry": null,
+      "timelineItems": {
+        "pageInfo": {
+          "hasNextPage": false,
+          "endCursor": "Y3Vyc29yOnYyOpPPAAABoStzYEABqzMyOTkwMDU1MTky"
+        },
+        "nodes": [
+          {
+            "__typename": "AddedToMergeQueueEvent",
+            "createdAt": "2026-10-11T13:48:58Z",
+            "actor": {
+              "login": "newhoggy"
+            }
+          },
+          {
+            "__typename": "RemovedFromMergeQueueEvent",
+            "createdAt": "2026-10-11T14:52:24Z",
+            "reason": "checks_timed_out",
+            "beforeCommit": {
+              "oid": "9cfe8c9ba4c710a911e7e5dfdcc99ffd5083f797"
+            },
+            "actor": {
+              "login": "github-merge-queue"
+            }
+          }
+        ]
+      }
+    },
+    "queue_head": "9cfe8c9ba4c710a911e7e5dfdcc99ffd5083f797",
+    "check_run_pages": [
+      {
+        "total_count": 11,
+        "check_runs": [
+          {
+            "id": 114485491737,
+            "name": "Windows Clippy",
+            "node_id": "CR_kwDOVE18XM8AAAAap934GQ",
+            "head_sha": "9cfe8c9ba4c710a911e7e5dfdcc99ffd5083f797",
+            "external_id": "e3f32f17-2ef6-56fc-b6c6-cadf08b6e559",
+            "url": "https://api.github.com/repos/rust-works/gwi-issue-298-missing-context-probe/check-runs/114485491737",
+            "html_url": "https://github.com/rust-works/gwi-issue-298-missing-context-probe/actions/runs/38144696487/job/114485491737",
+            "details_url": "https://github.com/rust-works/gwi-issue-298-missing-context-probe/actions/runs/38144696487/job/114485491737",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-10-11T13:49:18Z",
+            "completed_at": "2026-10-11T13:49:20Z",
+            "output": {
+              "title": null,
+              "summary": null,
+              "text": null,
+              "annotations_count": 1,
+              "annotations_url": "https://api.github.com/repos/rust-works/gwi-issue-298-missing-context-probe/check-runs/114485491737/annotations"
+            },
+            "check_suite": {
+              "id": 103346786106
+            },
+            "app": {
+              "id": 15368,
+              "client_id": "Iv1.05c79e9ad1f6bdfa",
+              "slug": "github-actions",
+              "node_id": "MDM6QXBwMTUzNjg=",
+              "owner": {
+                "login": "github",
+                "id": 9919,
+                "node_id": "MDEyOk9yZ2FuaXphdGlvbjk5MTk=",
+                "avatar_url": "https://avatars.githubusercontent.com/u/9919?v=4",
+                "gravatar_id": "",
+                "url": "https://api.github.com/users/github",
+                "html_url": "https://github.com/github",
+                "followers_url": "https://api.github.com/users/github/followers",
+                "following_url": "https://api.github.com/users/github/following{/other_user}",
+                "gists_url": "https://api.github.com/users/github/gists{/gist_id}",
+                "starred_url": "https://api.github.com/users/github/starred{/owner}{/repo}",
+                "subscriptions_url": "https://api.github.com/users/github/subscriptions",
+                "organizations_url": "https://api.github.com/users/github/orgs",
+                "repos_url": "https://api.github.com/users/github/repos",
+                "events_url": "https://api.github.com/users/github/events{/privacy}",
+                "received_events_url": "https://api.github.com/users/github/received_events",
+                "type": "Organization",
+                "user_view_type": "public",
+                "site_admin": false
+              },
+              "name": "GitHub Actions",
+              "description": "Automate your workflow from idea to production",
+              "external_url": "https://help.github.com/en/actions",
+              "html_url": "https://github.com/apps/github-actions",
+              "created_at": "2018-07-30T09:30:17Z",
+              "updated_at": "2026-06-18T16:17:48Z",
+              "permissions": {
+                "actions": "write",
+                "administration": "read",
+                "artifact_metadata": "write",
+                "attestations": "write",
+                "checks": "write",
+                "code_quality": "write",
+                "contents": "write",
+                "copilot_requests": "write",
+                "deployments": "write",
+                "discussions": "write",
+                "drives": "write",
+                "issues": "write",
+                "merge_queues": "write",
+                "metadata": "read",
+                "models": "read",
+                "packages": "write",
+                "pages": "write",
+                "pull_requests": "write",
+                "repository_hooks": "write",
+                "repository_projects": "write",
+                "security_events": "write",
+                "statuses": "write",
+                "vulnerability_alerts": "read"
+              },
+              "events": [
+                "branch_protection_rule",
+                "check_run",
+                "check_suite",
+                "create",
+                "delete",
+                "deployment",
+                "deployment_status",
+                "discussion",
+                "discussion_comment",
+                "fork",
+                "gollum",
+                "issues",
+                "issue_comment",
+                "label",
+                "merge_group",
+                "milestone",
+                "page_build",
+                "public",
+                "pull_request",
+                "pull_request_review",
+                "pull_request_review_comment",
+                "push",
+                "registry_package",
+                "release",
+                "repository",
+                "repository_dispatch",
+                "status",
+                "watch",
+                "workflow_dispatch",
+                "workflow_run"
+              ]
+            },
+            "pull_requests": []
+          },
+          {
+            "id": 114485491733,
+            "name": "Changelog fragments",
+            "node_id": "CR_kwDOVE18XM8AAAAap934FQ",
+            "head_sha": "9cfe8c9ba4c710a911e7e5dfdcc99ffd5083f797",
+            "external_id": "b0694bc3-a658-56cf-bf67-305ff017b2b9",
+            "url": "https://api.github.com/repos/rust-works/gwi-issue-298-missing-context-probe/check-runs/114485491733",
+            "html_url": "https://github.com/rust-works/gwi-issue-298-missing-context-probe/actions/runs/38144696487/job/114485491733",
+            "details_url": "https://github.com/rust-works/gwi-issue-298-missing-context-probe/actions/runs/38144696487/job/114485491733",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-10-11T13:49:18Z",
+            "completed_at": "2026-10-11T13:49:20Z",
+            "output": {
+              "title": null,
+              "summary": null,
+              "text": null,
+              "annotations_count": 1,
+              "annotations_url": "https://api.github.com/repos/rust-works/gwi-issue-298-missing-context-probe/check-runs/114485491733/annotations"
+            },
+            "check_suite": {
+              "id": 103346786106
+            },
+            "app": {
+              "id": 15368,
+              "client_id": "Iv1.05c79e9ad1f6bdfa",
+              "slug": "github-actions",
+              "node_id": "MDM6QXBwMTUzNjg=",
+              "owner": {
+                "login": "github",
+                "id": 9919,
+                "node_id": "MDEyOk9yZ2FuaXphdGlvbjk5MTk=",
+                "avatar_url": "https://avatars.githubusercontent.com/u/9919?v=4",
+                "gravatar_id": "",
+                "url": "https://api.github.com/users/github",
+                "html_url": "https://github.com/github",
+                "followers_url": "https://api.github.com/users/github/followers",
+                "following_url": "https://api.github.com/users/github/following{/other_user}",
+                "gists_url": "https://api.github.com/users/github/gists{/gist_id}",
+                "starred_url": "https://api.github.com/users/github/starred{/owner}{/repo}",
+                "subscriptions_url": "https://api.github.com/users/github/subscriptions",
+                "organizations_url": "https://api.github.com/users/github/orgs",
+                "repos_url": "https://api.github.com/users/github/repos",
+                "events_url": "https://api.github.com/users/github/events{/privacy}",
+                "received_events_url": "https://api.github.com/users/github/received_events",
+                "type": "Organization",
+                "user_view_type": "public",
+                "site_admin": false
+              },
+              "name": "GitHub Actions",
+              "description": "Automate your workflow from idea to production",
+              "external_url": "https://help.github.com/en/actions",
+              "html_url": "https://github.com/apps/github-actions",
+              "created_at": "2018-07-30T09:30:17Z",
+              "updated_at": "2026-06-18T16:17:48Z",
+              "permissions": {
+                "actions": "write",
+                "administration": "read",
+                "artifact_metadata": "write",
+                "attestations": "write",
+                "checks": "write",
+                "code_quality": "write",
+                "contents": "write",
+                "copilot_requests": "write",
+                "deployments": "write",
+                "discussions": "write",
+                "drives": "write",
+                "issues": "write",
+                "merge_queues": "write",
+                "metadata": "read",
+                "models": "read",
+                "packages": "write",
+                "pages": "write",
+                "pull_requests": "write",
+                "repository_hooks": "write",
+                "repository_projects": "write",
+                "security_events": "write",
+                "statuses": "write",
+                "vulnerability_alerts": "read"
+              },
+              "events": [
+                "branch_protection_rule",
+                "check_run",
+                "check_suite",
+                "create",
+                "delete",
+                "deployment",
+                "deployment_status",
+                "discussion",
+                "discussion_comment",
+                "fork",
+                "gollum",
+                "issues",
+                "issue_comment",
+                "label",
+                "merge_group",
+                "milestone",
+                "page_build",
+                "public",
+                "pull_request",
+                "pull_request_review",
+                "pull_request_review_comment",
+                "push",
+                "registry_package",
+                "release",
+                "repository",
+                "repository_dispatch",
+                "status",
+                "watch",
+                "workflow_dispatch",
+                "workflow_run"
+              ]
+            },
+            "pull_requests": []
+          },
+          {
+            "id": 114485491723,
+            "name": "Rustfmt",
+            "node_id": "CR_kwDOVE18XM8AAAAap934Cw",
+            "head_sha": "9cfe8c9ba4c710a911e7e5dfdcc99ffd5083f797",
+            "external_id": "2f39a7cd-06f9-5902-9dcc-6fedd807debc",
+            "url": "https://api.github.com/repos/rust-works/gwi-issue-298-missing-context-probe/check-runs/114485491723",
+            "html_url": "https://github.com/rust-works/gwi-issue-298-missing-context-probe/actions/runs/38144696487/job/114485491723",
+            "details_url": "https://github.com/rust-works/gwi-issue-298-missing-context-probe/actions/runs/38144696487/job/114485491723",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-10-11T13:49:18Z",
+            "completed_at": "2026-10-11T13:49:21Z",
+            "output": {
+              "title": null,
+              "summary": null,
+              "text": null,
+              "annotations_count": 1,
+              "annotations_url": "https://api.github.com/repos/rust-works/gwi-issue-298-missing-context-probe/check-runs/114485491723/annotations"
+            },
+            "check_suite": {
+              "id": 103346786106
+            },
+            "app": {
+              "id": 15368,
+              "client_id": "Iv1.05c79e9ad1f6bdfa",
+              "slug": "github-actions",
+              "node_id": "MDM6QXBwMTUzNjg=",
+              "owner": {
+                "login": "github",
+                "id": 9919,
+                "node_id": "MDEyOk9yZ2FuaXphdGlvbjk5MTk=",
+                "avatar_url": "https://avatars.githubusercontent.com/u/9919?v=4",
+                "gravatar_id": "",
+                "url": "https://api.github.com/users/github",
+                "html_url": "https://github.com/github",
+                "followers_url": "https://api.github.com/users/github/followers",
+                "following_url": "https://api.github.com/users/github/following{/other_user}",
+                "gists_url": "https://api.github.com/users/github/gists{/gist_id}",
+                "starred_url": "https://api.github.com/users/github/starred{/owner}{/repo}",
+                "subscriptions_url": "https://api.github.com/users/github/subscriptions",
+                "organizations_url": "https://api.github.com/users/github/orgs",
+                "repos_url": "https://api.github.com/users/github/repos",
+                "events_url": "https://api.github.com/users/github/events{/privacy}",
+                "received_events_url": "https://api.github.com/users/github/received_events",
+                "type": "Organization",
+                "user_view_type": "public",
+                "site_admin": false
+              },
+              "name": "GitHub Actions",
+              "description": "Automate your workflow from idea to production",
+              "external_url": "https://help.github.com/en/actions",
+              "html_url": "https://github.com/apps/github-actions",
+              "created_at": "2018-07-30T09:30:17Z",
+              "updated_at": "2026-06-18T16:17:48Z",
+              "permissions": {
+                "actions": "write",
+                "administration": "read",
+                "artifact_metadata": "write",
+                "attestations": "write",
+                "checks": "write",
+                "code_quality": "write",
+                "contents": "write",
+                "copilot_requests": "write",
+                "deployments": "write",
+                "discussions": "write",
+                "drives": "write",
+                "issues": "write",
+                "merge_queues": "write",
+                "metadata": "read",
+                "models": "read",
+                "packages": "write",
+                "pages": "write",
+                "pull_requests": "write",
+                "repository_hooks": "write",
+                "repository_projects": "write",
+                "security_events": "write",
+                "statuses": "write",
+                "vulnerability_alerts": "read"
+              },
+              "events": [
+                "branch_protection_rule",
+                "check_run",
+                "check_suite",
+                "create",
+                "delete",
+                "deployment",
+                "deployment_status",
+                "discussion",
+                "discussion_comment",
+                "fork",
+                "gollum",
+                "issues",
+                "issue_comment",
+                "label",
+                "merge_group",
+                "milestone",
+                "page_build",
+                "public",
+                "pull_request",
+                "pull_request_review",
+                "pull_request_review_comment",
+                "push",
+                "registry_package",
+                "release",
+                "repository",
+                "repository_dispatch",
+                "status",
+                "watch",
+                "workflow_dispatch",
+                "workflow_run"
+              ]
+            },
+            "pull_requests": []
+          },
+          {
+            "id": 114485491716,
+            "name": "Docs",
+            "node_id": "CR_kwDOVE18XM8AAAAap934BA",
+            "head_sha": "9cfe8c9ba4c710a911e7e5dfdcc99ffd5083f797",
+            "external_id": "0b8e164d-5429-5fe2-96a1-d85239061063",
+            "url": "https://api.github.com/repos/rust-works/gwi-issue-298-missing-context-probe/check-runs/114485491716",
+            "html_url": "https://github.com/rust-works/gwi-issue-298-missing-context-probe/actions/runs/38144696487/job/114485491716",
+            "details_url": "https://github.com/rust-works/gwi-issue-298-missing-context-probe/actions/runs/38144696487/job/114485491716",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-10-11T13:49:18Z",
+            "completed_at": "2026-10-11T13:49:22Z",
+            "output": {
+              "title": null,
+              "summary": null,
+              "text": null,
+              "annotations_count": 1,
+              "annotations_url": "https://api.github.com/repos/rust-works/gwi-issue-298-missing-context-probe/check-runs/114485491716/annotations"
+            },
+            "check_suite": {
+              "id": 103346786106
+            },
+            "app": {
+              "id": 15368,
+              "client_id": "Iv1.05c79e9ad1f6bdfa",
+              "slug": "github-actions",
+              "node_id": "MDM6QXBwMTUzNjg=",
+              "owner": {
+                "login": "github",
+                "id": 9919,
+                "node_id": "MDEyOk9yZ2FuaXphdGlvbjk5MTk=",
+                "avatar_url": "https://avatars.githubusercontent.com/u/9919?v=4",
+                "gravatar_id": "",
+                "url": "https://api.github.com/users/github",
+                "html_url": "https://github.com/github",
+                "followers_url": "https://api.github.com/users/github/followers",
+                "following_url": "https://api.github.com/users/github/following{/other_user}",
+                "gists_url": "https://api.github.com/users/github/gists{/gist_id}",
+                "starred_url": "https://api.github.com/users/github/starred{/owner}{/repo}",
+                "subscriptions_url": "https://api.github.com/users/github/subscriptions",
+                "organizations_url": "https://api.github.com/users/github/orgs",
+                "repos_url": "https://api.github.com/users/github/repos",
+                "events_url": "https://api.github.com/users/github/events{/privacy}",
+                "received_events_url": "https://api.github.com/users/github/received_events",
+                "type": "Organization",
+                "user_view_type": "public",
+                "site_admin": false
+              },
+              "name": "GitHub Actions",
+              "description": "Automate your workflow from idea to production",
+              "external_url": "https://help.github.com/en/actions",
+              "html_url": "https://github.com/apps/github-actions",
+              "created_at": "2018-07-30T09:30:17Z",
+              "updated_at": "2026-06-18T16:17:48Z",
+              "permissions": {
+                "actions": "write",
+                "administration": "read",
+                "artifact_metadata": "write",
+                "attestations": "write",
+                "checks": "write",
+                "code_quality": "write",
+                "contents": "write",
+                "copilot_requests": "write",
+                "deployments": "write",
+                "discussions": "write",
+                "drives": "write",
+                "issues": "write",
+                "merge_queues": "write",
+                "metadata": "read",
+                "models": "read",
+                "packages": "write",
+                "pages": "write",
+                "pull_requests": "write",
+                "repository_hooks": "write",
+                "repository_projects": "write",
+                "security_events": "write",
+                "statuses": "write",
+                "vulnerability_alerts": "read"
+              },
+              "events": [
+                "branch_protection_rule",
+                "check_run",
+                "check_suite",
+                "create",
+                "delete",
+                "deployment",
+                "deployment_status",
+                "discussion",
+                "discussion_comment",
+                "fork",
+                "gollum",
+                "issues",
+                "issue_comment",
+                "label",
+                "merge_group",
+                "milestone",
+                "page_build",
+                "public",
+                "pull_request",
+                "pull_request_review",
+                "pull_request_review_comment",
+                "push",
+                "registry_package",
+                "release",
+                "repository",
+                "repository_dispatch",
+                "status",
+                "watch",
+                "workflow_dispatch",
+                "workflow_run"
+              ]
+            },
+            "pull_requests": []
+          },
+          {
+            "id": 114485491676,
+            "name": "Clippy",
+            "node_id": "CR_kwDOVE18XM8AAAAap9333A",
+            "head_sha": "9cfe8c9ba4c710a911e7e5dfdcc99ffd5083f797",
+            "external_id": "d30a41e5-e37e-5392-a365-19fadc322676",
+            "url": "https://api.github.com/repos/rust-works/gwi-issue-298-missing-context-probe/check-runs/114485491676",
+            "html_url": "https://github.com/rust-works/gwi-issue-298-missing-context-probe/actions/runs/38144696487/job/114485491676",
+            "details_url": "https://github.com/rust-works/gwi-issue-298-missing-context-probe/actions/runs/38144696487/job/114485491676",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-10-11T13:49:18Z",
+            "completed_at": "2026-10-11T13:49:22Z",
+            "output": {
+              "title": null,
+              "summary": null,
+              "text": null,
+              "annotations_count": 1,
+              "annotations_url": "https://api.github.com/repos/rust-works/gwi-issue-298-missing-context-probe/check-runs/114485491676/annotations"
+            },
+            "check_suite": {
+              "id": 103346786106
+            },
+            "app": {
+              "id": 15368,
+              "client_id": "Iv1.05c79e9ad1f6bdfa",
+              "slug": "github-actions",
+              "node_id": "MDM6QXBwMTUzNjg=",
+              "owner": {
+                "login": "github",
+                "id": 9919,
+                "node_id": "MDEyOk9yZ2FuaXphdGlvbjk5MTk=",
+                "avatar_url": "https://avatars.githubusercontent.com/u/9919?v=4",
+                "gravatar_id": "",
+                "url": "https://api.github.com/users/github",
+                "html_url": "https://github.com/github",
+                "followers_url": "https://api.github.com/users/github/followers",
+                "following_url": "https://api.github.com/users/github/following{/other_user}",
+                "gists_url": "https://api.github.com/users/github/gists{/gist_id}",
+                "starred_url": "https://api.github.com/users/github/starred{/owner}{/repo}",
+                "subscriptions_url": "https://api.github.com/users/github/subscriptions",
+                "organizations_url": "https://api.github.com/users/github/orgs",
+                "repos_url": "https://api.github.com/users/github/repos",
+                "events_url": "https://api.github.com/users/github/events{/privacy}",
+                "received_events_url": "https://api.github.com/users/github/received_events",
+                "type": "Organization",
+                "user_view_type": "public",
+                "site_admin": false
+              },
+              "name": "GitHub Actions",
+              "description": "Automate your workflow from idea to production",
+              "external_url": "https://help.github.com/en/actions",
+              "html_url": "https://github.com/apps/github-actions",
+              "created_at": "2018-07-30T09:30:17Z",
+              "updated_at": "2026-06-18T16:17:48Z",
+              "permissions": {
+                "actions": "write",
+                "administration": "read",
+                "artifact_metadata": "write",
+                "attestations": "write",
+                "checks": "write",
+                "code_quality": "write",
+                "contents": "write",
+                "copilot_requests": "write",
+                "deployments": "write",
+                "discussions": "write",
+                "drives": "write",
+                "issues": "write",
+                "merge_queues": "write",
+                "metadata": "read",
+                "models": "read",
+                "packages": "write",
+                "pages": "write",
+                "pull_requests": "write",
+                "repository_hooks": "write",
+                "repository_projects": "write",
+                "security_events": "write",
+                "statuses": "write",
+                "vulnerability_alerts": "read"
+              },
+              "events": [
+                "branch_protection_rule",
+                "check_run",
+                "check_suite",
+                "create",
+                "delete",
+                "deployment",
+                "deployment_status",
+                "discussion",
+                "discussion_comment",
+                "fork",
+                "gollum",
+                "issues",
+                "issue_comment",
+                "label",
+                "merge_group",
+                "milestone",
+                "page_build",
+                "public",
+                "pull_request",
+                "pull_request_review",
+                "pull_request_review_comment",
+                "push",
+                "registry_package",
+                "release",
+                "repository",
+                "repository_dispatch",
+                "status",
+                "watch",
+                "workflow_dispatch",
+                "workflow_run"
+              ]
+            },
+            "pull_requests": []
+          },
+          {
+            "id": 114485491662,
+            "name": "Commit Message Lint",
+            "node_id": "CR_kwDOVE18XM8AAAAap933zg",
+            "head_sha": "9cfe8c9ba4c710a911e7e5dfdcc99ffd5083f797",
+            "external_id": "ed806ae0-d991-52da-9bdb-6f478d4328d7",
+            "url": "https://api.github.com/repos/rust-works/gwi-issue-298-missing-context-probe/check-runs/114485491662",
+            "html_url": "https://github.com/rust-works/gwi-issue-298-missing-context-probe/actions/runs/38144696487/job/114485491662",
+            "details_url": "https://github.com/rust-works/gwi-issue-298-missing-context-probe/actions/runs/38144696487/job/114485491662",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-10-11T13:49:17Z",
+            "completed_at": "2026-10-11T13:49:20Z",
+            "output": {
+              "title": null,
+              "summary": null,
+              "text": null,
+              "annotations_count": 1,
+              "annotations_url": "https://api.github.com/repos/rust-works/gwi-issue-298-missing-context-probe/check-runs/114485491662/annotations"
+            },
+            "check_suite": {
+              "id": 103346786106
+            },
+            "app": {
+              "id": 15368,
+              "client_id": "Iv1.05c79e9ad1f6bdfa",
+              "slug": "github-actions",
+              "node_id": "MDM6QXBwMTUzNjg=",
+              "owner": {
+                "login": "github",
+                "id": 9919,
+                "node_id": "MDEyOk9yZ2FuaXphdGlvbjk5MTk=",
+                "avatar_url": "https://avatars.githubusercontent.com/u/9919?v=4",
+                "gravatar_id": "",
+                "url": "https://api.github.com/users/github",
+                "html_url": "https://github.com/github",
+                "followers_url": "https://api.github.com/users/github/followers",
+                "following_url": "https://api.github.com/users/github/following{/other_user}",
+                "gists_url": "https://api.github.com/users/github/gists{/gist_id}",
+                "starred_url": "https://api.github.com/users/github/starred{/owner}{/repo}",
+                "subscriptions_url": "https://api.github.com/users/github/subscriptions",
+                "organizations_url": "https://api.github.com/users/github/orgs",
+                "repos_url": "https://api.github.com/users/github/repos",
+                "events_url": "https://api.github.com/users/github/events{/privacy}",
+                "received_events_url": "https://api.github.com/users/github/received_events",
+                "type": "Organization",
+                "user_view_type": "public",
+                "site_admin": false
+              },
+              "name": "GitHub Actions",
+              "description": "Automate your workflow from idea to production",
+              "external_url": "https://help.github.com/en/actions",
+              "html_url": "https://github.com/apps/github-actions",
+              "created_at": "2018-07-30T09:30:17Z",
+              "updated_at": "2026-06-18T16:17:48Z",
+              "permissions": {
+                "actions": "write",
+                "administration": "read",
+                "artifact_metadata": "write",
+                "attestations": "write",
+                "checks": "write",
+                "code_quality": "write",
+                "contents": "write",
+                "copilot_requests": "write",
+                "deployments": "write",
+                "discussions": "write",
+                "drives": "write",
+                "issues": "write",
+                "merge_queues": "write",
+                "metadata": "read",
+                "models": "read",
+                "packages": "write",
+                "pages": "write",
+                "pull_requests": "write",
+                "repository_hooks": "write",
+                "repository_projects": "write",
+                "security_events": "write",
+                "statuses": "write",
+                "vulnerability_alerts": "read"
+              },
+              "events": [
+                "branch_protection_rule",
+                "check_run",
+                "check_suite",
+                "create",
+                "delete",
+                "deployment",
+                "deployment_status",
+                "discussion",
+                "discussion_comment",
+                "fork",
+                "gollum",
+                "issues",
+                "issue_comment",
+                "label",
+                "merge_group",
+                "milestone",
+                "page_build",
+                "public",
+                "pull_request",
+                "pull_request_review",
+                "pull_request_review_comment",
+                "push",
+                "registry_package",
+                "release",
+                "repository",
+                "repository_dispatch",
+                "status",
+                "watch",
+                "workflow_dispatch",
+                "workflow_run"
+              ]
+            },
+            "pull_requests": []
+          },
+          {
+            "id": 114485491651,
+            "name": "Doc links",
+            "node_id": "CR_kwDOVE18XM8AAAAap933ww",
+            "head_sha": "9cfe8c9ba4c710a911e7e5dfdcc99ffd5083f797",
+            "external_id": "f0e4c8a8-cca9-534d-a7b7-60943065e3ab",
+            "url": "https://api.github.com/repos/rust-works/gwi-issue-298-missing-context-probe/check-runs/114485491651",
+            "html_url": "https://github.com/rust-works/gwi-issue-298-missing-context-probe/actions/runs/38144696487/job/114485491651",
+            "details_url": "https://github.com/rust-works/gwi-issue-298-missing-context-probe/actions/runs/38144696487/job/114485491651",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-10-11T13:49:18Z",
+            "completed_at": "2026-10-11T13:49:22Z",
+            "output": {
+              "title": null,
+              "summary": null,
+              "text": null,
+              "annotations_count": 1,
+              "annotations_url": "https://api.github.com/repos/rust-works/gwi-issue-298-missing-context-probe/check-runs/114485491651/annotations"
+            },
+            "check_suite": {
+              "id": 103346786106
+            },
+            "app": {
+              "id": 15368,
+              "client_id": "Iv1.05c79e9ad1f6bdfa",
+              "slug": "github-actions",
+              "node_id": "MDM6QXBwMTUzNjg=",
+              "owner": {
+                "login": "github",
+                "id": 9919,
+                "node_id": "MDEyOk9yZ2FuaXphdGlvbjk5MTk=",
+                "avatar_url": "https://avatars.githubusercontent.com/u/9919?v=4",
+                "gravatar_id": "",
+                "url": "https://api.github.com/users/github",
+                "html_url": "https://github.com/github",
+                "followers_url": "https://api.github.com/users/github/followers",
+                "following_url": "https://api.github.com/users/github/following{/other_user}",
+                "gists_url": "https://api.github.com/users/github/gists{/gist_id}",
+                "starred_url": "https://api.github.com/users/github/starred{/owner}{/repo}",
+                "subscriptions_url": "https://api.github.com/users/github/subscriptions",
+                "organizations_url": "https://api.github.com/users/github/orgs",
+                "repos_url": "https://api.github.com/users/github/repos",
+                "events_url": "https://api.github.com/users/github/events{/privacy}",
+                "received_events_url": "https://api.github.com/users/github/received_events",
+                "type": "Organization",
+                "user_view_type": "public",
+                "site_admin": false
+              },
+              "name": "GitHub Actions",
+              "description": "Automate your workflow from idea to production",
+              "external_url": "https://help.github.com/en/actions",
+              "html_url": "https://github.com/apps/github-actions",
+              "created_at": "2018-07-30T09:30:17Z",
+              "updated_at": "2026-06-18T16:17:48Z",
+              "permissions": {
+                "actions": "write",
+                "administration": "read",
+                "artifact_metadata": "write",
+                "attestations": "write",
+                "checks": "write",
+                "code_quality": "write",
+                "contents": "write",
+                "copilot_requests": "write",
+                "deployments": "write",
+                "discussions": "write",
+                "drives": "write",
+                "issues": "write",
+                "merge_queues": "write",
+                "metadata": "read",
+                "models": "read",
+                "packages": "write",
+                "pages": "write",
+                "pull_requests": "write",
+                "repository_hooks": "write",
+                "repository_projects": "write",
+                "security_events": "write",
+                "statuses": "write",
+                "vulnerability_alerts": "read"
+              },
+              "events": [
+                "branch_protection_rule",
+                "check_run",
+                "check_suite",
+                "create",
+                "delete",
+                "deployment",
+                "deployment_status",
+                "discussion",
+                "discussion_comment",
+                "fork",
+                "gollum",
+                "issues",
+                "issue_comment",
+                "label",
+                "merge_group",
+                "milestone",
+                "page_build",
+                "public",
+                "pull_request",
+                "pull_request_review",
+                "pull_request_review_comment",
+                "push",
+                "registry_package",
+                "release",
+                "repository",
+                "repository_dispatch",
+                "status",
+                "watch",
+                "workflow_dispatch",
+                "workflow_run"
+              ]
+            },
+            "pull_requests": []
+          },
+          {
+            "id": 114485491642,
+            "name": "Test (nightly)",
+            "node_id": "CR_kwDOVE18XM8AAAAap933ug",
+            "head_sha": "9cfe8c9ba4c710a911e7e5dfdcc99ffd5083f797",
+            "external_id": "64d58266-cc73-5e95-8c21-998a712767b6",
+            "url": "https://api.github.com/repos/rust-works/gwi-issue-298-missing-context-probe/check-runs/114485491642",
+            "html_url": "https://github.com/rust-works/gwi-issue-298-missing-context-probe/actions/runs/38144696487/job/114485491642",
+            "details_url": "https://github.com/rust-works/gwi-issue-298-missing-context-probe/actions/runs/38144696487/job/114485491642",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-10-11T13:49:18Z",
+            "completed_at": "2026-10-11T13:49:22Z",
+            "output": {
+              "title": null,
+              "summary": null,
+              "text": null,
+              "annotations_count": 1,
+              "annotations_url": "https://api.github.com/repos/rust-works/gwi-issue-298-missing-context-probe/check-runs/114485491642/annotations"
+            },
+            "check_suite": {
+              "id": 103346786106
+            },
+            "app": {
+              "id": 15368,
+              "client_id": "Iv1.05c79e9ad1f6bdfa",
+              "slug": "github-actions",
+              "node_id": "MDM6QXBwMTUzNjg=",
+              "owner": {
+                "login": "github",
+                "id": 9919,
+                "node_id": "MDEyOk9yZ2FuaXphdGlvbjk5MTk=",
+                "avatar_url": "https://avatars.githubusercontent.com/u/9919?v=4",
+                "gravatar_id": "",
+                "url": "https://api.github.com/users/github",
+                "html_url": "https://github.com/github",
+                "followers_url": "https://api.github.com/users/github/followers",
+                "following_url": "https://api.github.com/users/github/following{/other_user}",
+                "gists_url": "https://api.github.com/users/github/gists{/gist_id}",
+                "starred_url": "https://api.github.com/users/github/starred{/owner}{/repo}",
+                "subscriptions_url": "https://api.github.com/users/github/subscriptions",
+                "organizations_url": "https://api.github.com/users/github/orgs",
+                "repos_url": "https://api.github.com/users/github/repos",
+                "events_url": "https://api.github.com/users/github/events{/privacy}",
+                "received_events_url": "https://api.github.com/users/github/received_events",
+                "type": "Organization",
+                "user_view_type": "public",
+                "site_admin": false
+              },
+              "name": "GitHub Actions",
+              "description": "Automate your workflow from idea to production",
+              "external_url": "https://help.github.com/en/actions",
+              "html_url": "https://github.com/apps/github-actions",
+              "created_at": "2018-07-30T09:30:17Z",
+              "updated_at": "2026-06-18T16:17:48Z",
+              "permissions": {
+                "actions": "write",
+                "administration": "read",
+                "artifact_metadata": "write",
+                "attestations": "write",
+                "checks": "write",
+                "code_quality": "write",
+                "contents": "write",
+                "copilot_requests": "write",
+                "deployments": "write",
+                "discussions": "write",
+                "drives": "write",
+                "issues": "write",
+                "merge_queues": "write",
+                "metadata": "read",
+                "models": "read",
+                "packages": "write",
+                "pages": "write",
+                "pull_requests": "write",
+                "repository_hooks": "write",
+                "repository_projects": "write",
+                "security_events": "write",
+                "statuses": "write",
+                "vulnerability_alerts": "read"
+              },
+              "events": [
+                "branch_protection_rule",
+                "check_run",
+                "check_suite",
+                "create",
+                "delete",
+                "deployment",
+                "deployment_status",
+                "discussion",
+                "discussion_comment",
+                "fork",
+                "gollum",
+                "issues",
+                "issue_comment",
+                "label",
+                "merge_group",
+                "milestone",
+                "page_build",
+                "public",
+                "pull_request",
+                "pull_request_review",
+                "pull_request_review_comment",
+                "push",
+                "registry_package",
+                "release",
+                "repository",
+                "repository_dispatch",
+                "status",
+                "watch",
+                "workflow_dispatch",
+                "workflow_run"
+              ]
+            },
+            "pull_requests": []
+          },
+          {
+            "id": 114485491623,
+            "name": "Test (stable)",
+            "node_id": "CR_kwDOVE18XM8AAAAap933pw",
+            "head_sha": "9cfe8c9ba4c710a911e7e5dfdcc99ffd5083f797",
+            "external_id": "964872c9-06f7-5da8-84d2-5e8ded228189",
+            "url": "https://api.github.com/repos/rust-works/gwi-issue-298-missing-context-probe/check-runs/114485491623",
+            "html_url": "https://github.com/rust-works/gwi-issue-298-missing-context-probe/actions/runs/38144696487/job/114485491623",
+            "details_url": "https://github.com/rust-works/gwi-issue-298-missing-context-probe/actions/runs/38144696487/job/114485491623",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-10-11T13:49:18Z",
+            "completed_at": "2026-10-11T13:49:22Z",
+            "output": {
+              "title": null,
+              "summary": null,
+              "text": null,
+              "annotations_count": 1,
+              "annotations_url": "https://api.github.com/repos/rust-works/gwi-issue-298-missing-context-probe/check-runs/114485491623/annotations"
+            },
+            "check_suite": {
+              "id": 103346786106
+            },
+            "app": {
+              "id": 15368,
+              "client_id": "Iv1.05c79e9ad1f6bdfa",
+              "slug": "github-actions",
+              "node_id": "MDM6QXBwMTUzNjg=",
+              "owner": {
+                "login": "github",
+                "id": 9919,
+                "node_id": "MDEyOk9yZ2FuaXphdGlvbjk5MTk=",
+                "avatar_url": "https://avatars.githubusercontent.com/u/9919?v=4",
+                "gravatar_id": "",
+                "url": "https://api.github.com/users/github",
+                "html_url": "https://github.com/github",
+                "followers_url": "https://api.github.com/users/github/followers",
+                "following_url": "https://api.github.com/users/github/following{/other_user}",
+                "gists_url": "https://api.github.com/users/github/gists{/gist_id}",
+                "starred_url": "https://api.github.com/users/github/starred{/owner}{/repo}",
+                "subscriptions_url": "https://api.github.com/users/github/subscriptions",
+                "organizations_url": "https://api.github.com/users/github/orgs",
+                "repos_url": "https://api.github.com/users/github/repos",
+                "events_url": "https://api.github.com/users/github/events{/privacy}",
+                "received_events_url": "https://api.github.com/users/github/received_events",
+                "type": "Organization",
+                "user_view_type": "public",
+                "site_admin": false
+              },
+              "name": "GitHub Actions",
+              "description": "Automate your workflow from idea to production",
+              "external_url": "https://help.github.com/en/actions",
+              "html_url": "https://github.com/apps/github-actions",
+              "created_at": "2018-07-30T09:30:17Z",
+              "updated_at": "2026-06-18T16:17:48Z",
+              "permissions": {
+                "actions": "write",
+                "administration": "read",
+                "artifact_metadata": "write",
+                "attestations": "write",
+                "checks": "write",
+                "code_quality": "write",
+                "contents": "write",
+                "copilot_requests": "write",
+                "deployments": "write",
+                "discussions": "write",
+                "drives": "write",
+                "issues": "write",
+                "merge_queues": "write",
+                "metadata": "read",
+                "models": "read",
+                "packages": "write",
+                "pages": "write",
+                "pull_requests": "write",
+                "repository_hooks": "write",
+                "repository_projects": "write",
+                "security_events": "write",
+                "statuses": "write",
+                "vulnerability_alerts": "read"
+              },
+              "events": [
+                "branch_protection_rule",
+                "check_run",
+                "check_suite",
+                "create",
+                "delete",
+                "deployment",
+                "deployment_status",
+                "discussion",
+                "discussion_comment",
+                "fork",
+                "gollum",
+                "issues",
+                "issue_comment",
+                "label",
+                "merge_group",
+                "milestone",
+                "page_build",
+                "public",
+                "pull_request",
+                "pull_request_review",
+                "pull_request_review_comment",
+                "push",
+                "registry_package",
+                "release",
+                "repository",
+                "repository_dispatch",
+                "status",
+                "watch",
+                "workflow_dispatch",
+                "workflow_run"
+              ]
+            },
+            "pull_requests": []
+          },
+          {
+            "id": 114485491567,
+            "name": "Hostile Environment Test",
+            "node_id": "CR_kwDOVE18XM8AAAAap933bw",
+            "head_sha": "9cfe8c9ba4c710a911e7e5dfdcc99ffd5083f797",
+            "external_id": "451f664e-e63e-585f-9843-d607ade6f6e1",
+            "url": "https://api.github.com/repos/rust-works/gwi-issue-298-missing-context-probe/check-runs/114485491567",
+            "html_url": "https://github.com/rust-works/gwi-issue-298-missing-context-probe/actions/runs/38144696487/job/114485491567",
+            "details_url": "https://github.com/rust-works/gwi-issue-298-missing-context-probe/actions/runs/38144696487/job/114485491567",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-10-11T13:49:18Z",
+            "completed_at": "2026-10-11T13:49:21Z",
+            "output": {
+              "title": null,
+              "summary": null,
+              "text": null,
+              "annotations_count": 1,
+              "annotations_url": "https://api.github.com/repos/rust-works/gwi-issue-298-missing-context-probe/check-runs/114485491567/annotations"
+            },
+            "check_suite": {
+              "id": 103346786106
+            },
+            "app": {
+              "id": 15368,
+              "client_id": "Iv1.05c79e9ad1f6bdfa",
+              "slug": "github-actions",
+              "node_id": "MDM6QXBwMTUzNjg=",
+              "owner": {
+                "login": "github",
+                "id": 9919,
+                "node_id": "MDEyOk9yZ2FuaXphdGlvbjk5MTk=",
+                "avatar_url": "https://avatars.githubusercontent.com/u/9919?v=4",
+                "gravatar_id": "",
+                "url": "https://api.github.com/users/github",
+                "html_url": "https://github.com/github",
+                "followers_url": "https://api.github.com/users/github/followers",
+                "following_url": "https://api.github.com/users/github/following{/other_user}",
+                "gists_url": "https://api.github.com/users/github/gists{/gist_id}",
+                "starred_url": "https://api.github.com/users/github/starred{/owner}{/repo}",
+                "subscriptions_url": "https://api.github.com/users/github/subscriptions",
+                "organizations_url": "https://api.github.com/users/github/orgs",
+                "repos_url": "https://api.github.com/users/github/repos",
+                "events_url": "https://api.github.com/users/github/events{/privacy}",
+                "received_events_url": "https://api.github.com/users/github/received_events",
+                "type": "Organization",
+                "user_view_type": "public",
+                "site_admin": false
+              },
+              "name": "GitHub Actions",
+              "description": "Automate your workflow from idea to production",
+              "external_url": "https://help.github.com/en/actions",
+              "html_url": "https://github.com/apps/github-actions",
+              "created_at": "2018-07-30T09:30:17Z",
+              "updated_at": "2026-06-18T16:17:48Z",
+              "permissions": {
+                "actions": "write",
+                "administration": "read",
+                "artifact_metadata": "write",
+                "attestations": "write",
+                "checks": "write",
+                "code_quality": "write",
+                "contents": "write",
+                "copilot_requests": "write",
+                "deployments": "write",
+                "discussions": "write",
+                "drives": "write",
+                "issues": "write",
+                "merge_queues": "write",
+                "metadata": "read",
+                "models": "read",
+                "packages": "write",
+                "pages": "write",
+                "pull_requests": "write",
+                "repository_hooks": "write",
+                "repository_projects": "write",
+                "security_events": "write",
+                "statuses": "write",
+                "vulnerability_alerts": "read"
+              },
+              "events": [
+                "branch_protection_rule",
+                "check_run",
+                "check_suite",
+                "create",
+                "delete",
+                "deployment",
+                "deployment_status",
+                "discussion",
+                "discussion_comment",
+                "fork",
+                "gollum",
+                "issues",
+                "issue_comment",
+                "label",
+                "merge_group",
+                "milestone",
+                "page_build",
+                "public",
+                "pull_request",
+                "pull_request_review",
+                "pull_request_review_comment",
+                "push",
+                "registry_package",
+                "release",
+                "repository",
+                "repository_dispatch",
+                "status",
+                "watch",
+                "workflow_dispatch",
+                "workflow_run"
+              ]
+            },
+            "pull_requests": []
+          },
+          {
+            "id": 114485491509,
+            "name": "Windows Build",
+            "node_id": "CR_kwDOVE18XM8AAAAap933NQ",
+            "head_sha": "9cfe8c9ba4c710a911e7e5dfdcc99ffd5083f797",
+            "external_id": "f4fce67e-748b-5ee9-b314-faa7e3de2830",
+            "url": "https://api.github.com/repos/rust-works/gwi-issue-298-missing-context-probe/check-runs/114485491509",
+            "html_url": "https://github.com/rust-works/gwi-issue-298-missing-context-probe/actions/runs/38144696487/job/114485491509",
+            "details_url": "https://github.com/rust-works/gwi-issue-298-missing-context-probe/actions/runs/38144696487/job/114485491509",
+            "status": "completed",
+            "conclusion": "success",
+            "started_at": "2026-10-11T13:49:18Z",
+            "completed_at": "2026-10-11T13:49:21Z",
+            "output": {
+              "title": null,
+              "summary": null,
+              "text": null,
+              "annotations_count": 1,
+              "annotations_url": "https://api.github.com/repos/rust-works/gwi-issue-298-missing-context-probe/check-runs/114485491509/annotations"
+            },
+            "check_suite": {
+              "id": 103346786106
+            },
+            "app": {
+              "id": 15368,
+              "client_id": "Iv1.05c79e9ad1f6bdfa",
+              "slug": "github-actions",
+              "node_id": "MDM6QXBwMTUzNjg=",
+              "owner": {
+                "login": "github",
+                "id": 9919,
+                "node_id": "MDEyOk9yZ2FuaXphdGlvbjk5MTk=",
+                "avatar_url": "https://avatars.githubusercontent.com/u/9919?v=4",
+                "gravatar_id": "",
+                "url": "https://api.github.com/users/github",
+                "html_url": "https://github.com/github",
+                "followers_url": "https://api.github.com/users/github/followers",
+                "following_url": "https://api.github.com/users/github/following{/other_user}",
+                "gists_url": "https://api.github.com/users/github/gists{/gist_id}",
+                "starred_url": "https://api.github.com/users/github/starred{/owner}{/repo}",
+                "subscriptions_url": "https://api.github.com/users/github/subscriptions",
+                "organizations_url": "https://api.github.com/users/github/orgs",
+                "repos_url": "https://api.github.com/users/github/repos",
+                "events_url": "https://api.github.com/users/github/events{/privacy}",
+                "received_events_url": "https://api.github.com/users/github/received_events",
+                "type": "Organization",
+                "user_view_type": "public",
+                "site_admin": false
+              },
+              "name": "GitHub Actions",
+              "description": "Automate your workflow from idea to production",
+              "external_url": "https://help.github.com/en/actions",
+              "html_url": "https://github.com/apps/github-actions",
+              "created_at": "2018-07-30T09:30:17Z",
+              "updated_at": "2026-06-18T16:17:48Z",
+              "permissions": {
+                "actions": "write",
+                "administration": "read",
+                "artifact_metadata": "write",
+                "attestations": "write",
+                "checks": "write",
+                "code_quality": "write",
+                "contents": "write",
+                "copilot_requests": "write",
+                "deployments": "write",
+                "discussions": "write",
+                "drives": "write",
+                "issues": "write",
+                "merge_queues": "write",
+                "metadata": "read",
+                "models": "read",
+                "packages": "write",
+                "pages": "write",
+                "pull_requests": "write",
+                "repository_hooks": "write",
+                "repository_projects": "write",
+                "security_events": "write",
+                "statuses": "write",
+                "vulnerability_alerts": "read"
+              },
+              "events": [
+                "branch_protection_rule",
+                "check_run",
+                "check_suite",
+                "create",
+                "delete",
+                "deployment",
+                "deployment_status",
+                "discussion",
+                "discussion_comment",
+                "fork",
+                "gollum",
+                "issues",
+                "issue_comment",
+                "label",
+                "merge_group",
+                "milestone",
+                "page_build",
+                "public",
+                "pull_request",
+                "pull_request_review",
+                "pull_request_review_comment",
+                "push",
+                "registry_package",
+                "release",
+                "repository",
+                "repository_dispatch",
+                "status",
+                "watch",
+                "workflow_dispatch",
+                "workflow_run"
+              ]
+            },
+            "pull_requests": []
+          }
+        ]
+      }
+    ],
+    "commit_status_pages": [
+      []
+    ]
+  },
+  "cleanup": {
+    "verified_at": "2026-10-11T14:54:38.412837+00:00",
+    "closed_pull_request": {
+      "head_sha": "7f16d1477337ef45c47222de8e2ae8f0d15cac86",
+      "merged": false,
+      "merged_at": null,
+      "number": 1,
+      "state": "closed"
+    },
+    "repository": {
+      "archived": true,
+      "default_branch": "main",
+      "full_name": "rust-works/gwi-issue-298-missing-context-probe"
+    },
+    "remaining_branches": [
+      {
+        "name": "main",
+        "sha": "b28244d58f7760758b4630297200c536c945a6cb"
+      }
+    ],
+    "baseline_main_sha": "b28244d58f7760758b4630297200c536c945a6cb",
+    "scratch_main_unchanged": true,
+    "owned_runs": [
+      {
+        "id": 38144696487,
+        "event": "merge_group",
+        "head_sha": "9cfe8c9ba4c710a911e7e5dfdcc99ffd5083f797",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "id": 38142970768,
+        "event": "pull_request",
+        "head_sha": "7f16d1477337ef45c47222de8e2ae8f0d15cac86",
+        "status": "completed",
+        "conclusion": "success"
+      }
+    ],
+    "runs_cancelled": [],
+    "queue": {
+      "data": {
+        "repository": {
+          "mergeQueue": {
+            "entries": {
+              "nodes": []
+            }
+          }
+        }
+      }
+    },
+    "production_protection_unchanged": true,
+    "scratch_protection_unchanged_through_probe": true
+  },
+  "production_ruleset_after": {
+    "id": 24584603,
+    "name": "main merge queue",
+    "target": "branch",
+    "source_type": "Repository",
+    "source": "rust-works/gwi",
+    "enforcement": "active",
+    "conditions": {
+      "ref_name": {
+        "exclude": [],
+        "include": [
+          "~DEFAULT_BRANCH"
+        ]
+      }
+    },
+    "rules": [
+      {
+        "type": "merge_queue",
+        "parameters": {
+          "merge_method": "MERGE",
+          "max_entries_to_build": 5,
+          "min_entries_to_merge": 1,
+          "max_entries_to_merge": 1,
+          "min_entries_to_merge_wait_minutes": 5,
+          "grouping_strategy": "ALLGREEN",
+          "check_response_timeout_minutes": 60
+        }
+      },
+      {
+        "type": "required_status_checks",
+        "parameters": {
+          "strict_required_status_checks_policy": true,
+          "do_not_enforce_on_create": false,
+          "required_status_checks": [
+            {
+              "context": "Doc links",
+              "integration_id": 15368
+            },
+            {
+              "context": "Commit Message Lint",
+              "integration_id": 15368
+            },
+            {
+              "context": "Empty HOME Test",
+              "integration_id": 15368
+            },
+            {
+              "context": "Hostile Environment Test",
+              "integration_id": 15368
+            },
+            {
+              "context": "Windows Clippy",
+              "integration_id": 15368
+            }
+          ]
+        }
+      }
+    ],
+    "node_id": "RRS_lACqUmVwb3NpdG9yec5T4sZjzgF3IZs",
+    "created_at": "2026-10-07T00:41:44.346+11:00",
+    "updated_at": "2026-10-11T00:23:08.655+11:00",
+    "bypass_actors": [
+      {
+        "actor_id": 5,
+        "actor_type": "RepositoryRole",
+        "bypass_mode": "always"
+      }
+    ],
+    "current_user_can_bypass": "always",
+    "_links": {
+      "self": {
+        "href": "https://api.github.com/repos/rust-works/gwi/rulesets/24584603"
+      },
+      "html": {
+        "href": "https://github.com/rust-works/gwi/rules/24584603"
+      }
+    }
+  },
+  "production_classic_protection_after": {
+    "url": "https://api.github.com/repos/rust-works/gwi/branches/main/protection",
+    "required_status_checks": {
+      "url": "https://api.github.com/repos/rust-works/gwi/branches/main/protection/required_status_checks",
+      "strict": true,
+      "contexts": [
+        "Test (stable)",
+        "Test (nightly)",
+        "Windows Build",
+        "Rustfmt",
+        "Clippy",
+        "Docs",
+        "Changelog fragments"
+      ],
+      "contexts_url": "https://api.github.com/repos/rust-works/gwi/branches/main/protection/required_status_checks/contexts",
+      "checks": [
+        {
+          "context": "Test (stable)",
+          "app_id": 15368
+        },
+        {
+          "context": "Test (nightly)",
+          "app_id": 15368
+        },
+        {
+          "context": "Windows Build",
+          "app_id": 15368
+        },
+        {
+          "context": "Rustfmt",
+          "app_id": 15368
+        },
+        {
+          "context": "Clippy",
+          "app_id": 15368
+        },
+        {
+          "context": "Docs",
+          "app_id": 15368
+        },
+        {
+          "context": "Changelog fragments",
+          "app_id": 15368
+        }
+      ]
+    },
+    "required_signatures": {
+      "url": "https://api.github.com/repos/rust-works/gwi/branches/main/protection/required_signatures",
+      "enabled": false
+    },
+    "enforce_admins": {
+      "url": "https://api.github.com/repos/rust-works/gwi/branches/main/protection/enforce_admins",
+      "enabled": false
+    },
+    "required_linear_history": {
+      "enabled": false
+    },
+    "allow_force_pushes": {
+      "enabled": false
+    },
+    "allow_deletions": {
+      "enabled": false
+    },
+    "block_creations": {
+      "enabled": false
+    },
+    "required_conversation_resolution": {
+      "enabled": false
+    },
+    "lock_branch": {
+      "enabled": false
+    },
+    "allow_fork_syncing": {
+      "enabled": false
+    }
+  },
+  "scratch_ruleset_after": {
+    "id": 24880589,
+    "name": "main merge queue",
+    "target": "branch",
+    "source_type": "Repository",
+    "source": "rust-works/gwi-issue-298-missing-context-probe",
+    "enforcement": "active",
+    "conditions": {
+      "ref_name": {
+        "exclude": [],
+        "include": [
+          "~DEFAULT_BRANCH"
+        ]
+      }
+    },
+    "rules": [
+      {
+        "type": "merge_queue",
+        "parameters": {
+          "merge_method": "MERGE",
+          "max_entries_to_build": 5,
+          "min_entries_to_merge": 1,
+          "max_entries_to_merge": 1,
+          "min_entries_to_merge_wait_minutes": 5,
+          "grouping_strategy": "ALLGREEN",
+          "check_response_timeout_minutes": 60
+        }
+      },
+      {
+        "type": "required_status_checks",
+        "parameters": {
+          "strict_required_status_checks_policy": true,
+          "do_not_enforce_on_create": false,
+          "required_status_checks": [
+            {
+              "context": "Doc links",
+              "integration_id": 15368
+            },
+            {
+              "context": "Commit Message Lint",
+              "integration_id": 15368
+            },
+            {
+              "context": "Empty HOME Test",
+              "integration_id": 15368
+            },
+            {
+              "context": "Hostile Environment Test",
+              "integration_id": 15368
+            },
+            {
+              "context": "Windows Clippy",
+              "integration_id": 15368
+            }
+          ]
+        }
+      }
+    ],
+    "node_id": "RRS_lACqUmVwb3NpdG9yec5UTXxczgF7pc0",
+    "created_at": "2026-10-12T00:22:54.800+11:00",
+    "updated_at": "2026-10-12T00:22:54.862+11:00",
+    "bypass_actors": [],
+    "current_user_can_bypass": "never",
+    "_links": {
+      "self": {
+        "href": "https://api.github.com/repos/rust-works/gwi-issue-298-missing-context-probe/rulesets/24880589"
+      },
+      "html": {
+        "href": "https://github.com/rust-works/gwi-issue-298-missing-context-probe/rules/24880589"
+      }
+    }
+  },
+  "scratch_classic_protection_after": {
+    "url": "https://api.github.com/repos/rust-works/gwi-issue-298-missing-context-probe/branches/main/protection",
+    "required_status_checks": {
+      "url": "https://api.github.com/repos/rust-works/gwi-issue-298-missing-context-probe/branches/main/protection/required_status_checks",
+      "strict": true,
+      "contexts": [
+        "Test (stable)",
+        "Test (nightly)",
+        "Windows Build",
+        "Rustfmt",
+        "Clippy",
+        "Docs",
+        "Changelog fragments"
+      ],
+      "contexts_url": "https://api.github.com/repos/rust-works/gwi-issue-298-missing-context-probe/branches/main/protection/required_status_checks/contexts",
+      "checks": [
+        {
+          "context": "Test (stable)",
+          "app_id": 15368
+        },
+        {
+          "context": "Test (nightly)",
+          "app_id": 15368
+        },
+        {
+          "context": "Windows Build",
+          "app_id": 15368
+        },
+        {
+          "context": "Rustfmt",
+          "app_id": 15368
+        },
+        {
+          "context": "Clippy",
+          "app_id": 15368
+        },
+        {
+          "context": "Docs",
+          "app_id": 15368
+        },
+        {
+          "context": "Changelog fragments",
+          "app_id": 15368
+        }
+      ]
+    },
+    "required_signatures": {
+      "url": "https://api.github.com/repos/rust-works/gwi-issue-298-missing-context-probe/branches/main/protection/required_signatures",
+      "enabled": false
+    },
+    "enforce_admins": {
+      "url": "https://api.github.com/repos/rust-works/gwi-issue-298-missing-context-probe/branches/main/protection/enforce_admins",
+      "enabled": true
+    },
+    "required_linear_history": {
+      "enabled": false
+    },
+    "allow_force_pushes": {
+      "enabled": false
+    },
+    "allow_deletions": {
+      "enabled": false
+    },
+    "block_creations": {
+      "enabled": false
+    },
+    "required_conversation_resolution": {
+      "enabled": false
+    },
+    "lock_branch": {
+      "enabled": false
+    },
+    "allow_fork_syncing": {
+      "enabled": false
+    }
+  }
+}
