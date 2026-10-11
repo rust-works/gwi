@@ -116,15 +116,96 @@ gh run view 38025989795 --repo rust-works/gwi --json event,headSha,jobs,conclusi
 gh api repos/rust-works/gwi/rulesets/rule-suites
 ```
 
-### Remaining live acceptance evidence
+### Post-update healthy queue evidence
 
-Direct evidence of a failed or missing `Empty HOME Test` preventing a merge,
-and of a passing merge group satisfying the updated policy, is still needed.
-Record the queue head, check result, and rule evaluation that attributes the
-block or pass to this required context. A required-check readback alone does
-not prove observed blocking. The issue-to-pr run does not enqueue or merge a
-PR, modify another session's checks, or exercise administrator bypass to
-manufacture this evidence.
+[Merge-group CI run 38039189775](https://github.com/rust-works/gwi/actions/runs/38039189775)
+reported a successful
+[Empty HOME Test job 114175864608](https://github.com/rust-works/gwi/actions/runs/38039189775/job/114175864608)
+from GitHub Actions app `15368` on head
+`bd2b7c938d09e38aa238f72ba3f7d70738ce87b6`. The job completed on
+10 October 2026 at 19:54:23 AEDT, after the requirement was enabled.
+[PR #211](https://github.com/rust-works/gwi/pull/211) merged at 20:01:33 AEDT
+with that exact merge commit.
+
+[Rule suite 4458357450](https://api.github.com/repos/rust-works/gwi/rulesets/rule-suites/4458357450)
+records the same head and a `pass` result for the active
+`required_status_checks` evaluation sourced from ruleset `24584603`.
+The suite also records successful classic-protection evaluations, with no
+bypass result. Together, the matching check, active rule evaluation and merge
+establish the post-update healthy path. The aggregate rule result does not
+independently demonstrate how a failed or missing Empty HOME result is handled.
+
+Inspect the exact provenance with:
+
+```bash
+gh api repos/rust-works/gwi/check-runs/114175864608
+gh run view 38039189775 --repo rust-works/gwi --json event,headSha,conclusion,url
+gh api repos/rust-works/gwi/rulesets/rule-suites/4458357450
+gh pr view 211 --repo rust-works/gwi --json mergedAt,mergeCommit
+```
+
+### Remaining negative acceptance evidence
+
+[Issue #220](https://github.com/rust-works/gwi/issues/220) still requires direct
+evidence of both a failed `Empty HOME Test` and an absent expected context
+preventing an ordinary non-bypass merge. The read-only investigation on
+11 October 2026 returned no post-update failed merge-group Actions run, no
+merge-group Actions run with conclusion `timed_out`, and no failed rule suite.
+An Actions run timeout is distinct from a merge-queue check-response timeout;
+these searches do not prove that no queue timeout occurred. No negative
+acceptance gap is removed by this investigation.
+
+A required-check readback, a briefly pending expected context, or a PR blocked
+while unrelated required checks are pending does not establish either case.
+The current queue check-response timeout is **60 minutes**. Missing-context
+evidence must capture the expected-context wait and eventual queue rejection
+or timeout, or an explicit GitHub rule evaluation refusing a merge without
+that result. A skipped, cancelled or failed job is not evidence of absence.
+
+### Guarded negative verification procedure
+
+Before a live probe, establish all of these prerequisites:
+
+1. Use a disposable, owned PR and branch, and obtain authorization for the
+   concrete queue operation. The issue-to-pr skill does not authorize merging;
+   enqueueing can merge automatically. Do not change another session's results
+   or queue entry.
+2. Capture the full active ruleset and classic protection with the policy
+   commands above. Preserve required contexts and app IDs, queue parameters,
+   branch conditions, enforcement and administrator bypass throughout.
+3. Establish an independent safeguard that prevents deliberately broken probe
+   changes from reaching main even if the Empty HOME requirement is ineffective.
+   A plan to close the PR quickly is not an independently enforced safeguard.
+   Do not proceed if the safeguard cannot coexist with unchanged production
+   protection or would make the target check's rejection impossible to identify.
+4. Use an ordinary non-bypass operation. This investigation's authenticated
+   administrator has `current_user_can_bypass: always`; an administrator bypass
+   result is not enforcement evidence.
+
+Run separate failed-result and missing-context cases. For each, retain the PR
+and branch, queue head SHA, exact context/app identity (`Empty HOME Test`,
+`15368`), all other required results on that head, timestamps, and the queue
+rejection or rule-evaluation evidence. For failure, link the actual failed
+Actions job and logs. For absence, inspect all pages of check runs and commit
+statuses on the exact queue head, retain the expected-context wait, and observe
+the full 60-minute response window unless an explicit rule refusal is available.
+A differently named check does not satisfy the required context; neither does
+the right name from a different app.
+
+Attribute the refusal to Empty HOME explicitly. A generic `BLOCKED` state or
+rejection explained only by an independent safeguard or another required check
+leaves acceptance outstanding. Record both cases separately from the healthy
+path and configuration readback.
+
+Afterward, close the disposable PR without merging, cancel only its remaining
+runs, delete its branch, and verify no probe changes reached main. Compare fresh
+ruleset and classic-protection readbacks with the snapshots; explain any
+concurrent settings change rather than overwriting it. Record cleanup and the
+final protection comparison alongside the negative evidence.
+
+This run created no probe resources, altered no checks or production protection,
+and did not enqueue, merge or exercise bypass. The negative cases remain pending;
+#220 must remain open until their evidence and cleanup are recorded.
 
 ## Hostile environment required context
 
