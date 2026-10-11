@@ -302,10 +302,6 @@ pub(crate) fn capture_at(level: tracing::Level, f: impl FnOnce()) -> String {
 /// Captures events from an async future on every poll, even across worker threads.
 /// Spawned child tasks still need their own subscriber; this does not install a
 /// global subscriber or hold a thread-local guard across an await.
-#[expect(
-    dead_code,
-    reason = "used by the Drive tests, wired in with the Drive slice"
-)]
 pub(crate) async fn capture_future_at<F: std::future::Future>(
     level: tracing::Level,
     future: F,
@@ -321,6 +317,46 @@ pub(crate) async fn capture_future_at<F: std::future::Future>(
     let result = future.with_subscriber(subscriber).await;
     let logs = String::from_utf8_lossy(&writer.0.lock().unwrap()).into_owned();
     (result, logs)
+}
+
+#[cfg(test)]
+mod capture_tests {
+    use super::*;
+    use std::io::Write;
+
+    #[test]
+    fn capture_writer_flush_is_a_no_op() {
+        let mut writer = CaptureWriter::default();
+        writer.write_all(b"kept").unwrap();
+        writer.flush().unwrap();
+        assert_eq!(*writer.0.lock().unwrap(), b"kept");
+    }
+
+    #[tokio::test]
+    async fn capture_future_at_returns_the_output_and_the_logs_at_or_above_level() {
+        let (output, logs) = capture_future_at(tracing::Level::INFO, async {
+            tracing::debug!("filtered out");
+            tracing::info!("captured event");
+            7
+        })
+        .await;
+        assert_eq!(output, 7);
+        assert!(logs.contains("captured event"), "{logs}");
+        assert!(!logs.contains("filtered out"), "{logs}");
+    }
+
+    #[test]
+    fn while_another_thread_exports_restores_a_value_that_was_already_set() {
+        // A key no other test touches, so setting it outside the lock races nothing.
+        const KEY: &str = "GWI_TEST_SUPPORT_PRESET_EXPORT";
+        std::env::set_var(KEY, "preset");
+        while_another_thread_exports(&[(KEY, "exported")], 20, || {
+            std::thread::sleep(std::time::Duration::from_micros(200));
+        });
+        let after = std::env::var(KEY);
+        std::env::remove_var(KEY);
+        assert_eq!(after.as_deref(), Ok("preset"));
+    }
 }
 
 pub(crate) mod failing_io {
@@ -347,6 +383,12 @@ pub(crate) mod failing_io {
         /// Direct cover for `FailingWriter::flush`. The destructive-command
         /// tests fail at the prior `write!` so flush never fires; this
         /// asserts its body still returns the expected error.
+        #[test]
+        fn write_returns_error() {
+            let err = FailingWriter.write(b"x").unwrap_err();
+            assert!(err.to_string().contains("simulated write failure"));
+        }
+
         #[test]
         fn flush_returns_error() {
             let mut w = FailingWriter;
