@@ -1566,11 +1566,18 @@ tests that call `std::env::set_var` / `remove_var`:
   `GWI_HTTP_*` exports. Construct a transport with explicit timeouts and pass it
   through the client seam (`GmailClient::with_http_client`), instead of changing
   process timeouts. Secret-command limit tests inject `MapEnv` or `Limits`.
-- **Enforcement is partial.**
-  `every_gmail_and_drive_env_mutation_holds_the_env_guard` fails a function
-  that mutates one of the credential or endpoint variables in its
-  `GUARDED_KEYS` without `EnvGuard::take()`. That list omits `GWI_PROFILE`
-  (`--profile` sets it in production), and `HOME` has no such check.
+- **Enforcement is partial.** The shared source check in
+  `crate::test_support::env_guard_tests`,
+  `every_gmail_and_drive_env_mutation_holds_the_env_guard`, rejects direct
+  mutations of Gmail/Drive variables (including secret companions), Google
+  endpoint variables, Drive lease-policy variables, `HOME` and profile
+  variables without `EnvGuard::take()`.
+  It exempts the two guards' `clear_credentials` helpers, Drive's
+  `redirect_api_hosts_to_a_dead_port` method, and the production
+  `Cli::propagate_profile_flag` function. The checker file itself is excluded
+  because it contains source fixtures and lock-holding chaos infrastructure.
+  This is a textual heuristic: dynamic keys and indirect helper calls are
+  outside its coverage.
 - **When a `HOME`-derived read needs the guard.** When the test reads one
   **more than once**, compares it, or relies on it staying put, because another
   test repointing `HOME` between the reads makes them disagree (#14, #15, #17).
