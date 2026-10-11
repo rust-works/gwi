@@ -5423,6 +5423,43 @@ mod tests {
         );
     }
 
+    /// Every macro-generated model rejects a non-object and a repeated known
+    /// field, so each expansion's `expecting` and duplicate arms run.
+    #[test]
+    fn metadata_models_reject_non_objects_and_duplicate_known_fields() {
+        fn check<T: serde::de::DeserializeOwned>(name: &str, duplicate: &str) {
+            let message = serde_json::from_str::<T>("1").err().unwrap().to_string();
+            assert!(message.contains(&format!("a {name} object")), "{message}");
+            let message = serde_json::from_str::<T>(duplicate)
+                .err()
+                .unwrap()
+                .to_string();
+            assert!(message.contains("duplicate field"), "{name}: {message}");
+        }
+        let data = r#"{"sourceRange":{"sources":[]}}"#;
+        check::<FilterCriteria>("FilterCriteria", r#"{"hiddenValues":[],"hiddenValues":[]}"#);
+        check::<ChartSpec>("ChartSpec", r#"{"title":"a","title":"b"}"#);
+        check::<BasicChartSpec>("BasicChartSpec", r#"{"chartType":"a","chartType":"b"}"#);
+        check::<BasicChartAxis>("BasicChartAxis", r#"{"position":"a","position":"b"}"#);
+        check::<BasicChartDomain>(
+            "BasicChartDomain",
+            &format!(r#"{{"domain":{data},"domain":{data}}}"#),
+        );
+        check::<BasicChartSeries>(
+            "BasicChartSeries",
+            &format!(r#"{{"series":{data},"series":{data}}}"#),
+        );
+        check::<PieChartSpec>(
+            "PieChartSpec",
+            &format!(r#"{{"domain":{data},"domain":{data}}}"#),
+        );
+        check::<ChartData>(
+            "ChartData",
+            r#"{"sourceRange":{"sources":[]},"sourceRange":{"sources":[]}}"#,
+        );
+        check::<SlicerSpec>("SlicerSpec", r#"{"title":"a","title":"b"}"#);
+    }
+
     #[test]
     fn metadata_preserves_precision_nested_order_and_sorts_outer_keys() {
         let text =

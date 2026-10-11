@@ -125,6 +125,13 @@ mod tests {
     #[test]
     fn payload_rejects_malformed_and_deep_json() {
         assert!(serde_json::from_str::<Payload>("{bad}").is_err());
+        // A value that starts like an object but is not one reaches the
+        // object visitor's `expecting` message.
+        let message = serde_json::from_value::<Object>(Value::Bool(true))
+            .err()
+            .unwrap()
+            .to_string();
+        assert!(message.contains("a JSON object"), "{message}");
         let deep = format!("{}null{}", "[".repeat(129), "]".repeat(129));
         assert!(serde_json::from_str::<Payload>(&deep).is_err());
     }
