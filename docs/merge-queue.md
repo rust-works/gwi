@@ -146,7 +146,7 @@ gh pr view 211 --repo rust-works/gwi --json mergedAt,mergeCommit
 
 ### Remaining negative acceptance evidence
 
-[Issue #220](https://github.com/rust-works/gwi/issues/220) still requires direct
+[Issue #179](https://github.com/rust-works/gwi/issues/179) still requires direct
 evidence of both a failed `Empty HOME Test` and an absent expected context
 preventing an ordinary non-bypass merge. The read-only investigation on
 11 October 2026 returned no post-update failed merge-group Actions run, no
@@ -203,9 +203,16 @@ ruleset and classic-protection readbacks with the snapshots; explain any
 concurrent settings change rather than overwriting it. Record cleanup and the
 final protection comparison alongside the negative evidence.
 
-This run created no probe resources, altered no checks or production protection,
-and did not enqueue, merge or exercise bypass. The negative cases remain pending;
-#220 must remain open until their evidence and cleanup are recorded.
+The #220 investigation created no probe resources, altered no checks or production
+protection, and did not enqueue, merge or exercise bypass. The negative cases
+remain pending until their evidence and cleanup are recorded.
+
+Issue #220 was subsequently closed by [PR #260](https://github.com/rust-works/gwi/pull/260)
+without establishing the two negative cases. Its closure does not satisfy these
+criteria; #179 remains the open tracker. A [concrete failed-result probe](empty-home-negative-probe.md)
+now prepares an independently required guard and specifies evidence capture.
+The probe requires separate authorization to enqueue, must never merge, and
+does not resolve the missing-context case.
 
 ## Hostile environment required context
 
