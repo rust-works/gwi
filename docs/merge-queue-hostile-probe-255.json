@@ -1,0 +1,194 @@
+{
+  "issue": 255,
+  "probe_pr": "https://github.com/rust-works/gwi/pull/259",
+  "probe_head": "986a84803584d0bd5e3e24cd8b3875170dfdbe54",
+  "queue_head": "a9040cd9a4f5c3ad245a75e84b28836f25e5d3f2",
+  "sources": {
+    "check": "https://api.github.com/repos/rust-works/gwi/check-runs/114357022152",
+    "checks": "https://api.github.com/repos/rust-works/gwi/commits/a9040cd9a4f5c3ad245a75e84b28836f25e5d3f2/check-runs",
+    "run": "https://api.github.com/repos/rust-works/gwi/actions/runs/38101099486",
+    "timeline": "GraphQL repository(owner: \"rust-works\", name: \"gwi\").pullRequest(number: 259).timelineItems(itemTypes: [REMOVED_FROM_MERGE_QUEUE_EVENT])"
+  },
+  "run": {
+    "id": 38101099486,
+    "event": "merge_group",
+    "head_sha": "a9040cd9a4f5c3ad245a75e84b28836f25e5d3f2",
+    "created_at": "2026-10-11T01:13:20Z"
+  },
+  "failed_check": {
+    "id": 114357022152,
+    "name": "Hostile Environment Test",
+    "app_id": 15368,
+    "conclusion": "failure",
+    "completed_at": "2026-10-11T01:13:27Z",
+    "html_url": "https://github.com/rust-works/gwi/actions/runs/38101099486/job/114357022152"
+  },
+  "queue_observation": {
+    "merged": false,
+    "mergeQueueEntry": null,
+    "timelineItems": {
+      "nodes": [
+        {
+          "createdAt": "2026-10-11T01:13:52Z",
+          "reason": "failed_checks",
+          "beforeCommit": {
+            "oid": "a9040cd9a4f5c3ad245a75e84b28836f25e5d3f2"
+          }
+        }
+      ]
+    }
+  },
+  "checks_snapshot_note": "Captured after queue rejection and before closing the probe or cancelling remaining runs. Other pending checks are not claimed to have passed.",
+  "total_count": 20,
+  "checks_snapshot": [
+    {
+      "id": 114357022435,
+      "name": "Cargo Deny",
+      "app_id": 15368,
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "id": 114357022433,
+      "name": "Coverage",
+      "app_id": 15368,
+      "status": "in_progress",
+      "conclusion": null
+    },
+    {
+      "id": 114357022408,
+      "name": "Doc links",
+      "app_id": 15368,
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "id": 114357022401,
+      "name": "Docs",
+      "app_id": 15368,
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "id": 114357022386,
+      "name": "Test (nightly)",
+      "app_id": 15368,
+      "status": "in_progress",
+      "conclusion": null
+    },
+    {
+      "id": 114357022339,
+      "name": "Rustfmt",
+      "app_id": 15368,
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "id": 114357022290,
+      "name": "Clippy",
+      "app_id": 15368,
+      "status": "in_progress",
+      "conclusion": null
+    },
+    {
+      "id": 114357022276,
+      "name": "Windows CLI Stack",
+      "app_id": 15368,
+      "status": "in_progress",
+      "conclusion": null
+    },
+    {
+      "id": 114357022262,
+      "name": "Sandboxed Test",
+      "app_id": 15368,
+      "status": "in_progress",
+      "conclusion": null
+    },
+    {
+      "id": 114357022254,
+      "name": "Windows Clippy",
+      "app_id": 15368,
+      "status": "in_progress",
+      "conclusion": null
+    },
+    {
+      "id": 114357022243,
+      "name": "Windows Build",
+      "app_id": 15368,
+      "status": "in_progress",
+      "conclusion": null
+    },
+    {
+      "id": 114357022242,
+      "name": "Test (beta)",
+      "app_id": 15368,
+      "status": "in_progress",
+      "conclusion": null
+    },
+    {
+      "id": 114357022222,
+      "name": "Empty HOME Test",
+      "app_id": 15368,
+      "status": "in_progress",
+      "conclusion": null
+    },
+    {
+      "id": 114357022179,
+      "name": "Test (stable)",
+      "app_id": 15368,
+      "status": "in_progress",
+      "conclusion": null
+    },
+    {
+      "id": 114357022152,
+      "name": "Hostile Environment Test",
+      "app_id": 15368,
+      "status": "completed",
+      "conclusion": "failure"
+    },
+    {
+      "id": 114357022123,
+      "name": "Changelog fragments",
+      "app_id": 15368,
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "id": 114357022041,
+      "name": "Windows Log Replacement",
+      "app_id": 15368,
+      "status": "in_progress",
+      "conclusion": null
+    },
+    {
+      "id": 114357022018,
+      "name": "Commit Message Lint",
+      "app_id": 15368,
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "id": 114357022014,
+      "name": "Hostile Runner Lifecycle (macos-latest)",
+      "app_id": 15368,
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "id": 114357021834,
+      "name": "Hostile Runner Lifecycle (ubuntu-latest)",
+      "app_id": 15368,
+      "status": "completed",
+      "conclusion": "success"
+    }
+  ],
+  "failure_log_excerpt": "Issue 255 isolated probe: Hostile Environment Test must reject this merge group.\nProcess completed with exit code 1.",
+  "cleanup": {
+    "pr_state": "CLOSED",
+    "merged_at": null,
+    "remote_branch_deleted": true,
+    "remaining_probe_runs_cancelled": true,
+    "ruleset_unchanged": true,
+    "classic_protection_unchanged": true
+  }
+}
