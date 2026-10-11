@@ -1,0 +1,1 @@
+- On Windows, waiting for a lease or ledger lock no longer fails with "Access is denied" when the previous holder has just released it.
