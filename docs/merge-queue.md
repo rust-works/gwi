@@ -172,20 +172,71 @@ gh run view 38052057360 --repo rust-works/gwi --json event,headSha,jobs,conclusi
 gh api repos/rust-works/gwi/rulesets/rule-suites
 ```
 
-### Hostile environment live acceptance still needed
+### Post-update healthy queue evidence
 
-No post-update queue rejection attributed to a failed or missing
-`Hostile Environment Test`, or passing queue evaluation under the updated
-policy, has been demonstrated by this record. Before treating #225 as fully
-verified, link the queue head, exact check/app result, and rule evaluation that
-attributes blocking or satisfaction to this requirement. A PR reported as
-blocked while several required checks are pending does not isolate this check's
-effect. Configuration readback and historical compatibility are separate from
-observed enforcement.
+[Issue #255](https://github.com/rust-works/gwi/issues/255) verified the healthy
+path after the requirement update. [PR #245](https://github.com/rust-works/gwi/pull/245)
+merged on 11 October 2026 at 01:02:28 AEDT with queue head
+`0b23280f6a9386b5c591700b042e8045bbf04c36` as its exact merge commit.
+The [merge-group CI run](https://github.com/rust-works/gwi/actions/runs/38057232074)
+reported [Hostile Environment Test](https://github.com/rust-works/gwi/actions/runs/38057232074/job/114228088742)
+from app `15368` on that same head, completing successfully at 00:53:29 AEDT.
+[Rule suite 4460201413](https://api.github.com/repos/rust-works/gwi/rulesets/rule-suites/4460201413)
+reports `pass` for the active `required_status_checks` evaluation sourced from
+ruleset `24584603`. These post-update check, evaluation and merge records
+establish healthy queue acceptance under the updated policy.
 
-The issue-to-pr run did not enqueue or merge a PR, alter other sessions' checks,
-or create probe branches/PRs; no probe cleanup was needed. Windows support and
-additional stress runs are outside this change.
+Inspect the records with:
+
+```bash
+gh api repos/rust-works/gwi/check-runs/114228088742
+gh run view 38057232074 --repo rust-works/gwi --json event,headSha,jobs,conclusion,url
+gh api repos/rust-works/gwi/rulesets/rule-suites/4460201413
+gh pr view 245 --repo rust-works/gwi --json mergedAt,mergeCommit
+```
+
+### Failed-check queue rejection
+
+The authorized disposable [probe PR #259](https://github.com/rust-works/gwi/pull/259)
+added only a first step to the existing hostile job that exits 1 when
+`github.event_name == 'merge_group'`. Its normal PR required checks all passed
+on head `986a84803584d0bd5e3e24cd8b3875170dfdbe54`. With the queue empty and the
+exact hostile context/app requirement still active, the probe was enqueued
+without bypass on 11 October 2026 at 12:13:03 AEDT.
+
+The [merge-group CI run](https://github.com/rust-works/gwi/actions/runs/38101099486)
+used queue head `a9040cd9a4f5c3ad245a75e84b28836f25e5d3f2`. Its
+[Hostile Environment Test job and logs](https://github.com/rust-works/gwi/actions/runs/38101099486/job/114357022152)
+report the exact context from app `15368`, with `failure` completed at
+12:13:27 AEDT. The deliberate step exited 1 before checkout or the sweep.
+
+The probe PR's `RemovedFromMergeQueueEvent` records removal at 12:13:52 AEDT,
+reason `failed_checks`, and `beforeCommit` equal to that exact queue head.
+The [API evidence snapshot](merge-queue-hostile-probe-255.json), captured after
+rejection and before cleanup, records all 20 check runs: the hostile check is
+the only failed check. Other checks were pending or successful; they are not
+claimed to have all passed. The queue removal reason, same-head check results,
+and sole failed required context establish rejection attributable to the
+hostile requirement. No main update was attempted, so this rejection is
+recorded by the queue timeline rather than a failed main-push rule suite.
+
+Inspect the failure and queue removal with:
+
+```bash
+gh api repos/rust-works/gwi/check-runs/114357022152
+gh api repos/rust-works/gwi/actions/jobs/114357022152/logs
+gh api graphql -f query='{repository(owner:"rust-works",name:"gwi"){pullRequest(number:259){merged timelineItems(last:10,itemTypes:[REMOVED_FROM_MERGE_QUEUE_EVENT]){nodes{... on RemovedFromMergeQueueEvent{createdAt reason beforeCommit{oid}}}}}}}'
+```
+
+The probe was closed without merging, its remote branch deleted, and remaining
+probe runs cancelled after evidence capture. The failed job retains its
+`failure` conclusion; the overall CI run was subsequently cancelled for cleanup.
+The queue was empty afterward. Full ruleset and classic-protection readbacks
+matched the pre-probe snapshots exactly, including required checks, queue
+parameters and administrator bypass. No other queue entries or sessions' checks
+were modified. The deliberate workflow change is absent from the documentation
+PR. This demonstrates the failed-check path; a separate missing-check probe was
+not needed for #255's failed-or-missing acceptance criterion.
 
 ## Windows Clippy required context
 
