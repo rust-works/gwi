@@ -214,23 +214,76 @@ gh api repos/rust-works/gwi/rulesets/rule-suites/4458357450
 gh pr view 211 --repo rust-works/gwi --json mergedAt,mergeCommit
 ```
 
+### Failed-result queue rejection
+
+The authorized disposable [probe PR #289](https://github.com/rust-works/gwi/pull/289)
+added a first step to the existing `Empty HOME Test` job that exits 1 when
+`github.event_name == 'merge_group'`, and held the independently required
+classic-protection `Docs` context pending for 15 minutes before failing it, so
+that the probe could not merge even if the Empty HOME requirement was
+ineffective. Normal PR required checks all passed on head
+`951502c494e4a64b176bd9b7de34e966a02c1912`. Immediately beforehand, the ruleset
+and classic protection matched the preflight snapshots, the queue was empty, and
+`Docs` and `Empty HOME Test` each appeared once on the head. The probe was
+enqueued without bypass on 11 October 2026 at 23:15:46 AEDT.
+
+The [merge-group CI run](https://github.com/rust-works/gwi/actions/runs/38138614606)
+used queue head `73e0126909a0fbad07e035bb801de69e34640b5c`. Its
+[Empty HOME Test job and logs](https://github.com/rust-works/gwi/actions/runs/38138614606/job/114467638072)
+report the exact context from app `15368`, with `failure` completed at
+23:16:25 AEDT. The deliberate step exited 1 before checkout.
+
+The probe PR's `RemovedFromMergeQueueEvent` records removal at 23:16:35 AEDT,
+reason `failed_checks`, and `beforeCommit` equal to that exact queue head. The
+[API evidence snapshot](merge-queue-empty-home-probe-289.json), captured after
+rejection and before cleanup, records all 22 check runs: Empty HOME is the only
+failed check. Seven others had succeeded, twelve were in progress and two were
+queued; they are not claimed to have passed. The `Docs` guard was still in
+progress, so rejection is not explained by it. The head has no commit statuses.
+The queue removal reason, same-head results and sole failed required context
+establish rejection attributable to the Empty HOME requirement. The snapshot
+records the checks after the removal, not continuously, but the ten seconds
+between the failure and the removal leave no room for a later failure to explain
+it. The failure is a synthetic `exit 1`, so this shows how the queue handles a
+failed result, not the behavior of a real regression in the empty-HOME sweep.
+
+Inspect the failure and queue removal with:
+
+```bash
+gh api repos/rust-works/gwi/check-runs/114467638072
+gh api repos/rust-works/gwi/actions/jobs/114467638072/logs
+gh api graphql -f query='{repository(owner:"rust-works",name:"gwi"){pullRequest(number:289){merged timelineItems(last:10,itemTypes:[REMOVED_FROM_MERGE_QUEUE_EVENT]){nodes{... on RemovedFromMergeQueueEvent{createdAt reason beforeCommit{oid}}}}}}}'
+```
+
+The PR's timeline also shows earlier queue entries on other heads that were
+removed during the same session. They are not used as evidence: they were not
+captured at the time and their causes are unattributed here.
+
+After evidence capture the probe was closed without merging and its remaining
+runs cancelled. The failed job retains its `failure` conclusion; the overall CI
+run was cancelled for cleanup. The queue was empty afterward, and `main`'s
+workflow has neither probe step. Full ruleset and classic-protection readbacks
+matched the pre-probe snapshots exactly. The probe's remote branch was retained
+for the evidence PR. This demonstrates the failed-result path only.
+
 ### Remaining negative acceptance evidence
 
-[Issue #220](https://github.com/rust-works/gwi/issues/220) still requires direct
-evidence of both a failed `Empty HOME Test` and an absent expected context
-preventing an ordinary non-bypass merge. The read-only investigation on
-11 October 2026 returned no post-update failed merge-group Actions run, no
-merge-group Actions run with conclusion `timed_out`, and no failed rule suite.
-An Actions run timeout is distinct from a merge-queue check-response timeout;
-these searches do not prove that no queue timeout occurred. No negative
-acceptance gap is removed by this investigation.
+[Issue #179](https://github.com/rust-works/gwi/issues/179) still requires direct
+evidence of an absent expected context preventing an ordinary non-bypass merge.
+Issue #220 was closed by [PR #260](https://github.com/rust-works/gwi/pull/260)
+without establishing either negative case; #179 remains the open tracker. The
+failed-result case is now recorded above.
 
-A required-check readback, a briefly pending expected context, or a PR blocked
-while unrelated required checks are pending does not establish either case.
-The current queue check-response timeout is **60 minutes**. Missing-context
-evidence must capture the expected-context wait and eventual queue rejection
-or timeout, or an explicit GitHub rule evaluation refusing a merge without
-that result. A skipped, cancelled or failed job is not evidence of absence.
+The 15-minute `Docs` guard of the failed-result probe is unsuitable for the
+missing-context case. The current queue check-response timeout is **60 minutes**,
+so the guard would fail before the response window ends, and even a longer
+pending guard would make a timeout ambiguous. A required-check readback, a
+briefly pending expected context, or a PR blocked while unrelated required
+checks are pending does not establish the case. Evidence must capture the
+expected-context wait and eventual queue rejection or timeout, or an explicit
+GitHub rule evaluation refusing a merge without that result. A skipped,
+cancelled or failed job is not evidence of absence, and neither is a renamed
+check.
 
 ### Guarded negative verification procedure
 
@@ -273,9 +326,9 @@ ruleset and classic-protection readbacks with the snapshots; explain any
 concurrent settings change rather than overwriting it. Record cleanup and the
 final protection comparison alongside the negative evidence.
 
-This run created no probe resources, altered no checks or production protection,
-and did not enqueue, merge or exercise bypass. The negative cases remain pending;
-#220 must remain open until their evidence and cleanup are recorded.
+The procedure was followed for the failed-result case above. The
+missing-context case remains pending: #179 must stay open until its evidence
+and cleanup are recorded.
 
 ## Hostile environment required context
 
