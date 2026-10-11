@@ -4565,9 +4565,10 @@ mod tests {
                         false,
                     )
                     .unwrap();
+                    // patchcov: coverage ignore reason="guards this test's assumption; clearing the sort always re-creates the view"
                     let FilterViewWrite::Replace(view) = updated else {
                         panic!("clearing sort must re-create the view")
-                    };
+                    }; // patchcov: coverage end
                     let saved = serde_json::to_value(&view).unwrap();
                     assert_eq!(saved["criteria"]["0"]["future"], value);
                     assert!(view.sort_specs.is_empty());

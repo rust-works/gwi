@@ -768,17 +768,16 @@ mod tests {
                     let forwarded = serde_json::to_value(parsed.unwrap()).unwrap();
                     assert_eq!(forwarded.pointer(pointer), Some(&value), "{literal}");
                 }
-                Err(message) => match parsed {
-                    Ok(_) => panic!("accepted {literal}"),
-                    Err(error) => {
-                        let expected = if message == "invalid length" {
-                            multi_key_error
-                        } else {
-                            message
-                        };
-                        assert!(format!("{error:#}").contains(expected), "{error:#}");
-                    }
-                },
+                Err(message) => {
+                    assert!(parsed.is_err(), "accepted {literal}");
+                    let error = parsed.err().unwrap();
+                    let expected = if message == "invalid length" {
+                        multi_key_error
+                    } else {
+                        message
+                    };
+                    assert!(format!("{error:#}").contains(expected), "{error:#}");
+                }
             }
         }
     }
