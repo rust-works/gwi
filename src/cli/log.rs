@@ -39,8 +39,9 @@ pub enum Format {
 #[command(args_conflicts_with_subcommands = true)]
 pub struct LogCommand {
     /// Subcommand; when absent, the flags below search the log.
-    #[command(subcommand)]
-    action: Option<LogAction>,
+    // Keep first: its updater removes implicit defaults before search-field updates.
+    #[command(flatten)]
+    action: LogActions,
     /// Lower time bound: a relative window (`30m`, `2h`, `1d`), a date
     /// (`2026-07-01`), or an RFC3339 timestamp.
     #[arg(
@@ -136,10 +137,82 @@ enum LogAction {
     Prune(prune::PruneCommand),
 }
 
+/// Optional action parsing, including partial updates with no supplied action.
+///
+/// clap_derive 4.6.7 constructs an absent optional subcommand unconditionally
+/// during updates. Flatten this adapter so search-only updates can retain None
+/// instead of calling the enum constructor with no subcommand.
+struct LogActions(Option<LogAction>);
+
+impl clap::Args for LogActions {
+    fn augment_args(cmd: clap::Command) -> clap::Command {
+        LogAction::augment_subcommands(cmd)
+    }
+
+    fn augment_args_for_update(cmd: clap::Command) -> clap::Command {
+        LogAction::augment_subcommands_for_update(cmd)
+    }
+}
+
+impl clap::FromArgMatches for LogActions {
+    fn from_arg_matches(matches: &clap::ArgMatches) -> Result<Self, clap::Error> {
+        Self::from_arg_matches_mut(&mut matches.clone())
+    }
+
+    fn from_arg_matches_mut(matches: &mut clap::ArgMatches) -> Result<Self, clap::Error> {
+        let action = if matches.subcommand_name().is_some() {
+            Some(LogAction::from_arg_matches_mut(matches)?)
+        } else {
+            None
+        };
+        Ok(Self(action))
+    }
+
+    fn update_from_arg_matches(&mut self, matches: &clap::ArgMatches) -> Result<(), clap::Error> {
+        self.update_from_arg_matches_mut(&mut matches.clone())
+    }
+
+    fn update_from_arg_matches_mut(
+        &mut self,
+        matches: &mut clap::ArgMatches,
+    ) -> Result<(), clap::Error> {
+        // This flattened field runs before the derived search-field updates.
+        // Defaults are not supplied updates: keep stored flags and output.
+        remove_default_bools(matches, &["rotated", "follow", "audit"]);
+        if matches.value_source("output") == Some(clap::parser::ValueSource::DefaultValue) {
+            matches.remove_one::<Format>("output");
+        }
+        match &mut self.0 {
+            Some(LogAction::Prune(cmd)) => {
+                // Prune is the only action. Delegate to its derived payload updater
+                // after removing defaults from the supplied child matches.
+                if let Some((_, mut child)) = matches.remove_subcommand() {
+                    remove_default_bools(&mut child, &["dry_run", "audit"]);
+                    cmd.update_from_arg_matches_mut(&mut child)?;
+                }
+            }
+            None if matches.subcommand_name().is_some() => {
+                self.0 = Some(LogAction::from_arg_matches_mut(matches)?);
+            }
+            None => {}
+        }
+        Ok(())
+    }
+}
+
+/// Removes only implicit boolean values; explicit flags still update the state.
+fn remove_default_bools(matches: &mut clap::ArgMatches, ids: &[&str]) {
+    for id in ids {
+        if matches.value_source(id) == Some(clap::parser::ValueSource::DefaultValue) {
+            matches.remove_one::<bool>(id);
+        }
+    }
+}
+
 impl LogCommand {
     /// Executes the `gwi log` command.
     pub fn execute(mut self) -> Result<()> {
-        if let Some(action) = self.action {
+        if let Some(action) = self.action.0 {
             // `args_conflicts_with_subcommands` guarantees no search flag (so not
             // `--audit` either) reached here; `prune` has its own `--audit` that
             // refuses loudly.
@@ -217,6 +290,145 @@ mod tests {
         match Wrapper::try_parse_from(full).unwrap().cmd {
             Wrapped::Log(cmd) => cmd,
         }
+    }
+
+    #[test]
+    fn search_only_cli_update_retains_unsupplied_state() {
+        let mut cli = crate::Cli::try_parse_from([
+            "gwi",
+            "--profile",
+            "work",
+            "log",
+            "--limit",
+            "0",
+            "--since",
+            "2h",
+            "--query",
+            "status:5xx",
+            "--fuzzy",
+            "token",
+            "--follow",
+            "--audit",
+            "--output",
+            "json",
+        ])
+        .unwrap();
+        cli.try_update_from(["gwi", "log", "--limit", "1"]).unwrap();
+        assert_eq!(cli.profile.as_deref(), Some("work"));
+        let crate::cli::Commands::Log(cmd) = cli.command else {
+            panic!("expected log");
+        };
+        assert_eq!(cmd.limit, Some(1));
+        assert_eq!(cmd.since.as_deref(), Some("2h"));
+        assert_eq!(cmd.query, ["status:5xx"]);
+        assert_eq!(cmd.fuzzy, ["token"]);
+        assert!(cmd.follow);
+        assert!(cmd.audit);
+        assert_eq!(cmd.output, Format::Json);
+    }
+
+    fn log_from_cli(cli: crate::Cli) -> Box<LogCommand> {
+        let crate::cli::Commands::Log(cmd) = cli.command else {
+            panic!("expected log");
+        };
+        cmd
+    }
+
+    #[test]
+    fn search_updates_accept_no_action_and_replace_supplied_lists() {
+        let mut cli = crate::Cli::try_parse_from([
+            "gwi", "log", "--query", "old", "--fuzzy", "old", "--limit", "0",
+        ])
+        .unwrap();
+        cli.try_update_from(["gwi", "log"]).unwrap();
+        cli.try_update_from(["gwi", "--profile", "work"]).unwrap();
+        assert_eq!(cli.profile.as_deref(), Some("work"));
+        cli.try_update_from([
+            "gwi", "log", "--query", "new", "--query", "second", "--fuzzy", "new",
+        ])
+        .unwrap();
+        let cmd = log_from_cli(cli);
+        assert!(cmd.action.0.is_none());
+        assert_eq!(cmd.limit, Some(0));
+        assert_eq!(cmd.query, ["new", "second"]);
+        assert_eq!(cmd.fuzzy, ["new"]);
+    }
+
+    #[test]
+    fn search_updates_retain_rotated_and_accept_explicit_default_output() {
+        let mut cli =
+            crate::Cli::try_parse_from(["gwi", "log", "--rotated", "--output", "json"]).unwrap();
+        cli.try_update_from(["gwi", "log", "--output", "oneline", "--follow"])
+            .unwrap();
+        let cmd = log_from_cli(cli);
+        assert!(cmd.rotated);
+        assert!(cmd.follow);
+        assert_eq!(cmd.output, Format::Oneline);
+    }
+
+    #[test]
+    fn action_updates_select_prune_and_retain_it_when_omitted() {
+        let mut cli = crate::Cli::try_parse_from(["gwi", "log"]).unwrap();
+        cli.try_update_from(["gwi", "log", "prune", "--older-than", "7d"])
+            .unwrap();
+        assert!(matches!(
+            log_from_cli_ref(&cli).action.0,
+            Some(LogAction::Prune(_))
+        ));
+        cli.try_update_from(["gwi", "log", "prune", "--dry-run"])
+            .unwrap();
+        cli.try_update_from(["gwi", "log"]).unwrap();
+        assert!(matches!(
+            log_from_cli(cli).action.0,
+            Some(LogAction::Prune(_))
+        ));
+    }
+
+    fn log_from_cli_ref(cli: &crate::Cli) -> &LogCommand {
+        let crate::cli::Commands::Log(cmd) = &cli.command else {
+            panic!("expected log");
+        };
+        cmd
+    }
+
+    #[test]
+    fn updates_preserve_search_prune_input_conflicts() {
+        for args in [
+            vec!["gwi", "log", "--limit", "1", "prune"],
+            vec!["gwi", "log", "--audit", "prune"],
+            vec!["gwi", "log", "--query", "status:5xx", "prune"],
+            vec!["gwi", "log", "prune", "--limit", "1"],
+            vec!["gwi", "log", "--rotated", "--audit"],
+        ] {
+            let mut cli = crate::Cli::try_parse_from(["gwi", "log", "--limit", "0"]).unwrap();
+            assert!(crate::Cli::try_parse_from(&args).is_err(), "{args:?}");
+            assert!(cli.try_update_from(&args).is_err(), "{args:?}");
+            let cmd = log_from_cli(cli);
+            assert_eq!(cmd.limit, Some(0));
+            assert!(cmd.action.0.is_none());
+        }
+    }
+
+    #[test]
+    fn optional_action_adapter_supports_immutable_and_mutable_matches() {
+        use clap::{CommandFactory, FromArgMatches};
+
+        let matches = LogCommand::command()
+            .try_get_matches_from(["log", "prune", "--dry-run"])
+            .unwrap();
+        assert!(matches!(
+            LogActions::from_arg_matches(&matches).unwrap().0,
+            Some(LogAction::Prune(_))
+        ));
+        let mut action = LogActions(None);
+        action.update_from_arg_matches(&matches).unwrap();
+        assert!(matches!(action.0, Some(LogAction::Prune(_))));
+        let empty = LogCommand::command_for_update()
+            .try_get_matches_from(["log"])
+            .unwrap();
+        action.update_from_arg_matches(&empty).unwrap();
+        assert!(matches!(action.0, Some(LogAction::Prune(_))));
+        assert!(LogActions::from_arg_matches(&empty).unwrap().0.is_none());
     }
 
     #[test]

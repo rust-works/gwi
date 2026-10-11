@@ -137,6 +137,33 @@ mod tests {
     }
 
     #[test]
+    fn cli_updates_retain_unsupplied_prune_options() {
+        let mut cli = crate::Cli::try_parse_from([
+            "gwi",
+            "log",
+            "prune",
+            "--older-than",
+            "7d",
+            "--dry-run",
+            "--audit",
+        ])
+        .unwrap();
+        cli.try_update_from(["gwi", "log", "prune", "--max-size", "10mb"])
+            .unwrap();
+        cli.try_update_from(["gwi", "log"]).unwrap();
+        let crate::cli::Commands::Log(log) = cli.command else {
+            panic!("expected log");
+        };
+        let Some(super::super::LogAction::Prune(cmd)) = log.action.0 else {
+            panic!("expected prune");
+        };
+        assert_eq!(cmd.older_than.as_deref(), Some("7d"));
+        assert_eq!(cmd.max_size.as_deref(), Some("10mb"));
+        assert!(cmd.dry_run);
+        assert!(cmd.audit);
+    }
+
+    #[test]
     fn requires_at_least_one_bound() {
         assert!(parse(&[]).execute().is_err());
     }
