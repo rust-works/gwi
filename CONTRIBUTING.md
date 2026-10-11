@@ -181,5 +181,6 @@ gated as described above.
 
 The opt-in [log-follow contention probe](docs/log-follow-probe.md) repeats the
 instrumented recovery test with default and MCP features, retaining phase diagnostics
-and bounded CPU/startup or CLI-harness workload evidence. It is separate from normal
-test runs and CI.
+and bounded CPU/startup or CLI-harness workload evidence. Comparisons remain opt-in
+and separate from normal test runs and CI. The probe's fake-Cargo/real-process
+lifecycle regressions run in bounded Linux/macOS CI jobs.

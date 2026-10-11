@@ -1,0 +1,25 @@
+name: Log Follow Probe Lifecycle
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  merge_group:
+
+permissions:
+  contents: read
+
+jobs:
+  lifecycle:
+    name: Log Follow Probe Lifecycle (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 5
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+    - uses: actions/checkout@v7
+    # Fake Cargo/libtest and real process trees only; contention runs stay opt-in.
+    - run: python3 scripts/test_log_follow_probe.py -v
