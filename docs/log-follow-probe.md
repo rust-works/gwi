@@ -98,6 +98,81 @@ These use fake Cargo/libtest executables and real process trees, including desce
 that inherit output handles and ignore TERM, parents that exit early, timeouts, and
 SIGINT/SIGTERM of the actual runner.
 
+The `Log Follow Probe Lifecycle` workflow runs this suite on Linux and macOS for
+pull requests, merge queue entries and main pushes. Each matrix job has a
+five-minute timeout and runs independently of the other platform. It exercises
+fake Cargo/libtest and real process trees; actual CPU/full-harness comparisons
+remain opt-in and do not run in ordinary CI.
+
+## Linux smoke verification
+
+Verification on 11 October 2026 (Australia/Sydney), Debian 13.7 in Docker,
+`Linux-7.0.12-linuxkit-aarch64-with-glibc2.41`, Python 3.13.5 and Rust 1.99.0.
+The container exposed 18 logical CPUs but was limited to four CPUs and 8 GiB RAM.
+Source revision: `06ec9cbefe3e525c82fc36620678627a584e8129`.
+Source and Git metadata were mounted read-only from the issue worktree; its
+workflow/docs edits and transient Python bytecode are recorded in the dirty-file
+metadata. No Rust or probe source changed for these measurements. Other worktree
+builds were active on the host. No idle-host, cache or utilization control is claimed.
+
+All 17 lifecycle regressions passed on this Linux environment (6.064 seconds)
+and locally on macOS with Python 3.14.6 (46.601 seconds). No Linux-specific fix
+or weakening of lifecycle assertions was needed.
+
+Both invocations used fresh output directories, one repetition per feature,
+and explicitly selected these bounds (seconds): total 1,800, each build 600,
+each focused repetition 60 and each workload command 120. The loaded run
+configured two CPU workers and one full-CLI-harness slot with four test threads.
+These commands ran inside the container from the mounted worktree:
+
+```sh
+python3 scripts/log-follow-probe.py --output /evidence/baseline \
+  --repetitions 1 --max-seconds 1800 --build-timeout 600 \
+  --run-timeout 60 --workload-timeout 120
+python3 scripts/log-follow-probe.py --output /evidence/harness \
+  --repetitions 1 --max-seconds 1800 --build-timeout 600 \
+  --run-timeout 60 --workload-timeout 120 \
+  --cpu-workers 2 --workload harness --concurrency 1 --harness-threads 4
+```
+
+Both returned zero. All four first-focused repetitions passed their exact
+test selection and retained six phase events each, three per append scenario.
+Each invocation selected four distinct existing executable paths from Cargo
+JSON under `/evidence/<comparison>/build/{default,mcp}`: one `gwi` and one
+`cli_test` per feature, with no shared executable replacement.
+
+Timing pairs below are **immediate / split append**, in seconds. Receive times
+are relative to each follower spawn; wall time includes process cleanup.
+
+| Workload | Features | Wall (s) | Initial backlog (s) | Recovered append (s) | Warning (s) |
+| --- | --- | --- | --- | --- | --- |
+| None added | default | 2.227 | 0.101 / 0.067 | 0.360 / 0.825 | 0.361 / 0.825 |
+| None added | mcp | 2.002 | 0.114 / 0.046 | 0.370 / 0.554 | 0.370 / 0.554 |
+| 2 CPU + 1 harness | default | 1.688 | 0.077 / 0.029 | 0.080 / 0.536 | 0.081 / 0.537 |
+| 2 CPU + 1 harness | mcp | 1.934 | 0.075 / 0.035 | 0.342 / 0.549 | 0.347 / 0.550 |
+
+Independent post-run `ps -axo pid=,pgid=,stat=,args=` snapshots were taken
+inside the Linux container before it was stopped. Each recorded command PID
+was audited as a process-group ID; zombie states were excluded from live
+membership. Audits found no live members and every direct command had a
+recorded return code after being waited for.
+
+- Baseline: eight recorded groups, all commands passed.
+- Loaded: fourteen recorded groups, eight metadata/build/listing/focused commands
+  passed, four CPU workers stopped and two partial harnesses stopped.
+
+Stopped harnesses are partial activity, not passing full-suite results.
+No Linux invocation failed or was replaced by a retry. Raw summaries, command
+logs, Cargo JSON, audit reports and process snapshots remain locally under
+`/private/tmp/gwi-256-linux-evidence`, mapping to `/evidence` in the container.
+The durable timing/status record is this guide and the
+[issue evidence](https://github.com/rust-works/gwi/issues/256#issuecomment-6103986748).
+
+This is one repetition per feature per workload on virtualized Linux; it
+verifies artifact selection, phase capture and configured workload cleanup.
+It does not establish sustained stress coverage, explain the historical timeout
+or verify Windows behavior. Production behavior and receive deadlines are unchanged.
+
 ## macOS investigation
 
 Measurements on 11 October 2026 (Australia/Sydney), macOS 26.5.2 arm64,
