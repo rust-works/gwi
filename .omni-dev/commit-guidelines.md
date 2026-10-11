@@ -60,11 +60,11 @@ ecosystem default scopes `cargo`, `core`, `lib` and `test` are also
 accepted.
 
 Shared utilities in `src/utils.rs` and `src/utils/**` have a dedicated `utils`
-scope. Shared Rust infrastructure with no subsystem owner, such as `src/lib.rs`
-and `src/test_support.rs`, uses the ecosystem `lib` scope instead. These unowned
-infrastructure files are listed in `allow:` in `scopes.yaml` for
-`omni-dev config scopes lint`; the utility paths are covered by the `utils`
-scope's `file_patterns`.
+scope; the utility paths are covered by that scope's `file_patterns`. Shared test
+helpers in `src/test_support.rs` belong to the project `test` scope through its
+`file_patterns`. Shared Rust infrastructure with no subsystem owner, such as
+`src/lib.rs`, uses the ecosystem `lib` scope instead. These unowned infrastructure
+files are listed in `allow:` in `scopes.yaml` for `omni-dev config scopes lint`.
 
 For multi-scope commits, the scopes are correct when each listed scope
 matches at least one modified file. Do not flag scopes as incorrect
