@@ -7,10 +7,11 @@
 //!
 //! # Why there is no `fields` mask
 //!
-//! `spreadsheets.get` is always masked, because unmasked it embeds every
-//! cell of every sheet. The mirror-image decision here is the opposite one,
-//! and it is deliberate rather than an omission — there is a test pinning
-//! it. Three reasons:
+//! Our `spreadsheets.get` calls use explicit masks to select only the
+//! metadata or grid-data fields each caller needs. Sheets excludes grid data
+//! by default; its masks limit metadata too. The decision to leave
+//! `documents.get` unmasked is deliberate — there is a test pinning it.
+//! Three reasons:
 //!
 //! 1. **A Docs mask cannot be made recursion-safe.** A `fields` mask spells
 //!    nesting depth out literally, and a table may contain a table to
