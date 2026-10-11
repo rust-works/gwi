@@ -1,0 +1,209 @@
+{
+  "issue": 179,
+  "probe_pr": "https://github.com/rust-works/gwi/pull/289",
+  "probe_head": "951502c494e4a64b176bd9b7de34e966a02c1912",
+  "queue_head": "73e0126909a0fbad07e035bb801de69e34640b5c",
+  "queue_entry_enqueued_at": "2026-10-11T12:15:46Z",
+  "sources": {
+    "check": "https://api.github.com/repos/rust-works/gwi/check-runs/114467638072",
+    "checks": "https://api.github.com/repos/rust-works/gwi/commits/73e0126909a0fbad07e035bb801de69e34640b5c/check-runs (all pages)",
+    "run": "https://api.github.com/repos/rust-works/gwi/actions/runs/38138614606",
+    "timeline": "GraphQL repository(owner: \"rust-works\", name: \"gwi\").pullRequest(number: 289).timelineItems(itemTypes: [REMOVED_FROM_MERGE_QUEUE_EVENT])"
+  },
+  "run": {
+    "id": 38138614606,
+    "event": "merge_group",
+    "head_sha": "73e0126909a0fbad07e035bb801de69e34640b5c",
+    "created_at": "2026-10-11T12:16:04Z"
+  },
+  "failed_check": {
+    "id": 114467638072,
+    "name": "Empty HOME Test",
+    "app_id": 15368,
+    "conclusion": "failure",
+    "started_at": "2026-10-11T12:16:21Z",
+    "completed_at": "2026-10-11T12:16:25Z",
+    "html_url": "https://github.com/rust-works/gwi/actions/runs/38138614606/job/114467638072"
+  },
+  "queue_observation": {
+    "merged": false,
+    "timelineItems": {
+      "nodes": [
+        {
+          "createdAt": "2026-10-11T12:16:35Z",
+          "reason": "failed_checks",
+          "beforeCommit": {
+            "oid": "73e0126909a0fbad07e035bb801de69e34640b5c"
+          }
+        }
+      ]
+    }
+  },
+  "checks_snapshot_note": "Captured after queue rejection (12:16:35Z) and before closing the probe or cancelling remaining runs. Statuses are as captured; checks that were queued or in progress are not claimed to have passed. The commit has no commit statuses.",
+  "total_count": 22,
+  "checks_snapshot": [
+    {
+      "id": 114467638015,
+      "name": "Cargo Deny",
+      "app_id": 15368,
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "id": 114467587234,
+      "name": "Changelog fragments",
+      "app_id": 15368,
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "id": 114467638042,
+      "name": "Clippy",
+      "app_id": 15368,
+      "status": "in_progress",
+      "conclusion": null
+    },
+    {
+      "id": 114467587246,
+      "name": "Commit Message Lint",
+      "app_id": 15368,
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "id": 114467637991,
+      "name": "Coverage",
+      "app_id": 15368,
+      "status": "in_progress",
+      "conclusion": null
+    },
+    {
+      "id": 114467638120,
+      "name": "Doc links",
+      "app_id": 15368,
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "id": 114467638018,
+      "name": "Docs",
+      "app_id": 15368,
+      "status": "in_progress",
+      "conclusion": null
+    },
+    {
+      "id": 114467638072,
+      "name": "Empty HOME Test",
+      "app_id": 15368,
+      "status": "completed",
+      "conclusion": "failure"
+    },
+    {
+      "id": 114467638050,
+      "name": "Hostile Environment Test",
+      "app_id": 15368,
+      "status": "in_progress",
+      "conclusion": null
+    },
+    {
+      "id": 114467587004,
+      "name": "Hostile Runner Lifecycle (macos-latest)",
+      "app_id": 15368,
+      "status": "queued",
+      "conclusion": null
+    },
+    {
+      "id": 114467587096,
+      "name": "Hostile Runner Lifecycle (ubuntu-latest)",
+      "app_id": 15368,
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "id": 114467587080,
+      "name": "Log Follow Probe Lifecycle (macos-latest)",
+      "app_id": 15368,
+      "status": "queued",
+      "conclusion": null
+    },
+    {
+      "id": 114467587198,
+      "name": "Log Follow Probe Lifecycle (ubuntu-latest)",
+      "app_id": 15368,
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "id": 114467637946,
+      "name": "Rustfmt",
+      "app_id": 15368,
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "id": 114467638088,
+      "name": "Sandboxed Test",
+      "app_id": 15368,
+      "status": "in_progress",
+      "conclusion": null
+    },
+    {
+      "id": 114467637958,
+      "name": "Test (beta)",
+      "app_id": 15368,
+      "status": "in_progress",
+      "conclusion": null
+    },
+    {
+      "id": 114467638080,
+      "name": "Test (nightly)",
+      "app_id": 15368,
+      "status": "in_progress",
+      "conclusion": null
+    },
+    {
+      "id": 114467638048,
+      "name": "Test (stable)",
+      "app_id": 15368,
+      "status": "in_progress",
+      "conclusion": null
+    },
+    {
+      "id": 114467637889,
+      "name": "Windows Build",
+      "app_id": 15368,
+      "status": "in_progress",
+      "conclusion": null
+    },
+    {
+      "id": 114467638083,
+      "name": "Windows CLI Stack",
+      "app_id": 15368,
+      "status": "in_progress",
+      "conclusion": null
+    },
+    {
+      "id": 114467638097,
+      "name": "Windows Clippy",
+      "app_id": 15368,
+      "status": "in_progress",
+      "conclusion": null
+    },
+    {
+      "id": 114467587315,
+      "name": "Windows Log Replacement",
+      "app_id": 15368,
+      "status": "in_progress",
+      "conclusion": null
+    }
+  ],
+  "failure_log_excerpt": "Run exit 1\n##[error]Process completed with exit code 1.",
+  "cleanup": {
+    "pr_state": "CLOSED",
+    "merged_at": null,
+    "remote_branch_deleted": false,
+    "remaining_probe_runs_cancelled": true,
+    "ruleset_unchanged": true,
+    "classic_protection_unchanged": true
+  }
+}
