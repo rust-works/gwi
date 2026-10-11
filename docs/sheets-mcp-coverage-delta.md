@@ -265,8 +265,8 @@ mkdir -p "$REPLAY_OUT"
 ) > "$REPLAY_OUT/run.log" 2>&1
 ```
 
-The subshell stops on a failed test or export, as CI does. Removing raw profiles happens only after lcov merges them; JSON reads the same
-merged profile. The local evidence is retained under `/tmp/issue-287-evidence`,
+The subshell stops on a failed test or export, as CI does. Removing raw profiles
+happens only after lcov merges them; JSON reads the same merged profile. The local evidence is retained under `/tmp/issue-287-evidence`,
 with `base-arm64/` and `head-arm64/` reports, expansions and logs, the original
 artifacts/job log, pinned coverage action, commands and x86_64 failure notes.
 Only the compact snapshot and standalone source are committed; the full reports
@@ -294,7 +294,8 @@ cargo install cargo-llvm-cov --version 0.9.1 --locked
 python3 "$WT/docs/repro-schema-coverage/replay.py" /tmp/schema-span-repro
 ```
 
-Use a new output directory; the driver refuses to overwrite existing evidence.
+Use a new output directory outside the fixture; the driver refuses to overwrite
+existing evidence or copy its output recursively.
 `--toolchain stable` is equivalent only when `rustc +stable -Vv` identifies the
 same compiler. Each variant has a clean coverage target and retains its source,
 log, lcov, LLVM JSON, expansion, LLVM IR and before/after `InstrumentCoverage` MIR.

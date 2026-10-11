@@ -31,12 +31,14 @@ RUSTC_BOOTSTRAP=1 cargo rustc -p span-case --lib -- \
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("output", type=Path, help="new directory for sources and evidence")
+    parser.add_argument("output", type=Path, help="new directory outside the fixture for sources and evidence")
     parser.add_argument("--toolchain", default="1.99.0")
     args = parser.parse_args()
     output = args.output.resolve()
-    output.mkdir(parents=True, exist_ok=False)
     source = Path(__file__).resolve().parent
+    if output == source or source in output.parents:
+        parser.error("output must be outside the reproducer source directory")
+    output.mkdir(parents=True, exist_ok=False)
     summary = {}
     for name, description in [("plain", '"x"'), ("bang", '"x!"')]:
         case_output = output / name
