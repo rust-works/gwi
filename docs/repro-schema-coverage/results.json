@@ -140,5 +140,69 @@
       },
       "removed_records": []
     }
+  },
+  "newer_toolchains": {
+    "date_tested": "2026-10-12",
+    "host": "aarch64-apple-darwin",
+    "cargo_llvm_cov": "0.9.1",
+    "driver": "docs/repro-schema-coverage/replay.py --toolchain <channel>, unmodified",
+    "result": "The pinned-compiler mapping difference reproduces unchanged.",
+    "beta": {
+      "rustc": "1.100.0-beta.4",
+      "commit": "a2eb6097d22d908142aa4a067bc2cb70860a95b7",
+      "commit_date": "2026-10-04",
+      "llvm": "23.1.1",
+      "plain": {
+        "mapped_fallbacks": 0,
+        "records": []
+      },
+      "bang": {
+        "mapped_fallbacks": 1,
+        "count": 0,
+        "regions": [
+          [
+            8,
+            1,
+            8,
+            27,
+            0,
+            0,
+            0,
+            0
+          ]
+        ]
+      },
+      "mir_and_llvm_ir": "MIR before InstrumentCoverage is identical apart from span coordinates; after it only the bang variant gains a `coverage Code { bcb0 }` mapping and a `Coverage::VirtualCounter(bcb0)` statement; the closure is defined in LLVM IR in both variants",
+      "span_through_char_in_single_covspan_for_child_context": true
+    },
+    "nightly": {
+      "rustc": "1.101.0-nightly",
+      "commit": "6f5da406b56c2db6607202b63daee73aa8c61297",
+      "commit_date": "2026-10-10",
+      "llvm": "23.1.3",
+      "plain": {
+        "mapped_fallbacks": 0,
+        "records": []
+      },
+      "bang": {
+        "mapped_fallbacks": 1,
+        "count": 0,
+        "regions": [
+          [
+            8,
+            1,
+            8,
+            27,
+            0,
+            0,
+            0,
+            0
+          ]
+        ]
+      },
+      "mir_and_llvm_ir": "MIR before InstrumentCoverage is identical apart from span coordinates; after it only the bang variant gains a `coverage Code { bcb0 }` mapping and a `Coverage::VirtualCounter(bcb0)` statement; the closure is defined in LLVM IR in both variants",
+      "span_through_char_in_single_covspan_for_child_context": true
+    },
+    "notes": "Both contain rust-lang/rust#161517 (hybrid HIR-aware coverage spans, merged 2026-09-06). Stable is the pinned 1.99.0 recorded above. The `span_through_char` call was also present on rust-lang/rust main when checked."
   }
 }
