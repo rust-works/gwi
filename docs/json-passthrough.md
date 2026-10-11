@@ -6,8 +6,8 @@ Sheets JSON cell input validates original JSON kinds before scalar conversion
 ([#274](https://github.com/rust-works/gwi/issues/274)). The
 [#209](https://github.com/rust-works/gwi/issues/209) audit's accepted private
 number-key limitation still applies to the API/Sheets payload paths below. The ledger's
-separate decision and implementation are documented in
-[lease ledger JSON](lease-ledger-json.md) and tracked by
+separate preservation guarantee is documented in
+[lease ledger JSON](lease-ledger-json.md) and introduced by
 [#208](https://github.com/rust-works/gwi/issues/208).
 
 ## Confirmed collision
@@ -58,8 +58,9 @@ Settings updates retain unknown objects, keys and strings, including the private
 objects above. The boundary validates JSON with serde_json's streaming `IgnoredAny` scanner and uses
 its byte offsets to parse object members and array elements as source slices before
 building an ordered tree, avoiding Value's object/number protocol. The crate's
-serde_json feature set stays unchanged; enabling `raw_value` would introduce another
-private-key interpretation in existing Value consumers.
+settings boundary does not use serde_json's `raw_value` protocol. The ledger boundary
+enables that crate-wide feature; existing Value consumers remain outside these
+explicit preservation guarantees.
 Scalar numbers retain the crate's `arbitrary_precision` behavior; large integers and
 high-precision decimals remain exact. Deletions retain the relative order of surviving
 object members. Known boolean and numeric settings retain their typed behavior.

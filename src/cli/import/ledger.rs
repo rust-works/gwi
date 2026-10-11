@@ -35,9 +35,8 @@
 //!   be touched). A dry run takes no lock and writes nothing.
 //! - **A field gwi does not know is copied too.** A row from a newer omni-dev keeps its
 //!   unknown fields, including those inside `backup`, through the import and every later
-//!   rewrite of the ledger (`LeaseRecord::extra` and `LeaseBackup` flatten them),
-//!   subject to the [private number key limitation](../../../docs/lease-ledger-json.md):
-//!   some valid unknown JSON objects become numbers or prevent the ledger loading.
+//!   rewrite of the ledger. The explicit load boundary preserves even literal
+//!   private-number-key objects; see [JSON compatibility](../../../docs/lease-ledger-json.md).
 //! - No audit history is copied (ADR-0001 §3).
 //! - The report names tokens (identifiers, not credentials: ADR-0080 §2) and never a
 //!   backup path, hash or file id.
@@ -526,6 +525,84 @@ mod tests {
             let forced: serde_json::Value =
                 serde_json::from_str(std::fs::read_to_string(&target).unwrap().trim()).unwrap();
             assert_eq!(forced, saved);
+        }
+    }
+
+    #[test]
+    fn private_number_objects_keep_import_conflict_and_release_rules() {
+        let values = r#"[{"$serde_json::private::Number":"123"},{"$serde_json::private::Number":"not-a-number"},{"$serde_json::private::Number":"123","other":"keep"}]"#;
+        for backup in [
+            r#"{"kind":"bytes","path":"backup.bin","sha256":"abc","size":18446744073709551615}"#,
+            r#"{"kind":"drive_copy","file_id":"backup-copy"}"#,
+        ] {
+            let (_dir, source, target) = setup();
+            let mut row = record("newer", 10);
+            row.backup = serde_json::from_str(backup).unwrap();
+            let known = serde_json::to_string(&row).unwrap();
+            let backup_extra = format!(
+                "{},\"future\":{{\"nested\":{values}}}}}",
+                backup.strip_suffix('}').unwrap()
+            );
+            let text = known.replace(backup, &backup_extra);
+            let text = format!("{},\"future\":{values}}}", text.strip_suffix('}').unwrap());
+            std::fs::write(&source, &text).unwrap();
+            import(&source, &target, false, false).0.unwrap();
+            let copied = LeaseLedger::load(&target)
+                .unwrap()
+                .get("newer")
+                .unwrap()
+                .clone();
+            let before = std::fs::read(&target).unwrap();
+            let (result, report) = import(&source, &target, false, false);
+            result.unwrap();
+            assert!(report.contains("unchanged   lease newer"), "{report}");
+            assert_eq!(std::fs::read(&target).unwrap(), before);
+            assert_eq!(std::fs::read_to_string(&source).unwrap(), text);
+
+            // Change only unknown contents: still a conflict, including under force's warning.
+            let changed = text.replace("not-a-number", "changed");
+            std::fs::write(&source, &changed).unwrap();
+            assert!(import(&source, &target, false, false).0.is_err());
+            assert_eq!(std::fs::read(&target).unwrap(), before);
+            import(&source, &target, false, true).0.unwrap();
+            assert_ne!(
+                LeaseLedger::load(&target).unwrap().get("newer").unwrap(),
+                &copied
+            );
+            assert!(std::fs::read_to_string(&target)
+                .unwrap()
+                .contains("changed"));
+            assert_eq!(std::fs::read_to_string(&source).unwrap(), changed);
+
+            // Source release ends authority while preserving local unknown metadata.
+            let released = format!(
+                "{},\"released_at\":\"2026-10-10T00:00:00Z\"}}",
+                text.strip_suffix('}').unwrap()
+            );
+            std::fs::write(&source, &released).unwrap();
+            let (result, report) = import(&source, &target, false, false);
+            result.unwrap();
+            assert!(report.contains("released    lease newer"), "{report}");
+            let local = LeaseLedger::load(&target)
+                .unwrap()
+                .get("newer")
+                .unwrap()
+                .clone();
+            assert!(local.released_at.is_some());
+            assert!(std::fs::read_to_string(&target)
+                .unwrap()
+                .contains("changed"));
+            assert_eq!(std::fs::read_to_string(&source).unwrap(), released);
+
+            std::fs::write(&source, &text).unwrap();
+            for force in [false, true] {
+                import(&source, &target, false, force).0.unwrap();
+                assert_eq!(
+                    LeaseLedger::load(&target).unwrap().get("newer").unwrap(),
+                    &local
+                );
+                assert_eq!(std::fs::read_to_string(&source).unwrap(), text);
+            }
         }
     }
 

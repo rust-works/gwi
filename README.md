@@ -53,8 +53,8 @@ copied, expired ones too, because a restore needs them. A lease that is still li
 over unchanged and stays valid until it expires, in both tools: the two ledgers are
 copies: a lease released in omni-dev is released in gwi by the next `gwi import` when the
 two rows are otherwise the same, not before. Audit history is not
-copied. Unknown metadata is retained subject to the
-[lease ledger JSON compatibility limitation](docs/lease-ledger-json.md).
+copied. Unknown metadata, including literal private number keys, is retained; see
+[lease ledger JSON compatibility](docs/lease-ledger-json.md).
 Settings updates/import and API payloads have a related
 [JSON passthrough limitation](docs/json-passthrough.md).
 See [Coming from omni-dev](docs/drive.md#coming-from-omni-dev) for the details.
