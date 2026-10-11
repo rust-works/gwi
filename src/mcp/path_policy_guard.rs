@@ -101,6 +101,15 @@ fn stale_params(found: &BTreeSet<(String, String, String)>) -> Vec<String> {
         .collect()
 }
 
+fn assert_allowlist_current(found: &BTreeSet<(String, String, String)>) {
+    let stale = stale_params(found);
+    assert!(
+        stale.is_empty(),
+        "update stale PathPolicy allowlist entries: {}",
+        stale.join("\n")
+    );
+}
+
 fn unchecked_params(file: &str, source: &str) -> Vec<String> {
     path_params(source)
         .into_iter()
@@ -220,12 +229,7 @@ fn mcp_tool_paths_require_policy_review() {
         let errors = filesystem_policy_errors(file, &source);
         assert!(errors.is_empty(), "{}", errors.join("\n"));
     }
-    let stale = stale_params(&found);
-    assert!(
-        stale.is_empty(),
-        "update stale PathPolicy allowlist entries: {}",
-        stale.join("\n")
-    );
+    assert_allowlist_current(&found);
 }
 
 #[test]
@@ -338,6 +342,8 @@ fn only_public_named_optional_string_paths_are_scanned() {
         pub nested_path: Option<Option<String>>,
         pub qualified_path: std::option::Option<String>,
         pub qualified_string_path: Option<std::string::String>,
+        pub tuple_path: (Option<String>,),
+        pub reference_path: &'static Option<String>,
         pub query: Option<String>,
         pub output_file: Option /* type comment */ < String >,
     }
@@ -356,12 +362,21 @@ fn removed_allowlist_entries_are_reported_as_stale() {
         .map(|&(file, owner, field)| (file.to_owned(), owner.to_owned(), field.to_owned()))
         .collect();
     assert!(stale_params(&found).is_empty());
+    assert_allowlist_current(&found);
     for entry in &found {
         let mut remaining = found.clone();
         remaining.remove(entry);
         assert_eq!(
             stale_params(&remaining),
             [format!("{}: {}.{}", entry.0, entry.1, entry.2)]
+        );
+        let message = *std::panic::catch_unwind(|| assert_allowlist_current(&remaining))
+            .unwrap_err()
+            .downcast::<String>()
+            .unwrap();
+        assert!(
+            message.contains(&format!("{}: {}.{}", entry.0, entry.1, entry.2)),
+            "{message}"
         );
     }
 }
