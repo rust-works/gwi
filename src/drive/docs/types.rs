@@ -402,6 +402,7 @@ pub struct StructuralElement {
         skip_serializing_if = "Option::is_none",
         rename = "sectionBreak"
     )]
+    #[serde(deserialize_with = "crate::utils::json_payload::optional")]
     pub section_break: Option<serde_json::Value>,
 }
 
@@ -527,6 +528,7 @@ pub struct ParagraphElement {
     pub inline_object_element: Option<InlineObjectElement>,
     /// A page break.
     #[serde(default, skip_serializing_if = "Option::is_none", rename = "pageBreak")]
+    #[serde(deserialize_with = "crate::utils::json_payload::optional")]
     pub page_break: Option<serde_json::Value>,
     /// A column break.
     #[serde(
@@ -534,6 +536,7 @@ pub struct ParagraphElement {
         skip_serializing_if = "Option::is_none",
         rename = "columnBreak"
     )]
+    #[serde(deserialize_with = "crate::utils::json_payload::optional")]
     pub column_break: Option<serde_json::Value>,
     /// A horizontal rule.
     #[serde(
@@ -541,6 +544,7 @@ pub struct ParagraphElement {
         skip_serializing_if = "Option::is_none",
         rename = "horizontalRule"
     )]
+    #[serde(deserialize_with = "crate::utils::json_payload::optional")]
     pub horizontal_rule: Option<serde_json::Value>,
     /// A footnote reference.
     #[serde(
@@ -548,18 +552,23 @@ pub struct ParagraphElement {
         skip_serializing_if = "Option::is_none",
         rename = "footnoteReference"
     )]
+    #[serde(deserialize_with = "crate::utils::json_payload::optional")]
     pub footnote_reference: Option<serde_json::Value>,
     /// Auto-text such as a page number.
     #[serde(default, skip_serializing_if = "Option::is_none", rename = "autoText")]
+    #[serde(deserialize_with = "crate::utils::json_payload::optional")]
     pub auto_text: Option<serde_json::Value>,
     /// An equation.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "crate::utils::json_payload::optional")]
     pub equation: Option<serde_json::Value>,
     /// A person mention.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "crate::utils::json_payload::optional")]
     pub person: Option<serde_json::Value>,
     /// A rich link chip.
     #[serde(default, skip_serializing_if = "Option::is_none", rename = "richLink")]
+    #[serde(deserialize_with = "crate::utils::json_payload::optional")]
     pub rich_link: Option<serde_json::Value>,
 }
 

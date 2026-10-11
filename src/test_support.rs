@@ -728,3 +728,39 @@ pub(crate) fn private_number_cases() -> Vec<(String, Result<serde_json::Value, &
     }
     out
 }
+
+/// Builds literal objects and independent preservation expectations, including nesting.
+pub(crate) fn preserved_private_number_cases() -> Vec<(String, serde_json::Value)> {
+    use serde_json::json;
+    let cases = [
+        (
+            r#"{"$serde_json::private::Number":"123"}"#,
+            json!({"$serde_json::private::Number":"123"}),
+        ),
+        (
+            r#"{"$serde_json::private::Number":"not-a-number"}"#,
+            json!({"$serde_json::private::Number":"not-a-number"}),
+        ),
+        (
+            r#"{"$serde_json::private::Number":"123","other":"keep"}"#,
+            json!({"$serde_json::private::Number":"123","other":"keep"}),
+        ),
+        (
+            r#"{"other":"keep","$serde_json::private::Number":"123"}"#,
+            json!({"other":"keep","$serde_json::private::Number":"123"}),
+        ),
+    ];
+    let mut out = Vec::new();
+    for (literal, value) in cases {
+        out.push((literal.to_string(), value.clone()));
+        out.push((
+            format!("{{\"nested\":{literal}}}"),
+            json!({"nested": value.clone()}),
+        ));
+        out.push((
+            format!("{{\"nested\":[{{\"deep\":{literal}}}]}}"),
+            json!({"nested": [{"deep": value}]}),
+        ));
+    }
+    out
+}

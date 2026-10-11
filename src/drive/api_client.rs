@@ -729,12 +729,9 @@ mod tests {
         assert!(detail.starts_with("reading the reply: "), "{detail}");
     }
 
-    async fn characterize_private_number_response<
-        T: serde::de::DeserializeOwned + serde::Serialize,
-    >(
+    async fn preserve_private_number_response<T: serde::de::DeserializeOwned + serde::Serialize>(
         template: &str,
         pointer: &str,
-        multi_key_error: &str,
     ) {
         use wiremock::{matchers::path, Mock, MockServer, ResponseTemplate};
 
@@ -742,7 +739,7 @@ mod tests {
         let client =
             GoogleApiClient::new(&server.uri(), &test_credentials(), "drive", "Drive").unwrap();
         let http = reqwest::Client::builder().no_proxy().build().unwrap();
-        for (index, (literal, expected)) in crate::test_support::private_number_cases()
+        for (index, (literal, value)) in crate::test_support::preserved_private_number_cases()
             .into_iter()
             .enumerate()
         {
@@ -763,68 +760,68 @@ mod tests {
             let parsed = client
                 .parse_response::<T>(response, "reading fixture")
                 .await;
-            match expected {
-                Ok(value) => {
-                    let forwarded = serde_json::to_value(parsed.unwrap()).unwrap();
-                    assert_eq!(forwarded.pointer(pointer), Some(&value), "{literal}");
-                }
-                Err(message) => {
-                    assert!(parsed.is_err(), "accepted {literal}");
-                    let error = parsed.err().unwrap();
-                    let expected = if message == "invalid length" {
-                        multi_key_error
-                    } else {
-                        message
-                    };
-                    assert!(format!("{error:#}").contains(expected), "{error:#}");
-                }
-            }
+            let wire = serde_json::to_string(&parsed.unwrap()).unwrap();
+            let forwarded: crate::utils::json_payload::Payload =
+                serde_json::from_str(&wire).unwrap();
+            assert_eq!(forwarded.0.pointer(pointer), Some(&value), "{literal}");
         }
     }
 
     #[tokio::test]
     async fn private_number_api_payloads_through_response_parsing_and_serialization() {
         // Real HTTP response deserialization followed by each wire type's output shape.
-        characterize_private_number_response::<crate::gmail::types::Message>(
+        preserve_private_number_response::<crate::gmail::types::Message>(
             r#"{"id":"m1","payload":CASE}"#,
             "/payload",
-            "trailing comma",
         )
         .await;
-        characterize_private_number_response::<crate::drive::docs::types::Document>(
+        preserve_private_number_response::<crate::drive::docs::types::Document>(
             r#"{"documentId":"d1","body":{"content":[{"sectionBreak":CASE}]}}"#,
             "/body/content/0/sectionBreak",
-            "trailing comma",
         )
         .await;
-        characterize_private_number_response::<crate::drive::slides::types::Presentation>(
+        for arm in [
+            "pageBreak",
+            "columnBreak",
+            "horizontalRule",
+            "footnoteReference",
+            "autoText",
+            "equation",
+            "person",
+            "richLink",
+        ] {
+            let template = format!(
+                r#"{{"documentId":"d1","body":{{"content":[{{"paragraph":{{"elements":[{{"{arm}":CASE}}]}}}}]}}}}"#
+            );
+            let pointer = format!("/body/content/0/paragraph/elements/0/{arm}");
+            preserve_private_number_response::<crate::drive::docs::types::Document>(
+                &template, &pointer,
+            )
+            .await;
+        }
+        preserve_private_number_response::<crate::drive::slides::types::Presentation>(
             r#"{"presentationId":"p1","pageSize":CASE}"#,
             "/pageSize",
-            "trailing comma",
         )
         .await;
-        characterize_private_number_response::<crate::drive::slides::types::Presentation>(
+        preserve_private_number_response::<crate::drive::slides::types::Presentation>(
             r#"{"presentationId":"p1","slides":[{"pageElements":[{"image":CASE}]}]}"#,
             "/slides/0/pageElements/0/image",
-            "trailing comma",
         )
         .await;
-        characterize_private_number_response::<crate::drive::sheets::types::ValueRange>(
+        preserve_private_number_response::<crate::drive::sheets::types::ValueRange>(
             r#"{"range":"A1","values":[[CASE]]}"#,
             "/values/0/0",
-            "trailing comma",
         )
         .await;
-        characterize_private_number_response::<crate::drive::sheets::types::ChartSpec>(
+        preserve_private_number_response::<crate::drive::sheets::types::ChartSpec>(
             r#"{"title":"chart","future":CASE}"#,
             "/future",
-            "invalid length",
         )
         .await;
-        characterize_private_number_response::<crate::drive::sheets::types::SlicerSpec>(
+        preserve_private_number_response::<crate::drive::sheets::types::SlicerSpec>(
             r#"{"title":"slicer","future":CASE}"#,
             "/future",
-            "invalid length",
         )
         .await;
     }
