@@ -1,7 +1,9 @@
 # Investigating log-follow receive timeouts
 
-[Issue #243](https://github.com/rust-works/gwi/issues/243) continues the historical
-macOS timeout investigation from [#185](https://github.com/rust-works/gwi/issues/185).
+[Issue #285](https://github.com/rust-works/gwi/issues/285) tracks initial-backlog
+timeouts observed after the diagnostic and probe work in
+[#185](https://github.com/rust-works/gwi/issues/185) and
+[#243](https://github.com/rust-works/gwi/issues/243) was completed.
 No production defect or need for a longer receive deadline has been established.
 This opt-in tool runs the existing instrumented CLI recovery test, including its
 immediate and split appends, without adding load to normal tests or CI.
@@ -250,3 +252,127 @@ Late initial output motivates a spawn/readiness scheduling trace; timely initial
 followed by absent recovered output motivates a saved-offset/append handoff trace;
 recovered stdout with missing warning motivates tracing stderr and malformed-line drain.
 Choose the next trace from the actual failing phase rather than increasing deadlines.
+
+## Post-instrumentation macOS comparison (#285)
+
+[Issue #285](https://github.com/rust-works/gwi/issues/285) records three
+post-instrumentation failures during unrelated PR verification: #271 / PR #281
+(MCP), #208 / PR #284 (default), and #274 / PR #280 (MCP). Each initial receive
+expired at about ten seconds, with the child still alive and both joined readers
+reporting zero output after termination. No dependent append occurred. Passing
+isolated and full-suite retries do not explain those failed invocations. They
+supply evidence of absent initial output, not of an append-offset defect or a
+specific startup/scanning/scheduling cause.
+
+The following bounded comparison ran on 11 October 2026 (Australia/Sydney),
+macOS 26.5.2 arm64, 18 logical CPUs, at source revision
+`6fbe97454db07a0c97335ab59d272216b2cf9e66`. The existing probe and Rust source
+were unchanged. Baseline and startup metadata record a clean checkout; harness
+metadata records only the guide's opening-paragraph edit. Builds were isolated
+per invocation and feature. First-focused still means invocation order, not a
+cold cache. Host process snapshots recorded concurrent Cargo/rustc activity;
+Clippy and full default/MCP verification also ran during parts of this comparison.
+No host-idle, cache, CPU-utilization or controlled build-overlap claim is made.
+
+Exact commands (the probe resolves this worktree's manifest itself):
+
+```sh
+WT=/Users/jky/wrk/work-trees/gwi/issue-285-log-follow-initial-timeout
+python3 "$WT/scripts/log-follow-probe.py" --output /private/tmp/gwi-285-baseline \
+  --repetitions 3 --max-seconds 2400 --build-timeout 900 \
+  --run-timeout 60 --workload-timeout 300
+python3 "$WT/scripts/log-follow-probe.py" --output /private/tmp/gwi-285-startup \
+  --repetitions 3 --max-seconds 2400 --build-timeout 900 \
+  --run-timeout 60 --workload-timeout 300 \
+  --cpu-workers 18 --workload startup --concurrency 4
+python3 "$WT/scripts/log-follow-probe.py" --output /private/tmp/gwi-285-harness \
+  --repetitions 3 --max-seconds 2400 --build-timeout 900 \
+  --run-timeout 60 --workload-timeout 300 \
+  --cpu-workers 18 --workload harness --concurrency 1 --harness-threads 4
+```
+
+All three invocations returned zero. All 18 focused repetitions passed their
+exact selection, record/warning assertions and six phase events each (108 events,
+36 follower scenarios). No failed measurement was replaced by a retry. Each
+invocation selected distinct default/MCP CLI and test executable paths through
+Cargo JSON. The table uses receive timestamps relative to each follower spawn,
+with **immediate / split append** pairs in seconds. Wall time covers the full
+focused process and cleanup. Run 1 is first-focused; runs 2–3 are subsequent.
+
+| Workload | Features | Run | Wall (s) | Initial backlog (s) | Recovered append (s) | Warning (s) |
+| --- | --- | --- | --- | --- | --- | --- |
+| None added | default | 1 | 4.362 | 2.529 / 0.014 | 2.783 / 0.521 | 2.783 / 0.521 |
+| None added | default | 2 | 1.603 | 0.015 / 0.013 | 0.015 / 0.523 | 0.015 / 0.523 |
+| None added | default | 3 | 1.559 | 0.014 / 0.014 | 0.014 / 0.521 | 0.014 / 0.521 |
+| None added | mcp | 1 | 6.874 | 5.060 / 0.011 | 5.316 / 0.517 | 5.316 / 0.517 |
+| None added | mcp | 2 | 1.808 | 0.012 / 0.011 | 0.263 / 0.520 | 0.263 / 0.520 |
+| None added | mcp | 3 | 1.862 | 0.012 / 0.018 | 0.265 / 0.526 | 0.265 / 0.526 |
+| 18 CPU + 4 startup | default | 1 | 4.944 | 3.076 / 0.017 | 3.329 / 0.532 | 3.329 / 0.532 |
+| 18 CPU + 4 startup | default | 2 | 2.118 | 0.016 / 0.016 | 0.275 / 0.779 | 0.275 / 0.779 |
+| 18 CPU + 4 startup | default | 3 | 1.847 | 0.017 / 0.015 | 0.275 / 0.530 | 0.275 / 0.530 |
+| 18 CPU + 4 startup | mcp | 1 | 5.032 | 3.406 / 0.013 | 3.407 / 0.525 | 3.407 / 0.525 |
+| 18 CPU + 4 startup | mcp | 2 | 1.856 | 0.015 / 0.018 | 0.274 / 0.536 | 0.274 / 0.536 |
+| 18 CPU + 4 startup | mcp | 3 | 1.881 | 0.015 / 0.017 | 0.272 / 0.542 | 0.272 / 0.542 |
+| 18 CPU + 1 harness | default | 1 | 5.084 | 3.510 / 0.013 | 3.512 / 0.521 | 3.512 / 0.521 |
+| 18 CPU + 1 harness | default | 2 | 1.837 | 0.017 / 0.014 | 0.277 / 0.525 | 0.277 / 0.525 |
+| 18 CPU + 1 harness | default | 3 | 1.875 | 0.015 / 0.014 | 0.267 / 0.532 | 0.267 / 0.532 |
+| 18 CPU + 1 harness | mcp | 1 | 4.695 | 2.821 / 0.014 | 3.078 / 0.533 | 3.078 / 0.533 |
+| 18 CPU + 1 harness | mcp | 2 | 1.883 | 0.015 / 0.013 | 0.270 / 0.524 | 0.270 / 0.524 |
+| 18 CPU + 1 harness | mcp | 3 | 1.835 | 0.018 / 0.014 | 0.270 / 0.524 | 0.270 / 0.524 |
+
+The largest initial receive was 5.060 seconds, in the first baseline MCP
+invocation. First-focused receives were slower than subsequent receives in all
+six feature/workload combinations. Added load did not monotonically increase
+these timings. These observations do not identify the delay's cause or establish
+that the ten-second historical stalls have disappeared.
+
+Post-run `ps -axo pid=,pgid=,stat=,args=` snapshots were audited against every
+recorded command PID as a process-group ID, excluding zombies from live members.
+All direct commands had recorded return codes; all three audits found no live
+members:
+
+- Baseline: 12 groups; all commands passed.
+- Startup: 624 groups; 576 startup commands passed, 36 CPU workers stopped,
+  and all metadata/build/listing/focused commands passed.
+- Harness: 55 groups; six complete background CLI harnesses passed, one partial
+  harness stopped, 36 CPU workers stopped, and all other commands passed.
+
+Stopped CPU workers and the partial harness are intentional cleanup, not test
+passes. Four startup CPU commands and one harness CPU command recorded macOS
+signal-denial cleanup notes followed by confirmation of no live group members.
+There were no cleanup errors. The separate post-run audits confirmed the result.
+
+Raw summaries, Cargo JSON, command logs, full child/reader/late-output diagnostics,
+process snapshots and `audit.json` remain locally in the three output directories
+above; build-context snapshots are `/private/tmp/gwi-285-build-processes.txt` and
+`/private/tmp/gwi-285-mid-processes.txt`. Scratch evidence is temporary; the timings,
+status, configuration, revision and limits recorded here are the durable result.
+
+### Remaining uncertainty and next capture
+
+No initial-backlog timeout reproduced within these bounds, so no failing child
+stack or startup milestone was captured and no stage was attributed. This covers
+three repetitions per feature/workload on one macOS host. It does not test a
+controlled full-library-suite/concurrent-build matrix, establish a failure rate,
+or add Linux/Windows runtime coverage. The earlier failures remain valid evidence;
+this comparison does not replace them with successes. Production code, exact
+assertions, ten-second receives and unconditional kill/wait/join cleanup are unchanged.
+
+The next action is a bounded live-child capture during an initial-output stall,
+before the fixture's cleanup removes the process. On macOS, a supervisor should
+retain a process snapshot and a one-second `sample <follower-pid> 1` of that specific
+live child, with an outer command timeout below the remaining receive deadline.
+Record capture start/end, PID, revision, workload and the existing receive/reader
+events. Sampling may perturb timing and needs its own bound; a failed or late
+capture is missing evidence, not proof of a stage. Do not delay cleanup to obtain it.
+
+Inspect that evidence before choosing further instrumentation: a stack before
+`main` motivates loader/startup tracing; a stack in argument parsing or runtime
+construction motivates startup milestones; scanning or stdout-writing stacks
+motivate backlog/emission tracing. A live child in the follow loop with absent
+reader events motivates stdout/reader scheduling capture. A single sample shows
+where the child was during that interval, not necessarily where it spent the
+whole receive deadline. If sampling cannot distinguish the stages, add opt-in
+milestones at main entry, dispatch, scan start and first successful output write,
+with a separate diagnostic sink so the exact stderr assertion remains intact.
+No deadline or concurrency change is justified by this non-reproduction.
