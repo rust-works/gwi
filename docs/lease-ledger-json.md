@@ -58,8 +58,9 @@ The feature is crate-wide: other paths that deserialize JSON objects into
 `serde_json::Value` can encounter the same collision, not only the lease ledger or
 flattened fields. For example, the
 [settings reader](../src/utils/settings.rs) also loads a generic JSON value to preserve
-unknown settings on rewrites. This decision makes no feature changes and does not promise arbitrary
-object passthrough for those consumers. Typed strings and ordinary known ledger fields
+unknown settings on rewrites. The [non-ledger JSON audit](json-passthrough.md)
+characterizes those consumers and records their accepted scope. This decision makes
+no feature changes and does not promise arbitrary object passthrough for those consumers. Typed strings and ordinary known ledger fields
 are not interpreted as private number objects merely because they contain this text.
 
 The characterization tests in

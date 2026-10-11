@@ -1143,4 +1143,32 @@ mod tests {
         assert_eq!(parse(serde_json::json!({})).title(), "");
         assert_eq!(parse(serde_json::json!({"title": "T"})).title(), "T");
     }
+
+    #[test]
+    fn private_number_table_inspection_parses_even_unmodelled_fields() {
+        for (literal, expected) in crate::test_support::private_number_cases() {
+            let parsed = serde_json::from_str::<Table>(&format!(
+                r#"{{"rows":1,"columns":2,"future":{literal}}}"#
+            ));
+            match expected {
+                Ok(_) => {
+                    let table = parsed.unwrap();
+                    assert_eq!(table.rows, Some(1));
+                    assert_eq!(table.columns, Some(2));
+                    assert!(!table.has_pending_suggestions);
+                    assert_eq!(
+                        serde_json::to_value(table).unwrap(),
+                        serde_json::json!({"rows":1,"columns":2})
+                    );
+                }
+                Err(message) => {
+                    let error = parsed.unwrap_err().to_string();
+                    assert!(
+                        error.contains(&message.replace("invalid length", "trailing comma")),
+                        "{error}"
+                    );
+                }
+            }
+        }
+    }
 }

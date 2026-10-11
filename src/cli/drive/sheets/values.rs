@@ -223,7 +223,9 @@ fn parse_delimited(content: &str, delimiter: u8) -> Result<Vec<Vec<String>>> {
 /// natural thing to write, and the API takes strings for every cell anyway.
 /// `null` becomes an empty cell. A nested array or object is an error: there
 /// is no sensible single-cell rendering of one, and silently writing
-/// `{"a":1}` into a cell would be worse than refusing.
+/// `{"a":1}` into a cell would be worse than refusing. The accepted
+/// [private number-key limitation](../../../../docs/json-passthrough.md) can
+/// turn an object into a number before this cell validation.
 fn parse_json(content: &str) -> Result<Vec<Vec<String>>> {
     let parsed: serde_json::Value =
         serde_json::from_str(content).context("Failed to parse --values as JSON")?;
@@ -537,5 +539,21 @@ mod tests {
     fn a_stray_auto_falls_back_to_csv() {
         let rows = parse("a,b\n", ValuesFormat::Auto).unwrap();
         assert_eq!(rows, vec![vec!["a", "b"]]);
+    }
+
+    #[test]
+    fn private_number_cell_objects_are_rewritten_or_rejected_before_forwarding() {
+        for (literal, expected) in crate::test_support::private_number_cases() {
+            let result = parse_json(&format!("[[{literal}]]"));
+            if expected.as_ref().is_ok_and(serde_json::Value::is_number) {
+                // The object has already become a scalar before cell validation.
+                assert_eq!(result.unwrap(), vec![vec!["123".to_string()]]);
+            } else {
+                assert!(
+                    result.is_err(),
+                    "objects and arrays must not become cells: {literal}"
+                );
+            }
+        }
     }
 }
