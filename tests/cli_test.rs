@@ -1099,6 +1099,58 @@ fn log_recovers_a_record_after_a_partial_prefix() {
     assert!(output.stderr.is_empty());
 }
 
+/// Probe-only configuration, resolved once at the selected test boundary.
+#[derive(Default)]
+struct FollowProbe {
+    directory: Option<std::path::PathBuf>,
+    reader_delay: std::time::Duration,
+}
+
+impl FollowProbe {
+    fn from_env() -> anyhow::Result<Self> {
+        let directory = std::env::var_os("GWI_FOLLOW_PROBE_DIR").map(std::path::PathBuf::from);
+        let delay = std::env::var("GWI_FOLLOW_PROBE_DELAY")
+            .ok()
+            .map(|value| value.parse::<f64>())
+            .transpose()?;
+        let seconds = delay.unwrap_or(0.0);
+        anyhow::ensure!(
+            seconds.is_finite() && (0.0..=8.0).contains(&seconds),
+            "Probe reader delay must be finite and between zero and eight seconds"
+        );
+        anyhow::ensure!(
+            directory.is_some() || seconds == 0.0,
+            "Probe reader delay requires a diagnostic directory"
+        );
+        Ok(Self {
+            directory,
+            reader_delay: std::time::Duration::from_secs_f64(seconds),
+        })
+    }
+}
+
+fn follow_probe_timestamp() -> f64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs_f64()
+}
+
+/// Atomic snapshots let the supervisor observe a pending receive without a handshake.
+/// Diagnostics are best effort: a sink failure must not bypass follower cleanup.
+fn publish_follow_probe(directory: Option<&Path>, pid: u32, state: &serde_json::Value) {
+    let Some(directory) = directory else { return };
+    let result = (|| {
+        let temporary = directory.join(format!("follower-{pid}.tmp"));
+        std::fs::write(&temporary, serde_json::to_vec_pretty(state)?)?;
+        std::fs::rename(temporary, directory.join(format!("follower-{pid}.json")))?;
+        Ok::<_, anyhow::Error>(())
+    })();
+    if let Err(error) = result {
+        eprintln!("Follow probe diagnostic write failed for pid={pid}: {error:#}");
+    }
+}
+
 type FollowEvent = (std::time::Duration, std::io::Result<String>);
 
 /// Reads both pipes independently and preserves I/O failures and event timestamps.
@@ -1106,6 +1158,7 @@ fn log_follow_reader(
     pipe: impl std::io::Read + Send + 'static,
     started: std::time::Instant,
     gate: Option<std::sync::mpsc::Receiver<()>>,
+    delay: std::time::Duration,
 ) -> (
     std::sync::mpsc::Receiver<FollowEvent>,
     std::thread::JoinHandle<usize>,
@@ -1116,6 +1169,9 @@ fn log_follow_reader(
     let reader = std::thread::spawn(move || {
         if let Some(gate) = gate {
             gate.recv().unwrap();
+        }
+        if !delay.is_zero() {
+            std::thread::sleep(delay);
         }
         let mut count = 0;
         for line in BufReader::new(pipe).lines() {
@@ -1135,6 +1191,7 @@ fn check_log_follow_recovery(
     split_append: bool,
     receive_timeout: std::time::Duration,
     hold_stdout: bool,
+    probe: &FollowProbe,
 ) -> anyhow::Result<()> {
     use std::io::Write;
     use std::process::Stdio;
@@ -1160,12 +1217,31 @@ fn check_log_follow_recovery(
         child.stdout.take().unwrap(),
         started,
         hold_stdout.then_some(stdout_gate),
+        probe.reader_delay,
     );
-    let (err_rx, err_reader) = log_follow_reader(child.stderr.take().unwrap(), started, None);
+    let (err_rx, err_reader) =
+        log_follow_reader(child.stderr.take().unwrap(), started, None, Duration::ZERO);
+    let mut state = serde_json::json!({
+        "pid": pid, "harness_pid": std::process::id(), "split_append": split_append,
+        "spawned_unix_seconds": follow_probe_timestamp(),
+        "synthetic_reader_delay_seconds": probe.reader_delay.as_secs_f64(),
+        "events": [],
+    });
     let mut events = Vec::new();
     let mut receive = |receiver: &std::sync::mpsc::Receiver<FollowEvent>, phase, expected: &str| {
-        let event = receiver.recv_timeout(receive_timeout);
+        let receive_deadline = Instant::now() + receive_timeout;
+        state["phase"] = serde_json::json!(phase);
+        state["status"] = serde_json::json!("waiting");
+        state["receive_started_unix_seconds"] = serde_json::json!(follow_probe_timestamp());
+        state["receive_timeout_seconds"] = serde_json::json!(receive_timeout.as_secs_f64());
+        publish_follow_probe(probe.directory.as_deref(), pid, &state);
+        let event =
+            receiver.recv_timeout(receive_deadline.saturating_duration_since(Instant::now()));
         events.push(format!("{phase} at {:?}: {event:?}", started.elapsed()));
+        state["status"] = serde_json::json!("received");
+        state["events"] = serde_json::json!(events);
+        state["receive_ended_unix_seconds"] = serde_json::json!(follow_probe_timestamp());
+        publish_follow_probe(probe.directory.as_deref(), pid, &state);
         let (_, line) = event.with_context(|| format!("Failed to receive {phase}"))?;
         let line = line.with_context(|| format!("Failed to read {phase}"))?;
         anyhow::ensure!(line == expected, "Unexpected {phase}: {line:?}");
@@ -1203,6 +1279,8 @@ fn check_log_follow_recovery(
         );
         Ok::<_, anyhow::Error>(())
     })();
+    state["status"] = serde_json::json!("cleanup");
+    state["cleanup_started_unix_seconds"] = serde_json::json!(follow_probe_timestamp());
     let before_kill = child.try_wait();
     // Reap and join BOTH readers before reporting even a timeout or write failure.
     let killed = child.kill();
@@ -1224,6 +1302,10 @@ fn check_log_follow_recovery(
         started.elapsed(),
         events.join("\n")
     );
+    state["status"] = serde_json::json!("reaped");
+    state["cleanup_ended_unix_seconds"] = serde_json::json!(follow_probe_timestamp());
+    state["diagnostics"] = serde_json::json!(diagnostics);
+    publish_follow_probe(probe.directory.as_deref(), pid, &state);
     result.with_context(|| diagnostics.clone())?;
     anyhow::ensure!(
         matches!(before_kill, Ok(None)),
@@ -1247,6 +1329,7 @@ fn check_log_follow_recovery(
 
 #[test]
 fn log_follow_recovers_appended_records_and_warns_on_stderr() {
+    let probe = FollowProbe::from_env().unwrap();
     for split_append in [false, true] {
         let home = tempfile::tempdir().unwrap();
         let path = home.path().join("log.jsonl");
@@ -1256,6 +1339,7 @@ fn log_follow_recovers_appended_records_and_warns_on_stderr() {
             split_append,
             std::time::Duration::from_secs(10),
             false,
+            &probe,
         )
         .unwrap();
     }
@@ -1267,8 +1351,14 @@ fn log_follow_initial_timeout_reports_phase_and_reaps_before_returning() {
     let path = home.path().join("log.jsonl");
     let backlog = format!("{HTTP_LINE}\n{{partial");
     std::fs::write(&path, &backlog).unwrap();
-    let error =
-        check_log_follow_recovery(&path, false, std::time::Duration::ZERO, true).unwrap_err();
+    let error = check_log_follow_recovery(
+        &path,
+        false,
+        std::time::Duration::ZERO,
+        true,
+        &FollowProbe::default(),
+    )
+    .unwrap_err();
     let diagnostic = format!("{error:#}");
     assert!(
         diagnostic.contains("Failed to receive initial backlog stdout"),
@@ -1282,6 +1372,62 @@ fn log_follow_initial_timeout_reports_phase_and_reaps_before_returning() {
     assert!(diagnostic.contains("stderr reader=Ok("), "{diagnostic}");
     // Dependent appends must not run after startup/backlog readiness failed.
     assert_eq!(std::fs::read_to_string(path).unwrap(), backlog);
+}
+
+#[test]
+fn log_follow_probe_sink_failure_does_not_bypass_timeout_cleanup() {
+    let home = tempfile::tempdir().unwrap();
+    let path = home.path().join("log.jsonl");
+    let backlog = format!("{HTTP_LINE}\n{{partial");
+    std::fs::write(&path, &backlog).unwrap();
+    let probe = FollowProbe {
+        directory: Some(home.path().join("missing-directory")),
+        ..FollowProbe::default()
+    };
+    let error = check_log_follow_recovery(&path, false, std::time::Duration::ZERO, true, &probe)
+        .unwrap_err();
+    let diagnostic = format!("{error:#}");
+    assert!(diagnostic.contains("Failed to receive initial backlog stdout"));
+    assert!(diagnostic.contains("kill=Ok(())"));
+    assert!(diagnostic.contains("wait=Ok("));
+    assert!(diagnostic.contains("stdout reader=Ok("));
+    assert!(diagnostic.contains("stderr reader=Ok("));
+    assert_eq!(std::fs::read_to_string(path).unwrap(), backlog);
+}
+
+#[test]
+fn log_follow_probe_retains_phase_and_cleanup_evidence() {
+    let home = tempfile::tempdir().unwrap();
+    let sink = tempfile::tempdir().unwrap();
+    let path = home.path().join("log.jsonl");
+    std::fs::write(&path, format!("{HTTP_LINE}\n{{partial")).unwrap();
+    let probe = FollowProbe {
+        directory: Some(sink.path().to_path_buf()),
+        reader_delay: std::time::Duration::from_millis(50),
+    };
+    check_log_follow_recovery(
+        &path,
+        false,
+        std::time::Duration::from_secs(10),
+        false,
+        &probe,
+    )
+    .unwrap();
+    let files: Vec<_> = std::fs::read_dir(sink.path()).unwrap().collect();
+    assert_eq!(files.len(), 1);
+    let state: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(files[0].as_ref().unwrap().path()).unwrap()).unwrap();
+    assert_eq!(state["status"], "reaped");
+    assert_eq!(state["harness_pid"], std::process::id());
+    assert_eq!(state["events"].as_array().unwrap().len(), 3);
+    assert!(state["diagnostics"]
+        .as_str()
+        .unwrap()
+        .contains("kill=Ok(())"));
+    assert!(
+        state["cleanup_ended_unix_seconds"].as_f64().unwrap()
+            >= state["cleanup_started_unix_seconds"].as_f64().unwrap()
+    );
 }
 
 #[test]
