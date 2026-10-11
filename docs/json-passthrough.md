@@ -2,8 +2,10 @@
 
 Settings updates and settings import preserve arbitrary unknown JSON through an explicit
 read/merge/write boundary ([#273](https://github.com/rust-works/gwi/issues/273)).
-The [#209](https://github.com/rust-works/gwi/issues/209) audit's accepted private
-number-key limitation still applies to the API/Sheets paths below. The ledger's
+Sheets JSON cell input validates original JSON kinds before scalar conversion
+([#274](https://github.com/rust-works/gwi/issues/274)). The
+[#209](https://github.com/rust-works/gwi/issues/209) audit's accepted private
+number-key limitation still applies to the API/Sheets payload paths below. The ledger's
 separate decision and implementation are documented in
 [lease ledger JSON](lease-ledger-json.md) and tracked by
 [#208](https://github.com/rust-works/gwi/issues/208).
@@ -45,7 +47,7 @@ or a test fixture is not itself a passthrough boundary.
 | Sheets slicer snapshots (`SlicerSpec::extra`) | Unknown fields survive read/output serialization subject to the same collision, confirmed at the HTTP response boundary. Slicer updates use field masks and constructed specs, so they do not wholesale re-send unknown fields. |
 | Gmail message MIME `payload` (`src/gmail/types.rs`), Docs unmodelled structural/paragraph arms (`src/drive/docs/types.rs`), Slides `pageSize`/`image` (`src/drive/slides/types.rs`), Sheets cell values (`ValueRange::values`) | These `Value` slots preserve selected API payloads for output or serve as presence discriminators. Literal HTTP response parsing and wire-model serialization tests confirm the same collision in representative slots. They do not promise preservation of every unknown field of the enclosing typed models. Slides' bounded read uses `from_slice` rather than the shared HTTP parser; both use the same wire models and Value deserialization. |
 | Docs table suggestion inspection (`Table::deserialize` in `src/drive/docs/types.rs`) | A generic intermediate scans unknown nested suggestion fields before narrowing to typed data. Bad private-number objects can reject the table even in otherwise ignored fields. The numeric case is parsed, then unmodelled data is discarded; this is not arbitrary metadata retention. |
-| Sheets JSON cell input (`src/cli/drive/sheets/values.rs`) | Intended scalar conversion, not arbitrary JSON passthrough. The first direct object becomes the string cell `123` before object validation. Invalid-number/multiple-key objects fail parsing; ordinary-first and nested objects fail cell validation. No Sheets request is built when this parser fails. |
+| Sheets JSON cell input (`src/cli/drive/sheets/values.rs`) | Intended scalar conversion, not arbitrary JSON passthrough. Borrowed JSON slices validate original kinds before scalar conversion. All object/array cells, including private-number objects and nested containers, fail cell validation with row/column diagnostics. Supported numeric precision is retained. No Sheets request is built when this parser fails. |
 | Google error parsing (`src/drive/api_client.rs`, `src/gmail/client.rs`) | Temporary `Value` extracts error messages/reasons or quota hints, not JSON forwarding. Parse failures use existing fallback diagnostics; no unknown-object retention contract. |
 | Drive sync manifest, Gmail archive state/manifest/insert ledger, OAuth client-secret import, Chrome Local State, request/audit log records | Typed models (or raw body strings), not arbitrary unknown-JSON retention. Unknown typed fields are ignored or rejected according to their model; they are not merged back as Value. |
 | MCP tools and output truncation | Tools consume typed parameters and reuse the service/settings/cell parsers above. Truncation operates on rendered text; test-only parsed markers and constructed JSON do not add an arbitrary JSON input boundary. |
@@ -83,12 +85,14 @@ objects retain insertion order. This is not the ledger's outer-key ordering cont
 
 No current writer is known to produce this unusual key. Retaining `arbitrary_precision`
 avoids regressing [#95](https://github.com/rust-works/gwi/issues/95). Distinct future
-changes could protect the Sheets scalar validator before Value conversion and preserve
-selected API/Sheets unknown payloads. Those boundaries remain outside the settings fix.
-Simply adding raw values to flattened fields does not avoid serde's buffering.
+changes could preserve selected API/Sheets unknown payloads. Those boundaries remain
+outside the settings and scalar cell-input fixes. The Sheets scalar validator now
+checks raw JSON kinds before Value conversion (#274). Simply adding raw values to
+flattened fields does not avoid serde's buffering.
 
-The tests use literal JSON inputs and independently constructed expectations in
-[`src/test_support.rs`](../src/test_support.rs), avoiding a pre-parsed fixture that
+The audit tests use literal JSON inputs and independently constructed expectations
+in [`src/test_support.rs`](../src/test_support.rs); the Sheets cell rejection
+regressions keep their own literal inputs in the parser tests. This avoids a pre-parsed fixture that
 would hide the collision. They exercise actual settings writers/import, Sheets merge
 and validation functions, and local HTTP response parsing/serialization. No live
 Google services or user credentials are used.

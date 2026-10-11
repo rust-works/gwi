@@ -2057,8 +2057,10 @@ not a header**. Blank lines are rows too: each input line maps to exactly
 one sheet row, written as a single empty cell, so a blank line in the
 middle of pasted data doesn't shift every later row up by one.
 
-JSON cell input has an accepted [private number-key limitation](json-passthrough.md):
-an object can become a numeric scalar before cell validation.
+JSON cell input validates each cell’s original JSON kind before scalar conversion.
+Objects and nested arrays are rejected with their row and column, including objects
+containing `$serde_json::private::Number`. Supported numbers retain their precision;
+see the [JSON compatibility inventory](json-passthrough.md).
 
 **`--input` controls how Sheets interprets each cell string:**
 
