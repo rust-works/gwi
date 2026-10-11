@@ -55,6 +55,8 @@ copies: a lease released in omni-dev is released in gwi by the next `gwi import`
 two rows are otherwise the same, not before. Audit history is not
 copied. Unknown metadata is retained subject to the
 [lease ledger JSON compatibility limitation](docs/lease-ledger-json.md).
+Settings updates/import and API payloads have a related
+[JSON passthrough limitation](docs/json-passthrough.md).
 See [Coming from omni-dev](docs/drive.md#coming-from-omni-dev) for the details.
 
 `--dry-run` lists conflicts as part of its preview and exits 0 for them, in both the settings

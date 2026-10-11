@@ -693,3 +693,38 @@ mod env_guard_tests {
         }
     }
 }
+
+/// Builds literal private-number-key cases and independent expected parse outcomes.
+/// Includes direct objects and the same objects inside nested objects/arrays.
+pub(crate) fn private_number_cases() -> Vec<(String, Result<serde_json::Value, &'static str>)> {
+    use serde_json::json;
+
+    let cases = [
+        (r#"{"$serde_json::private::Number":"123"}"#, Ok(json!(123))),
+        (
+            r#"{"$serde_json::private::Number":"not-a-number"}"#,
+            Err("invalid number"),
+        ),
+        (
+            r#"{"$serde_json::private::Number":"123","other":"keep"}"#,
+            Err("invalid length"),
+        ),
+        (
+            r#"{"other":"keep","$serde_json::private::Number":"123"}"#,
+            Ok(json!({"other":"keep","$serde_json::private::Number":"123"})),
+        ),
+    ];
+    let mut out = Vec::new();
+    for (literal, expected) in cases {
+        out.push((literal.to_string(), expected.clone()));
+        out.push((
+            format!("{{\"nested\":{literal}}}"),
+            expected.clone().map(|value| json!({"nested": value})),
+        ));
+        out.push((
+            format!("{{\"nested\":[{{\"deep\":{literal}}}]}}"),
+            expected.map(|value| json!({"nested": [{"deep": value}]})),
+        ));
+    }
+    out
+}

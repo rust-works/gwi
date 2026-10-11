@@ -7154,4 +7154,28 @@ mod tests {
             "{rendered}"
         );
     }
+
+    #[test]
+    fn private_number_chart_metadata_through_title_update() {
+        let workbook = workbook_with_sheet(basic_chart_sheet(1, "COLUMN"));
+        let mut verb = update_chart_verb(1);
+        if let EmbeddedObjectVerb::UpdateChart { title, .. } = &mut verb {
+            *title = Some("new title".to_string());
+        }
+        for (literal, expected) in crate::test_support::private_number_cases() {
+            let input = format!(
+                r#"{{"title":"old title","basicChart":{{"chartType":"COLUMN"}},"future":{literal}}}"#
+            );
+            let parsed = serde_json::from_str::<ChartSpec>(&input);
+            match expected {
+                Ok(value) => {
+                    let (spec, _) = merge_chart_spec(&workbook, &parsed.unwrap(), &verb).unwrap();
+                    let saved = serde_json::to_value(&spec).unwrap();
+                    assert_eq!(saved["future"], value);
+                    assert_eq!(saved["title"], "new title");
+                }
+                Err(message) => assert!(parsed.unwrap_err().to_string().contains(message)),
+            }
+        }
+    }
 }
