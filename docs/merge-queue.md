@@ -55,25 +55,95 @@ gh run view 38013416205 --repo rust-works/gwi --log
 gh api repos/rust-works/gwi/commits/426bf4fa6eecca0fc9f189e49d9842fb7d7f073d/check-runs
 ```
 
-## Pending live acceptance checks
+## Post-update healthy queue evidence
 
-The successful run above predates the required-context update. It proves that the
-queue workflow reports the correct context and runs both lints, but does not prove
-queue enforcement under the updated policy. No post-update queue rejection or
-healthy merge was available in the Actions and rule-suite evidence inspected for
-this record.
+[Merge-group run 38017826702](https://github.com/rust-works/gwi/actions/runs/38017826702)
+reported a successful
+[Commit Message Lint job 114111949012](https://github.com/rust-works/gwi/actions/runs/38017826702/job/114111949012)
+from GitHub Actions app `15368` on queue head
+`f46cfb6f95d9376a450ad73e8cb918ad3146bf2e`. The job completed on
+10 October 2026 at 13:41:58 AEDT, after the requirement was enabled at
+12:42:24 AEDT. Both lint steps passed:
 
-Before treating #145 as fully verified, record direct evidence of both:
+- Commit range: `7afbe407451fd4135b687f9cdf05def15acda892..f46cfb6f95d9376a450ad73e8cb918ad3146bf2e`.
+- Commit message lint: one commit passed, zero with issues.
+- Scopes lint: 13 scopes, 275 files checked, zero violations.
 
-1. A queued group with a failed `Commit Message Lint` result being prevented from
-   merging because of that required check.
-2. A healthy queue entry passing the required context and proceeding normally
-   under the updated policy.
+[PR #194](https://github.com/rust-works/gwi/pull/194) merged at 13:54:42 AEDT
+with that exact merge commit. The matching post-update merge-group check and
+merge establish the healthy queue path. The main rule-suite history query on
+11 October 2026 returned no suite for this head; no particular rule evaluation
+or bypass result is inferred from that absence.
 
-Link the queue head SHA, Actions job, and queue/rule evaluation for each case.
-Keep policy readback distinct from observed queue behavior. The issue-to-pr run
-did not enqueue or merge a PR, inject failures into another session's checks, or
-remove administrator bypass to manufacture this evidence.
+Inspect the exact event, check identity, logs and merge with:
+
+```bash
+gh run view 38017826702 --repo rust-works/gwi --json event,headSha,jobs,conclusion,url
+gh run view 38017826702 --repo rust-works/gwi --log
+gh api repos/rust-works/gwi/check-runs/114111949012
+gh api repos/rust-works/gwi/pulls/194 --jq '{merged_at,merge_commit_sha}'
+```
+
+## Remaining failed-check acceptance evidence
+
+[Issue #205](https://github.com/rust-works/gwi/issues/205) still requires direct
+evidence that failed commit lint on a real merge-group head prevents merging
+without bypass. On 11 October 2026, the commit-lint workflow's merge-group
+queries returned zero runs with each conclusion `failure`, `timed_out` and
+`cancelled`. The paginated main rule-suite query returned no non-pass suite.
+These searches found no usable naturally occurring failure evidence; they do
+not prove that no queue rejection ever occurred. A queue removal may happen
+before any main-push rule evaluation, and an aggregate workflow conclusion is
+distinct from a job conclusion.
+
+Reproduce the searches with:
+
+```bash
+gh api 'repos/rust-works/gwi/actions/workflows/commit-lint.yml/runs?event=merge_group&status=failure&per_page=100'
+gh api 'repos/rust-works/gwi/actions/workflows/commit-lint.yml/runs?event=merge_group&status=timed_out&per_page=100'
+gh api 'repos/rust-works/gwi/actions/workflows/commit-lint.yml/runs?event=merge_group&status=cancelled&per_page=100'
+gh api --paginate 'repos/rust-works/gwi/rulesets/rule-suites?ref=refs/heads/main&per_page=100'
+```
+
+Required-check readback establishes configuration, not failed-check rejection.
+A generic blocked PR, an unrelated failed check, or administrator bypass cannot
+satisfy this acceptance criterion. Keep #205 unresolved until direct rejection
+and cleanup evidence are recorded.
+
+### Guarded commit-lint failure probe procedure
+
+Prefer naturally occurring evidence. Before a disposable probe, obtain explicit
+authorization for enqueueing: a queue entry can merge automatically, while the
+issue-to-pr skill prohibits merging. Use an owned disposable PR/branch with an
+independently enforced safeguard against probe changes reaching main. A plan to
+close the PR quickly is insufficient. Do not proceed if the safeguard requires
+changing production protection or prevents attribution to commit lint.
+
+Capture full ruleset and classic-protection snapshots first. Preserve all
+required contexts/app IDs, queue parameters, conditions, enforcement and bypass
+actors, and leave other sessions' queue entries and checks untouched. Use an
+ordinary queue operation without bypass; the authenticated actor in this
+investigation has `current_user_can_bypass: always`.
+
+Retain the probe PR/branch, queue head SHA, exact failed `Commit Message Lint`
+check from app `15368`, Actions job/logs and timestamps. Inspect all pages of
+check runs and commit statuses on that head to distinguish this failure from
+other required failures. Capture the PR's `RemovedFromMergeQueueEvent`, including
+`reason`, `beforeCommit` and timestamp, or an explicit rule evaluation rejecting
+the group because of commit lint. A `failed_checks` removal with commit lint as
+the sole failed required check on the matching head can establish attribution;
+record pending checks accurately rather than claiming they passed.
+
+After evidence capture, close the disposable PR without merging, cancel only
+its remaining runs and delete its branch. Confirm no probe changes reached main
+and compare fresh full protection snapshots with the originals. Explain any
+concurrent change instead of overwriting it. Record cleanup alongside rejection.
+
+This read-only investigation created no probe resources and changed no checks,
+queue entries or production settings. It did not enqueue, merge or exercise
+bypass. Full ruleset and classic-protection readbacks matched the initial
+snapshots exactly. The healthy path is verified; the failed-check path remains
+pending.
 
 ## Empty HOME required context
 
