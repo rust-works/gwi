@@ -5,7 +5,9 @@ labelled `A-code-coverage`. **Not yet filed**: filing publishes under a person's
 account, so it waits for that person's decision. When it is filed, record the link in
 [the investigation](../sheets-mcp-coverage-delta.md#upstream-disposition-295) and in
 [#295](https://github.com/rust-works/gwi/issues/295). The text below is deliberately
-self-contained; it does not assume the reader knows gwi or rmcp.
+self-contained; it does not assume the reader knows gwi or rmcp. Before filing, repin the
+fixture link to the merge commit of the PR that added this file, so the beta and nightly rows
+are in the linked `results.json`.
 
 Searches for an equivalent report found none (see the investigation). The closest are
 [#123567](https://github.com/rust-lang/rust/issues/123567),
@@ -37,7 +39,17 @@ uncovered lines when a multi-line description gained `Sheet1!A1:C10`.
 
 Two crates, no dependencies beyond `syn`/`quote`/`proc-macro2`.
 
-`macros/src/lib.rs` (`proc-macro = true`):
+`Cargo.toml` (workspace root): `[workspace]` with `members = ["macros", "case"]` and
+`resolver = "2"`.
+
+`macros/Cargo.toml`: package `span-macro`, edition 2021, `[lib] proc-macro = true`, dependencies
+`proc-macro2 = "=1.0.107"`, `quote = "=1.0.47"` and
+`syn = { version = "=2.0.119", features = ["full"] }`.
+
+`case/Cargo.toml`: package `span-case`, edition 2021, dependency
+`span-macro = { path = "../macros" }`.
+
+`macros/src/lib.rs`:
 
 ```rust
 use proc_macro::TokenStream;
@@ -81,8 +93,19 @@ mod tests {
 }
 ```
 
-With `cargo-llvm-cov` 0.9.1 (`cargo llvm-cov --json`), the function whose name contains
-`handler_metadata` is absent for `"x"` and present with count 0 for `"x!"`.
+Run, in a fresh target directory per variant:
+
+```sh
+eval "$(cargo llvm-cov show-env --sh)"
+cargo llvm-cov clean --workspace
+cargo test --locked --workspace
+cargo llvm-cov clean --profraw-only
+cargo llvm-cov report --json --output-path coverage.json
+```
+
+With `cargo-llvm-cov` 0.9.1, the function whose name contains `handler_metadata` is absent from
+`coverage.json` for `"x"` and present with count 0 for `"x!"`. (The driver below also
+passes `--all-features` and uses `cargo llvm-cov report --lcov` first; the fixture has no features.)
 
 The complete fixture, a replay driver that builds both variants in separate directories and
 retains source, logs, lcov, LLVM JSON, expansion, LLVM IR and MIR before/after
@@ -99,7 +122,9 @@ Same result in every row (plain: no region; bang: one zero-hit region `[8,1,8,27
 | 1.100.0-beta.4 | `a2eb6097d22d908142aa4a067bc2cb70860a95b7` | 23.1.1 | aarch64-apple-darwin |
 | 1.101.0-nightly (2026-10-10) | `6f5da406b56c2db6607202b63daee73aa8c61297` | 23.1.3 | aarch64-apple-darwin |
 
-Beta and nightly both include #161517 (hybrid HIR-aware coverage spans).
+Beta and nightly both include #161517 (hybrid HIR-aware coverage spans); 1.99.0 does not, so the
+bug predates that change and survives it. The beta and nightly rows were run with `rustup`
+toolchains `beta-2026-10-05` and `nightly-2026-10-11`.
 
 ## Suspected cause (a diagnosis, not an observation)
 
@@ -122,4 +147,5 @@ variant).
   beginning at the macro name) expected to reach this branch?
 - If so, should the search for `!` be limited to the start of the span (for example, only if the
   span's text begins with the macro path), rather than anywhere in it?
-- Otherwise, is this within the known limitations of proc-macro coverage (see #147434, where the maintainers describe proc-macro spans as fragile)?
+- Otherwise, is this within the known limitations of proc-macro coverage (in #147434 a maintainer wrote that "proc-macros have been a huge headache for coverage
+  instrumentation in general")?

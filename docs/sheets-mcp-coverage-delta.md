@@ -379,12 +379,15 @@ on the pinned 1.99.0:
 | 1.100.0-beta.4 | `a2eb6097d` | 23.1.1 | no region | `[8, 1, 8, 27, 0, 0, 0, 0]` |
 | 1.101.0-nightly (2026-10-10) | `6f5da406b` | 23.1.3 | no region | `[8, 1, 8, 27, 0, 0, 0, 0]` |
 
-Both newer compilers contain [rust-lang/rust#161517](https://github.com/rust-lang/rust/pull/161517)
-(hybrid HIR-aware coverage spans). As before, the closure's MIR before `InstrumentCoverage`
+The channels were `beta` and `nightly` on 2026-10-12; the dated `rustup` toolchains
+`beta-2026-10-05` and `nightly-2026-10-11` select the same compilers. Both contain
+[rust-lang/rust#161517](https://github.com/rust-lang/rust/pull/161517) (hybrid HIR-aware
+coverage spans, merged 2026-09-06); the pinned 1.99.0 does not (GitHub's compare reports it as
+diverged from that merge), so the difference predates the change and survives it. As before, the closure's MIR before `InstrumentCoverage`
 is identical apart from span coordinates and the closure is in the LLVM IR of both variants;
 after the pass, only the `"x!"` variant has a `coverage Code { bcb0 }` mapping. The
-`span_through_char(span, '!')` call is also present at `rust-lang/rust` `main` (checked the
-same day). Raw values are in the [snapshot](repro-schema-coverage/results.json). Nothing
+`span_through_char(span, '!')` call is also present at `rust-lang/rust` `main`
+`7211ea594cbf137ef6118b1752b959dea7cb9088` (2026-10-11). Raw values are in the [snapshot](repro-schema-coverage/results.json). Nothing
 is claimed for any compiler not listed.
 
 ### Report
@@ -401,8 +404,9 @@ retest on the toolchain that carries a fix.
 
 ### Reading description-only coverage deltas
 
-A coverage change that follows an edit to a macro attribute's text, such as a tool
-description, is not a regression or a test gap when all of these hold:
+Verified only on rustc 1.99.0 to 1.101.0-nightly and one real crate (rmcp 3.5.1). A coverage
+change that follows an edit to a macro attribute's text, such as a tool description, is not
+a regression or a test gap when all of these hold:
 
 - the added region is zero-hit, in a generated closure, and its start is the attribute's
   start;
@@ -412,4 +416,5 @@ description, is not a regression or a test gap when all of these hold:
 
 Removing every `!` from the attribute would remove the region, but do not rewrite
 descriptions to manage coverage: the exclusions and wording stay as they are. If any
-condition fails, treat the delta as ordinary and investigate it as such.
+condition fails, or the compiler is outside that range, treat the delta as ordinary and
+investigate it as such. Retest the fixture when the compiler changes.
