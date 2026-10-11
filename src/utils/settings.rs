@@ -23,6 +23,7 @@ use serde::Deserialize;
 
 use crate::utils::env::{EnvSource, SecretTriple, SystemEnv};
 use crate::utils::secret_env;
+use crate::utils::settings_json::{Object as SettingsObject, SettingsJson};
 
 /// Where a resolved environment value came from, for provenance reporting
 /// (issue #1143).
@@ -576,7 +577,7 @@ fn is_secret_env_var(key: &str) -> bool {
 /// there in plaintext would silently undo that. An empty value counts as
 /// unset, as everywhere else.
 fn refuse_secret_commands<'a>(
-    env: &serde_json::Map<String, serde_json::Value>,
+    env: &SettingsObject,
     keys: impl Iterator<Item = &'a str>,
     profile: Option<&str>,
 ) -> Result<()> {
@@ -584,7 +585,7 @@ fn refuse_secret_commands<'a>(
         let command_var = secret_env::command_var_name(key);
         let set = env
             .get(&command_var)
-            .and_then(serde_json::Value::as_str)
+            .and_then(SettingsJson::as_str)
             .is_some_and(|v| !v.is_empty());
         if set {
             let map = match profile {
@@ -794,8 +795,8 @@ impl Settings {
     /// library callers.
     ///
     /// The file is read and written as a generic JSON value, so every other
-    /// field (other profiles, unknown keys) is retained subject to the
-    /// [JSON compatibility limitation](../../docs/json-passthrough.md). Because
+    /// field (other profiles, unknown keys) is retained through the
+    /// [settings JSON boundary](../../docs/json-passthrough.md). Because
     /// the `env` maps hold credentials, the write is hardened: parent directory
     /// `0700`, file `0600` (see `write_settings`).
     pub fn upsert_env_vars_in(
@@ -821,22 +822,22 @@ impl Settings {
         let env = ensure_env_object(&mut settings_value, profile)?;
         refuse_secret_commands(env, vars.iter().map(|(key, _)| *key), profile)?;
         for key in remove {
-            env.remove(*key);
+            env.shift_remove(*key);
             if is_secret_env_var(key) {
-                env.remove(&secret_env::file_var_name(key));
-                env.remove(&secret_env::command_var_name(key));
+                env.shift_remove(&secret_env::file_var_name(key));
+                env.shift_remove(&secret_env::command_var_name(key));
             }
         }
         for (key, value) in vars {
             env.insert(
                 (*key).to_string(),
-                serde_json::Value::String((*value).to_string()),
+                serde_json::Value::String((*value).to_string()).into(),
             );
             // A registered secret's `_FILE` companion in the same map would
             // make every later read a same-layer conflict (ADR-0089), so the
             // value just written replaces it.
             if is_secret_env_var(key) {
-                env.remove(&secret_env::file_var_name(key));
+                env.shift_remove(&secret_env::file_var_name(key));
             }
         }
 
@@ -901,7 +902,7 @@ impl Settings {
         let mut removed = false;
         if let Some(env) = env_object_mut(&mut settings_value, profile) {
             for key in keys {
-                if env.remove(*key).is_some() {
+                if env.shift_remove(*key).is_some() {
                     removed = true;
                 }
                 // Logging out must not leave a registered secret still
@@ -912,7 +913,7 @@ impl Settings {
                         secret_env::file_var_name(key),
                         secret_env::command_var_name(key),
                     ] {
-                        if env.remove(&companion).is_some() {
+                        if env.shift_remove(&companion).is_some() {
                             removed = true;
                         }
                     }
@@ -985,12 +986,12 @@ impl Settings {
         let mut settings_value = read_or_default_settings(path)?;
 
         let removed = object_at_mut(&mut settings_value, &["gmail", "accounts"])
-            .is_some_and(|accounts| accounts.remove(account).is_some());
+            .is_some_and(|accounts| accounts.shift_remove(account).is_some());
 
         if removed {
             if let Some(gmail) = object_at_mut(&mut settings_value, &["gmail"]) {
                 if gmail.get("default_account").and_then(|v| v.as_str()) == Some(account) {
-                    gmail.remove("default_account");
+                    gmail.shift_remove("default_account");
                 }
             }
             write_settings(path, &settings_value)?;
@@ -1011,12 +1012,12 @@ impl Settings {
                 let gmail = ensure_object_at(&mut settings_value, &["gmail"])?;
                 gmail.insert(
                     "default_account".to_string(),
-                    serde_json::Value::String(name.to_string()),
+                    serde_json::Value::String(name.to_string()).into(),
                 );
             }
             None => {
                 if let Some(gmail) = object_at_mut(&mut settings_value, &["gmail"]) {
-                    gmail.remove("default_account");
+                    gmail.shift_remove("default_account");
                 }
             }
         }
@@ -1059,12 +1060,12 @@ impl Settings {
         let mut settings_value = read_or_default_settings(path)?;
 
         let removed = object_at_mut(&mut settings_value, &["drive", "accounts"])
-            .is_some_and(|accounts| accounts.remove(account).is_some());
+            .is_some_and(|accounts| accounts.shift_remove(account).is_some());
 
         if removed {
             if let Some(drive) = object_at_mut(&mut settings_value, &["drive"]) {
                 if drive.get("default_account").and_then(|v| v.as_str()) == Some(account) {
-                    drive.remove("default_account");
+                    drive.shift_remove("default_account");
                 }
             }
             write_settings(path, &settings_value)?;
@@ -1084,12 +1085,12 @@ impl Settings {
                 let drive = ensure_object_at(&mut settings_value, &["drive"])?;
                 drive.insert(
                     "default_account".to_string(),
-                    serde_json::Value::String(name.to_string()),
+                    serde_json::Value::String(name.to_string()).into(),
                 );
             }
             None => {
                 if let Some(drive) = object_at_mut(&mut settings_value, &["drive"]) {
-                    drive.remove("default_account");
+                    drive.shift_remove("default_account");
                 }
             }
         }
@@ -1102,9 +1103,9 @@ impl Settings {
 /// when `None`, `profiles.<name>.env` when `Some`. Thin specialization of
 /// [`ensure_object_at`] for the two-level `env`/`profiles.<name>.env` shape.
 fn ensure_env_object<'a>(
-    root: &'a mut serde_json::Value,
+    root: &'a mut SettingsJson,
     profile: Option<&str>,
-) -> Result<&'a mut serde_json::Map<String, serde_json::Value>> {
+) -> Result<&'a mut SettingsObject> {
     match profile {
         Some(name) => ensure_object_at(root, &["profiles", name, "env"]),
         None => ensure_object_at(root, &["env"]),
@@ -1115,9 +1116,9 @@ fn ensure_env_object<'a>(
 /// any node on the way is absent or not an object. Thin specialization of
 /// [`object_at_mut`] for the two-level `env`/`profiles.<name>.env` shape.
 fn env_object_mut<'a>(
-    root: &'a mut serde_json::Value,
+    root: &'a mut SettingsJson,
     profile: Option<&str>,
-) -> Option<&'a mut serde_json::Map<String, serde_json::Value>> {
+) -> Option<&'a mut SettingsObject> {
     match profile {
         Some(name) => object_at_mut(root, &["profiles", name, "env"]),
         None => object_at_mut(root, &["env"]),
@@ -1132,19 +1133,25 @@ fn env_object_mut<'a>(
 /// depth, so a third settings substructure (`gmail.accounts.<name>`, issue
 /// #1500) reuses the same file-handling code rather than duplicating it.
 fn ensure_object_at<'a>(
-    root: &'a mut serde_json::Value,
+    root: &'a mut SettingsJson,
     segments: &[&str],
-) -> Result<&'a mut serde_json::Map<String, serde_json::Value>> {
+) -> Result<&'a mut SettingsObject> {
     let mut current = root;
+    if matches!(current, SettingsJson::Scalar(serde_json::Value::Null)) {
+        *current = SettingsJson::Object(SettingsObject::new());
+    }
     for segment in segments {
-        if !current
-            .get(*segment)
-            .is_some_and(serde_json::Value::is_object)
-        {
-            current[*segment] = serde_json::json!({});
+        if !current.get(segment).is_some_and(SettingsJson::is_object) {
+            current
+                .as_object_mut()
+                .context("Settings parent is not an object")?
+                .insert(
+                    (*segment).to_string(),
+                    SettingsJson::Object(SettingsObject::new()),
+                );
         }
         current = current
-            .get_mut(*segment)
+            .get_mut(segment)
             .context("Internal error: target key missing immediately after being created")?;
     }
     current
@@ -1156,12 +1163,12 @@ fn ensure_object_at<'a>(
 /// when any node on the way is absent or not an object. The non-creating
 /// counterpart of [`ensure_object_at`], for removals.
 fn object_at_mut<'a>(
-    root: &'a mut serde_json::Value,
+    root: &'a mut SettingsJson,
     segments: &[&str],
-) -> Option<&'a mut serde_json::Map<String, serde_json::Value>> {
+) -> Option<&'a mut SettingsObject> {
     let mut current = root;
     for segment in segments {
-        current = current.get_mut(*segment)?;
+        current = current.get_mut(segment)?;
     }
     current.as_object_mut()
 }
@@ -1169,27 +1176,26 @@ fn object_at_mut<'a>(
 /// Reads the settings file at `path` as a generic JSON value (every field kept,
 /// including ones no type here models), or `{}` when it does not exist. For
 /// callers such as `gwi import` that merge raw settings.
-pub(crate) fn read_settings_value(path: &Path) -> Result<serde_json::Value> {
+pub(crate) fn read_settings_value(path: &Path) -> Result<SettingsJson> {
     read_or_default_settings(path)
 }
 
 /// Writes `value` as the settings file at `path` through the hardened writer
 /// (parent directory `0700`, file `0600`, a looser existing mode re-tightened).
-pub(crate) fn write_settings_value(path: &Path, value: &serde_json::Value) -> Result<()> {
+pub(crate) fn write_settings_value(path: &Path, value: &SettingsJson) -> Result<()> {
     write_settings(path, value)
 }
 
 /// Reads and parses the settings file at `path` as a generic JSON value
-/// (subject to the [JSON compatibility limitation](../../docs/json-passthrough.md)),
+/// through the [settings JSON boundary](../../docs/json-passthrough.md),
 /// or returns `{}` when the file does not exist.
-fn read_or_default_settings(path: &Path) -> Result<serde_json::Value> {
+fn read_or_default_settings(path: &Path) -> Result<SettingsJson> {
     if path.exists() {
         let content = fs::read_to_string(path)
             .with_context(|| format!("Failed to read {}", path.display()))?;
-        serde_json::from_str(&content)
-            .with_context(|| format!("Failed to parse {}", path.display()))
+        SettingsJson::parse(&content).with_context(|| format!("Failed to parse {}", path.display()))
     } else {
-        Ok(serde_json::json!({}))
+        Ok(SettingsJson::Object(SettingsObject::new()))
     }
 }
 
@@ -1224,7 +1230,7 @@ fn upsert_account(
     let entry = ensure_object_at(&mut settings_value, &[section, "accounts", account])?;
     let stored_client_id = entry
         .get("client_id")
-        .and_then(serde_json::Value::as_str)
+        .and_then(SettingsJson::as_str)
         .map(str::to_string);
     let mut secret_writes = Vec::new();
     for (key, value) in vars {
@@ -1238,10 +1244,10 @@ fn upsert_account(
                     refuse_client_change(&label, stored_client_id.as_deref(), vars)?;
                 }
                 secret_writes.push((write, secret));
-            } // patchcov: coverage ignore-line reason="this closing brace reports 0 hits under llvm-cov regardless of test count — verified locally: upsert_account_writes_a_secret_into_its_file_not_settings and several other tests complete the block above (the push on the line just before, and entry.remove(*key) right after, both measure as hit), yet this specific brace, immediately after an if-let whose scrutinee ends in a `?` operator, never registers a hit; an llvm-cov region-attribution artifact, not an untested path"
-            entry.remove(*key);
+            } // patchcov: coverage ignore-line reason="this closing brace reports 0 hits under llvm-cov regardless of test count — verified locally: upsert_account_writes_a_secret_into_its_file_not_settings and several other tests complete the block above (the push on the line just before, and entry.shift_remove(*key) right after, both measure as hit), yet this specific brace, immediately after an if-let whose scrutinee ends in a `?` operator, never registers a hit; an llvm-cov region-attribution artifact, not an untested path"
+            entry.shift_remove(*key);
         } else {
-            entry.insert((*key).to_string(), value.clone());
+            entry.insert((*key).to_string(), value.clone().into());
         }
     }
 
@@ -1305,7 +1311,7 @@ pub(crate) fn account_secret_is_set(value: Option<&str>, file: Option<&str>) -> 
 /// The `<key>_file` path to write `value` into instead of `entry.<key>`, when
 /// `key` is a secret field, `value` a string, and the companion set.
 fn account_secret_file(
-    entry: &serde_json::Map<String, serde_json::Value>,
+    entry: &SettingsObject,
     key: &str,
     value: &serde_json::Value,
 ) -> Option<String> {
@@ -1314,7 +1320,7 @@ fn account_secret_file(
     }
     entry
         .get(&format!("{key}_file"))
-        .and_then(serde_json::Value::as_str)
+        .and_then(SettingsJson::as_str)
         .filter(|file| !file.is_empty())
         .map(str::to_string)
 }
@@ -1323,7 +1329,7 @@ fn account_secret_file(
 /// directory `0700`, writes the pretty-printed JSON through a `0600` handle
 /// (no window where a fresh file is world-readable), and re-tightens a
 /// pre-existing looser-permission file on every write (issue #1128).
-fn write_settings(path: &Path, value: &serde_json::Value) -> Result<()> {
+fn write_settings(path: &Path, value: &SettingsJson) -> Result<()> {
     if let Some(parent) = path.parent() {
         if !parent.as_os_str().is_empty() {
             crate::utils::fs::ensure_dir_0700(parent)?;
@@ -2605,27 +2611,27 @@ mod tests {
 
     #[test]
     fn ensure_object_at_creates_nested_path_at_arbitrary_depth() {
-        let mut root = serde_json::json!({});
+        let mut root = SettingsJson::from(serde_json::json!({}));
         {
             let map = ensure_object_at(&mut root, &["gmail", "accounts", "work"]).unwrap();
-            map.insert("client_id".to_string(), serde_json::json!("id"));
+            map.insert("client_id".to_string(), serde_json::json!("id").into());
         }
         assert_eq!(root["gmail"]["accounts"]["work"]["client_id"], "id");
     }
 
     #[test]
     fn ensure_object_at_replaces_non_object_nodes_along_path() {
-        let mut root = serde_json::json!({"gmail": "bogus"});
+        let mut root = SettingsJson::from(serde_json::json!({"gmail": "bogus"}));
         {
             let map = ensure_object_at(&mut root, &["gmail", "accounts", "work"]).unwrap();
-            map.insert("client_id".to_string(), serde_json::json!("id"));
+            map.insert("client_id".to_string(), serde_json::json!("id").into());
         }
         assert_eq!(root["gmail"]["accounts"]["work"]["client_id"], "id");
     }
 
     #[test]
     fn object_at_mut_none_when_any_segment_absent() {
-        let mut root = serde_json::json!({"gmail": {"accounts": {}}});
+        let mut root = SettingsJson::from(serde_json::json!({"gmail": {"accounts": {}}}));
         assert!(object_at_mut(&mut root, &["gmail", "accounts", "work"]).is_none());
         assert!(object_at_mut(&mut root, &["missing", "accounts"]).is_none());
     }
@@ -3431,7 +3437,7 @@ mod tests {
     /// other settings block already guarantees: a future field inside
     /// `write_permissions` that this version of `gwi` doesn't know
     /// about must survive an unrelated read-modify-write cycle untouched,
-    /// since writes go through the untyped `serde_json::Value` merge path
+    /// since writes go through the untyped settings JSON merge path
     /// ([`read_or_default_settings`]/[`ensure_object_at`]), never a
     /// round-trip through the typed struct.
     #[test]
@@ -3617,7 +3623,7 @@ mod tests {
 
     #[test]
     fn upsert_drive_account_preserves_file_id_rules_it_cannot_understand() {
-        // Settings *writes* go through an untyped `serde_json::Value`
+        // Settings *writes* go through an untyped settings JSON
         // merge, so an older binary running `drive auth login` cannot drop
         // the file rules it failed to parse.
         let (_tmp, path) = temp_settings_path();
@@ -3643,7 +3649,7 @@ mod tests {
     }
 
     #[test]
-    fn private_number_settings_mutations_characterize_unknown_metadata() {
+    fn private_number_settings_mutations_preserve_unknown_metadata() {
         let writers: [fn(&Path) -> Result<()>; 10] = [
             |p| Settings::upsert_env_vars(p, &[("CHANGE", "new")]),
             |p| Settings::upsert_env_vars_in(p, Some("work"), &[("CHANGE", "new")]),
@@ -3668,7 +3674,7 @@ mod tests {
             |p| Settings::remove_gmail_account(p, "remove").map(|_| ()),
             |p| Settings::remove_drive_account(p, "remove").map(|_| ()),
         ];
-        for (literal, expected) in crate::test_support::private_number_cases() {
+        for (literal, _) in crate::test_support::private_number_cases() {
             for (index, writer) in writers.iter().enumerate() {
                 let (_tmp, path) = temp_settings_path();
                 fs::create_dir_all(path.parent().unwrap()).unwrap();
@@ -3678,31 +3684,58 @@ mod tests {
                 fs::write(&path, &input).unwrap();
                 // Typed loads ignore unknown metadata, including the collision objects.
                 Settings::load_from_path(&path).unwrap();
-                let result = writer(&path);
-                match &expected {
-                    Ok(value) => {
-                        result.unwrap();
-                        let saved = read_json(&path);
-                        assert_eq!(&saved["future"], value, "writer {index}: {literal}");
-                        assert_eq!(&saved["profiles"]["work"]["future"], value);
-                        assert_ne!(fs::read_to_string(&path).unwrap(), input);
-                        let typed = Settings::load_from_path(&path).unwrap();
-                        if index == 4 {
-                            assert!(typed.gmail.accounts["work"].chrome_profile_from_email);
-                        }
-                        if index == 5 {
-                            assert!(typed.drive.accounts["work"].chrome_profile_from_email);
-                        }
-                    }
-                    Err(message) => {
-                        let message = message.replace("invalid length", "trailing comma");
-                        let error = format!("{:#}", result.unwrap_err());
-                        assert!(error.contains(&message), "{error}");
-                        assert_eq!(fs::read_to_string(&path).unwrap(), input);
-                    }
+                writer(&path).unwrap();
+                let saved = read_settings_value(&path).unwrap();
+                assert_eq!(
+                    serde_json::to_string(&saved["future"]).unwrap(),
+                    literal,
+                    "writer {index}"
+                );
+                assert_eq!(
+                    serde_json::to_string(&saved["profiles"]["work"]["future"]).unwrap(),
+                    literal
+                );
+                assert_ne!(fs::read_to_string(&path).unwrap(), input);
+                let typed = Settings::load_from_path(&path).unwrap();
+                if index == 4 {
+                    assert!(typed.gmail.accounts["work"].chrome_profile_from_email);
+                }
+                if index == 5 {
+                    assert!(typed.drive.accounts["work"].chrome_profile_from_email);
                 }
             }
         }
+    }
+
+    #[test]
+    fn settings_mutations_reject_malformed_json_without_writing() {
+        let (_tmp, path) = temp_settings_path();
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let malformed = r#"{"future":{"a":[1,]}}"#;
+        fs::write(&path, malformed).unwrap();
+        assert!(Settings::upsert_env_vars(&path, &[("CHANGE", "new")]).is_err());
+        assert_eq!(fs::read_to_string(&path).unwrap(), malformed);
+    }
+
+    #[test]
+    fn settings_removal_retains_relative_member_order() {
+        let (_tmp, path) = temp_settings_path();
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(
+            &path,
+            r#"{"env":{"z":"first","remove":"gone","a":"last"},"future":{"z":1,"a":2}}"#,
+        )
+        .unwrap();
+        Settings::remove_env_vars(&path, &["remove"]).unwrap();
+        let saved = read_settings_value(&path).unwrap();
+        assert_eq!(
+            serde_json::to_string(&saved["env"]).unwrap(),
+            r#"{"z":"first","a":"last"}"#
+        );
+        assert_eq!(
+            serde_json::to_string(&saved["future"]).unwrap(),
+            r#"{"z":1,"a":2}"#
+        );
     }
 
     #[test]

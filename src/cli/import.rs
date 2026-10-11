@@ -20,15 +20,15 @@
 //!   change (`0700` directory, `0600` file).
 //!
 //! The settings are handled as generic JSON, not through gwi's typed `Settings`,
-//! so selected blocks retain unknown fields, subject to the accepted
-//! [JSON compatibility limitation](../../docs/json-passthrough.md).
+//! so selected blocks retain unknown fields through the
+//! [settings JSON boundary](../../docs/json-passthrough.md).
 
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
+use crate::utils::settings_json::{Object, SettingsJson};
 use anyhow::{anyhow, bail, Context, Result};
 use clap::Parser;
-use serde_json::{Map, Value};
 
 use crate::utils::settings::{read_settings_value, write_settings_value, Settings};
 
@@ -241,7 +241,7 @@ struct Item {
     path: Vec<String>,
     /// The key it had in omni-dev when that differs (a renamed variable).
     renamed_from: Option<String>,
-    value: Value,
+    value: SettingsJson,
 }
 
 impl Item {
@@ -254,7 +254,7 @@ impl Item {
 #[derive(Debug)]
 struct Merged {
     /// The settings after the merge (equal to the input when nothing changed).
-    value: Value,
+    value: SettingsJson,
     /// Each item with what happened to it, in a stable order.
     results: Vec<(Item, Status)>,
     /// Things the user must act on that the import cannot do for them.
@@ -277,11 +277,11 @@ impl Merged {
 /// Accounts and the other keys of the `gmail` and `drive` blocks are items of their
 /// own, as are the `lease` block and each Google environment variable (in the base
 /// `env` and in every profile's `env`).
-fn select_items(source: &Value) -> Vec<Item> {
+fn select_items(source: &SettingsJson) -> Vec<Item> {
     let mut items = Vec::new();
 
     for block in ["gmail", "drive"] {
-        let Some(map) = source.get(block).and_then(Value::as_object) else {
+        let Some(map) = source.get(block).and_then(SettingsJson::as_object) else {
             continue;
         };
         for (key, value) in map {
@@ -307,7 +307,7 @@ fn select_items(source: &Value) -> Vec<Item> {
 
     // The two `mcp` defaults `gwi-mcp` reads. omni-dev's other MCP setting, the AI
     // `default_model`, has no use here and stays behind.
-    if let Some(mcp) = source.get("mcp").and_then(Value::as_object) {
+    if let Some(mcp) = source.get("mcp").and_then(SettingsJson::as_object) {
         for key in MCP_KEYS {
             if let Some(value) = mcp.get(*key) {
                 items.push(Item {
@@ -328,7 +328,7 @@ fn select_items(source: &Value) -> Vec<Item> {
     }
 
     env_items(source.get("env"), &["env".into()], &mut items);
-    if let Some(profiles) = source.get("profiles").and_then(Value::as_object) {
+    if let Some(profiles) = source.get("profiles").and_then(SettingsJson::as_object) {
         for (name, profile) in profiles {
             env_items(
                 profile.get("env"),
@@ -341,8 +341,8 @@ fn select_items(source: &Value) -> Vec<Item> {
 }
 
 /// Appends an item per Google variable in `env`, renaming omni-dev's own prefixes.
-fn env_items(env: Option<&Value>, prefix: &[String], items: &mut Vec<Item>) {
-    let Some(map) = env.and_then(Value::as_object) else {
+fn env_items(env: Option<&SettingsJson>, prefix: &[String], items: &mut Vec<Item>) {
+    let Some(map) = env.and_then(SettingsJson::as_object) else {
         return;
     };
     for (key, value) in map {
@@ -365,23 +365,23 @@ fn env_items(env: Option<&Value>, prefix: &[String], items: &mut Vec<Item>) {
 }
 
 /// Looks up `path` in `root`.
-fn lookup<'a>(root: &'a Value, path: &[String]) -> Option<&'a Value> {
+fn lookup<'a>(root: &'a SettingsJson, path: &[String]) -> Option<&'a SettingsJson> {
     path.iter().try_fold(root, |node, key| node.get(key))
 }
 
 /// The object map of `node`, replacing a non-object node with an empty object.
-fn object_mut(node: &mut Value) -> &mut Map<String, Value> {
+fn object_mut(node: &mut SettingsJson) -> &mut Object {
     if !node.is_object() {
-        *node = Value::Object(Map::new());
+        *node = SettingsJson::Object(Object::new());
     }
     match node {
-        Value::Object(map) => map,
+        SettingsJson::Object(map) => map,
         _ => unreachable!("replaced with an object above"),
     }
 }
 
 /// Sets `path` in `root` to `value`, creating (or replacing non-object) parents.
-fn set_path(root: &mut Value, path: &[String], value: Value) {
+fn set_path(root: &mut SettingsJson, path: &[String], value: SettingsJson) {
     let Some((last, parents)) = path.split_last() else {
         return;
     };
@@ -389,7 +389,7 @@ fn set_path(root: &mut Value, path: &[String], value: Value) {
     for key in parents {
         node = object_mut(node)
             .entry(key.clone())
-            .or_insert_with(|| Value::Object(Map::new()));
+            .or_insert_with(|| SettingsJson::Object(Object::new()));
     }
     object_mut(node).insert(last.clone(), value);
 }
@@ -398,7 +398,12 @@ fn set_path(root: &mut Value, path: &[String], value: Value) {
 ///
 /// Pure: the source directory is only used to recognise references that point back
 /// into it.
-fn merge(target: &Value, items: Vec<Item>, force: bool, source_dir: Option<&Path>) -> Merged {
+fn merge(
+    target: &SettingsJson,
+    items: Vec<Item>,
+    force: bool,
+    source_dir: Option<&Path>,
+) -> Merged {
     let mut value = target.clone();
     let mut results = Vec::new();
     let mut warnings = Vec::new();
@@ -537,13 +542,15 @@ fn run_import(
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use super::*;
-    use serde_json::json;
+    macro_rules! json {
+        ($($tokens:tt)*) => { SettingsJson::from(serde_json::json!($($tokens)*)) };
+    }
 
     /// A secret that must never appear in any report or error.
     const SECRET: &str = "s3cr3t-refresh-token-value";
 
     /// A settings file shaped like one omni-dev wrote for a Gmail and Drive user.
-    fn omni_dev_settings() -> Value {
+    fn omni_dev_settings() -> SettingsJson {
         json!({
             "env": {
                 "GMAIL_CLIENT_ID": "base-id",
@@ -577,13 +584,13 @@ mod tests {
         items.iter().map(Item::display_path).collect()
     }
 
-    fn write_json(path: &Path, value: &Value) {
+    fn write_json(path: &Path, value: &SettingsJson) {
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         std::fs::write(path, serde_json::to_string_pretty(value).unwrap()).unwrap();
     }
 
-    fn read_json(path: &Path) -> Value {
-        serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap()
+    fn read_json(path: &Path) -> SettingsJson {
+        SettingsJson::parse(&std::fs::read_to_string(path).unwrap()).unwrap()
     }
 
     /// A source and a target path in a fresh directory.
@@ -1036,8 +1043,8 @@ mod tests {
     }
 
     #[test]
-    fn private_number_settings_import_characterizes_source_and_target() {
-        for (literal, expected) in crate::test_support::private_number_cases() {
+    fn private_number_settings_import_preserves_source_and_target() {
+        for (literal, _) in crate::test_support::private_number_cases() {
             for in_source in [true, false] {
                 let (_dir, source, target) = setup();
                 let source_input = if in_source {
@@ -1057,35 +1064,89 @@ mod tests {
                 std::fs::write(&target, &target_input).unwrap();
                 for force in [false, true] {
                     let (preview, _) = import(&source, &target, true, force);
-                    assert_eq!(preview.is_ok(), expected.is_ok());
+                    preview.unwrap();
                     assert_eq!(std::fs::read_to_string(&target).unwrap(), target_input);
                 }
                 let (result, _) = import(&source, &target, false, false);
-                match &expected {
-                    Ok(value) => {
-                        result.unwrap();
-                        let saved = read_json(&target);
-                        let actual = if in_source {
-                            &saved["gmail"]["accounts"]["work"]["future"]
-                        } else {
-                            &saved["future"]
-                        };
-                        assert_eq!(actual, value, "{literal}");
-                        let bytes = std::fs::read(&target).unwrap();
-                        let (repeated, report) = import(&source, &target, false, false);
-                        repeated.unwrap();
-                        assert!(report.contains("unchanged"), "{report}");
-                        assert_eq!(std::fs::read(&target).unwrap(), bytes);
-                    }
-                    Err(message) => {
-                        let message = message.replace("invalid length", "trailing comma");
-                        assert!(format!("{:#}", result.unwrap_err()).contains(&message));
-                        let (forced, _) = import(&source, &target, false, true);
-                        assert!(forced.is_err());
-                        assert_eq!(std::fs::read_to_string(&target).unwrap(), target_input);
-                    }
-                }
+                result.unwrap();
+                let saved = read_json(&target);
+                let actual = if in_source {
+                    &saved["gmail"]["accounts"]["work"]["future"]
+                } else {
+                    &saved["future"]
+                };
+                assert_eq!(serde_json::to_string(actual).unwrap(), literal);
+                let bytes = std::fs::read(&target).unwrap();
+                let (repeated, report) = import(&source, &target, false, false);
+                repeated.unwrap();
+                assert!(report.contains("unchanged"), "{report}");
+                assert_eq!(std::fs::read(&target).unwrap(), bytes);
                 assert_eq!(std::fs::read_to_string(&source).unwrap(), source_input);
+            }
+        }
+    }
+
+    #[test]
+    fn private_number_settings_import_compares_semantically_and_forces_conflicts() {
+        for (literal, _) in crate::test_support::private_number_cases() {
+            let (_dir, source, target) = setup();
+            let source_input = format!(
+                r#"{{"gmail":{{"accounts":{{"work":{{"client_id":"id","future":{literal}}}}}}}}}"#
+            );
+            let target_input = format!(
+                r#"{{ "gmail" : {{ "accounts" : {{ "work" : {{ "future" : {literal}, "client_id" : "id" }} }} }} }}"#
+            );
+            std::fs::write(&source, &source_input).unwrap();
+            std::fs::create_dir_all(target.parent().unwrap()).unwrap();
+            std::fs::write(&target, &target_input).unwrap();
+            let (result, report) = import(&source, &target, false, false);
+            result.unwrap();
+            assert!(report.contains("unchanged"), "{report}");
+            assert_eq!(std::fs::read_to_string(&target).unwrap(), target_input);
+
+            let conflicting = target_input.replace("\"id\"", "\"different\"");
+            std::fs::write(&target, &conflicting).unwrap();
+            let (result, _) = import(&source, &target, false, false);
+            assert!(result.is_err());
+            assert_eq!(std::fs::read_to_string(&target).unwrap(), conflicting);
+            let (preview, _) = import(&source, &target, true, true);
+            preview.unwrap();
+            assert_eq!(std::fs::read_to_string(&target).unwrap(), conflicting);
+            let (forced, _) = import(&source, &target, false, true);
+            forced.unwrap();
+            let saved = read_json(&target);
+            assert_eq!(
+                serde_json::to_string(&saved["gmail"]["accounts"]["work"]["future"]).unwrap(),
+                literal
+            );
+            assert_eq!(saved["gmail"]["accounts"]["work"]["client_id"], "id");
+            assert_eq!(std::fs::read_to_string(&source).unwrap(), source_input);
+        }
+    }
+
+    #[test]
+    fn private_number_settings_import_ignores_unselected_metadata_and_rejects_malformed_json() {
+        for (literal, _) in crate::test_support::private_number_cases() {
+            let (_dir, source, target) = setup();
+            let input = format!(r#"{{"ignored":{literal},"env":{{"GMAIL_CLIENT_ID":"id"}}}}"#);
+            std::fs::write(&source, &input).unwrap();
+            import(&source, &target, false, false).0.unwrap();
+            assert!(read_json(&target).get("ignored").is_none());
+            assert_eq!(std::fs::read_to_string(&source).unwrap(), input);
+        }
+        for malformed_source in [true, false] {
+            let (_dir, source, target) = setup();
+            write_json(&target, &json!({"env":{"GMAIL_CLIENT_ID":"keep"}}));
+            let invalid = r#"{"env":{"GMAIL_CLIENT_ID":"bad"},"ignored":[1,]}"#;
+            std::fs::write(if malformed_source { &source } else { &target }, invalid).unwrap();
+            let before = std::fs::read(&target).unwrap();
+            let source_before = std::fs::read(&source).unwrap();
+            for dry_run in [true, false] {
+                for force in [true, false] {
+                    assert!(import(&source, &target, dry_run, force).0.is_err());
+                    assert_eq!(std::fs::read(&target).unwrap(), before);
+                    assert_eq!(std::fs::read(&source).unwrap(), source_before);
+                }
             }
         }
     }

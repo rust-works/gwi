@@ -789,6 +789,7 @@ dependencies = [
  "futures",
  "htmd",
  "http",
+ "indexmap",
  "indicatif",
  "insta",
  "mail-builder",

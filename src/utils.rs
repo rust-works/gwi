@@ -14,5 +14,6 @@ pub mod rate_limit;
 pub mod secret;
 pub mod secret_env;
 pub mod settings;
+pub(crate) mod settings_json;
 pub mod terminal;
 pub mod token;

@@ -1,11 +1,12 @@
 # JSON passthrough compatibility
 
-**Decision for [#209](https://github.com/rust-works/gwi/issues/209): retain the current
-JSON representation and accept the private number-key limitation outside the lease
-ledger.** This audit adds characterization tests; it does not change parsing.
-Unknown JSON preservation has the exception below. The ledger's separate decision
-and deferred implementation are documented in [lease ledger JSON](lease-ledger-json.md)
-and tracked by [#208](https://github.com/rust-works/gwi/issues/208).
+Settings updates and settings import preserve arbitrary unknown JSON through an explicit
+read/merge/write boundary ([#273](https://github.com/rust-works/gwi/issues/273)).
+The [#209](https://github.com/rust-works/gwi/issues/209) audit's accepted private
+number-key limitation still applies to the API/Sheets paths below. The ledger's
+separate decision and implementation are documented in
+[lease ledger JSON](lease-ledger-json.md) and tracked by
+[#208](https://github.com/rust-works/gwi/issues/208).
 
 ## Confirmed collision
 
@@ -25,7 +26,7 @@ through buffered flattened fields. The input is valid JSON despite the diagnosti
 These outcomes also occur inside nested objects
 and arrays. The ordinary-key-first control
 `{"other":"keep","$serde_json::private::Number":"123"}` retains both keys and string
-values. Writers should avoid the private key rather than rely on member order.
+values. Writers using the affected Value boundaries should avoid the private key rather than rely on member order.
 A string containing the key's text is safe.
 
 ## Production inventory
@@ -37,8 +38,8 @@ or a test fixture is not itself a passthrough boundary.
 
 | Entry points / source files | Preservation contract and observed scope |
 | --- | --- |
-| Settings env/profile upsert/removal, Gmail/Drive account upsert/removal and default-account updates (`src/utils/settings.rs`) | Read the entire file as `Value` to retain unknown settings. All ten writer paths exhibit the three outcomes above, including unknown profile metadata during unrelated updates. Typed `Settings::load_from_path` ignores these unknown fields successfully; a later generic update can still fail. |
-| Settings `gwi import` (`src/cli/import.rs`) | Generic JSON preserves unknown fields in selected Gmail/Drive items and the lease settings block, and retains unrelated destination metadata. Both source and destination exhibit the same collision. All source JSON is parsed before selection, so even an unselected bad object can block import. Only selected fields are imported; unrelated source fields are not promised preservation. |
+| Settings env/profile upsert/removal, Gmail/Drive account upsert/removal and default-account updates (`src/utils/settings.rs`) | Read the entire file as a settings JSON tree with explicitly parsed ordered objects and arrays. All ten writer paths preserve the literal objects above, including nested unknown profile metadata. Only scalar leaves use `Value`; typed `Settings::load_from_path` continues to ignore unknown fields. |
+| Settings `gwi import` (`src/cli/import.rs`) | The same settings JSON tree preserves unknown fields in selected Gmail/Drive items and the lease settings block, and retains unrelated destination metadata. Valid private-number-key objects in unselected source fields no longer block import. Only selected fields are imported; unrelated source fields are not copied. |
 | Sheets filter-view re-creation (`src/drive/sheets/filter.rs`, `FilterCriteria::extra`) | Clearing a sort column re-creates the view with retained unknown criteria. Literal read/build/serialize tests confirm numeric rewriting, parse rejection and ordinary-first preservation. An ordinary masked criteria update leaves untouched columns on the server instead of re-sending them. |
 | Sheets chart updates (`src/drive/sheets/embedded_object.rs`, chart `extra` maps in `types.rs`) | Updates send a replacement spec and retain unmodelled fields in `ChartSpec`, `BasicChartSpec`, `BasicChartAxis`, `BasicChartDomain`, `BasicChartSeries`, `PieChartSpec` and `ChartData`. Title-update tests confirm the collision in retained metadata. |
 | Sheets slicer snapshots (`SlicerSpec::extra`) | Unknown fields survive read/output serialization subject to the same collision, confirmed at the HTTP response boundary. Slicer updates use field masks and constructed specs, so they do not wholesale re-send unknown fields. |
@@ -51,18 +52,30 @@ or a test fixture is not itself a passthrough boundary.
 
 ## Settings safety and supported guarantees
 
-An unrelated settings update may therefore alter unknown metadata without warning or
-fail before writing. Settings import leaves its source untouched. A dry run writes
-nothing, but can still fail to parse; repeating a numeric-case import is idempotent
-against the already rewritten value. `--force` does not bypass source/destination
-JSON parsing. Tests verify byte-for-byte destination preservation on parse errors
-for updates and import, including forced import. This guarantee concerns settings;
-`gwi import` handles settings and the lease ledger independently, so a settings error
-does not prevent the command from attempting a ledger import.
+Settings updates retain unknown objects, keys and strings, including the private-number
+objects above. The boundary validates JSON with serde_json's streaming `IgnoredAny` scanner and uses
+its byte offsets to parse object members and array elements as source slices before
+building an ordered tree, avoiding Value's object/number protocol. The crate's
+serde_json feature set stays unchanged; enabling `raw_value` would introduce another
+private-key interpretation in existing Value consumers.
+Scalar numbers retain the crate's `arbitrary_precision` behavior; large integers and
+high-precision decimals remain exact. Deletions retain the relative order of surviving
+object members. Known boolean and numeric settings retain their typed behavior.
 
-Supported unknown settings values retain large-integer/high-precision-decimal precision
-and relative object-key order through updates. Known boolean and numeric settings
-retain their typed behavior. No byte/whitespace/duplicate-key guarantee is made.
+Settings import leaves its source untouched and dry runs write nothing. Import equality
+compares JSON structurally: whitespace, string escape spelling and object member order
+do not create conflicts, while array order and differing scalar values do. Repeated
+imports are idempotent. Differing items remain conflicts unless `--force` replaces them.
+Malformed JSON is rejected before writing, including forced import; destination bytes
+remain unchanged. Nesting is bounded to prevent excessive recursive traversal. The
+existing hardened writer retains its directory/file permission and write handling.
+No byte/whitespace/duplicate-key guarantee is made. Public account-update helpers still
+accept constructed `Value` arguments; they cannot recover data already lost by a caller
+parsing arbitrary metadata into `Value` before calling them.
+
+These guarantees concern settings; `gwi import` handles settings and the lease ledger
+independently, so a settings error does not prevent an attempted ledger import.
+
 Sheets' outer `extra` maps are `BTreeMap`s and sort their unknown keys; nested Value
 objects retain insertion order. This is not the ledger's outer-key ordering contract.
 
@@ -70,12 +83,9 @@ objects retain insertion order. This is not the ledger's outer-key ordering cont
 
 No current writer is known to produce this unusual key. Retaining `arbitrary_precision`
 avoids regressing [#95](https://github.com/rust-works/gwi/issues/95). Distinct future
-changes could preserve arbitrary settings JSON at the read/merge/write boundary,
-protect the Sheets scalar validator before Value conversion, and preserve selected
-API/Sheets unknown payloads. A raw JSON design must keep typed-field semantics,
-precision, ordering and settings import equality/conflict rules; simply adding raw
-values to flattened fields does not avoid serde's buffering. These are deferred
-implementation options, not fixes included by this audit.
+changes could protect the Sheets scalar validator before Value conversion and preserve
+selected API/Sheets unknown payloads. Those boundaries remain outside the settings fix.
+Simply adding raw values to flattened fields does not avoid serde's buffering.
 
 The tests use literal JSON inputs and independently constructed expectations in
 [`src/test_support.rs`](../src/test_support.rs), avoiding a pre-parsed fixture that
