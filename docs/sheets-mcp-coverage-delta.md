@@ -342,3 +342,79 @@ maintainers: a bang-macro span originating in an attribute is shortened by
 punctuation inside a string. No gwi runtime fix or coverage exclusion follows
 from this diagnosis. The existing measurement remains a valid report of the
 mappings emitted by each build.
+
+## Upstream disposition (#295)
+
+Status on 2026-10-12: **no equivalent upstream report found; a report is drafted but not
+yet filed.** No maintainer assessment exists, and none is claimed.
+
+### Existing reports
+
+GitHub searches of `rust-lang/rust` for `span_through_char`,
+`single_covspan_for_child_context` and several phrasings of "coverage region from macro
+call-site span" found no issue or PR describing this behaviour. The absence of a match
+is limited to those searches, not proof. Related but not equivalent:
+
+- [#123567](https://github.com/rust-lang/rust/issues/123567) and
+  [#131119](https://github.com/rust-lang/rust/issues/131119): coverage lost in macro-generated
+  code.
+- [#147434](https://github.com/rust-lang/rust/issues/147434): coverage on `#[derive]` lines
+  shifted between releases. A maintainer notes that "there are subtle and fragile interactions
+  between pieces of code that unexpand to the same source span", and that stability of
+  `llvm-cov` output cannot be assured.
+- [#85000](https://github.com/rust-lang/rust/issues/85000): coverage applies only to a
+  contiguous span (not both macro and caller).
+
+None describes an extra region gained from punctuation elsewhere in an attribute.
+
+### Newer toolchains
+
+The unmodified [driver](repro-schema-coverage/replay.py) was replayed with cargo-llvm-cov
+0.9.1 on macOS arm64. The mapping difference reproduces on both, with the same region as
+on the pinned 1.99.0:
+
+| Toolchain | Commit | LLVM | `"x"` | `"x!"` |
+| --- | --- | --- | --- | --- |
+| 1.99.0 stable (pinned) | `b940084d7` | 23.1.1 | no region | `[8, 1, 8, 27, 0, 0, 0, 0]` |
+| 1.100.0-beta.4 | `a2eb6097d` | 23.1.1 | no region | `[8, 1, 8, 27, 0, 0, 0, 0]` |
+| 1.101.0-nightly (2026-10-10) | `6f5da406b` | 23.1.3 | no region | `[8, 1, 8, 27, 0, 0, 0, 0]` |
+
+The channels were `beta` and `nightly` on 2026-10-12; the dated `rustup` toolchains
+`beta-2026-10-05` and `nightly-2026-10-11` select the same compilers. Both contain
+[rust-lang/rust#161517](https://github.com/rust-lang/rust/pull/161517) (hybrid HIR-aware
+coverage spans, merged 2026-09-06); the pinned 1.99.0 does not (GitHub's compare reports it as
+diverged from that merge), so the difference predates the change and survives it. As before, the closure's MIR before `InstrumentCoverage`
+is identical apart from span coordinates and the closure is in the LLVM IR of both variants;
+after the pass, only the `"x!"` variant has a `coverage Code { bcb0 }` mapping. The
+`span_through_char(span, '!')` call is also present at `rust-lang/rust` `main`
+`7211ea594cbf137ef6118b1752b959dea7cb9088` (2026-10-11). Raw values are in the [snapshot](repro-schema-coverage/results.json). Nothing
+is claimed for any compiler not listed.
+
+### Report
+
+[upstream-report.md](repro-schema-coverage/upstream-report.md) holds the issue text: the
+observation (a source-literal edit adds a zero-hit region with unchanged MIR and runtime
+behaviour) kept apart from the suspected cause (`span_through_char` scanning the whole
+attribute), the reduced sources, the version table and the questions for maintainers. The
+pinned reproducer stays in this repository whatever a later compiler does.
+
+When it is filed, record the link here and in
+[#295](https://github.com/rust-works/gwi/issues/295), with any maintainer reply, and
+retest on the toolchain that carries a fix.
+
+### Reading description-only coverage deltas
+
+Verified only on rustc 1.99.0 to 1.101.0-nightly and one real crate (rmcp 3.5.1). A coverage
+change that follows an edit to a macro attribute's text, such as a tool description, is not
+a regression or a test gap when all of these hold:
+
+- the added region is zero-hit, in a generated closure, and its start is the attribute's
+  start;
+- its end is just after the **first** `!` in the attribute (the end column is exclusive, so the
+  `!` is the character before it), and the attribute had no `!` before the edit;
+- shared function hit counts are unchanged (compare `FNDA` records).
+
+Removing every `!` from the attribute would remove the region, but do not rewrite
+descriptions to manage coverage: the exclusions and wording stay as they are. If any
+condition fails, or the compiler is outside that range, treat the delta as ordinary and
+investigate it as such. Retest the fixture when the compiler changes.
