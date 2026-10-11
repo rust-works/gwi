@@ -733,15 +733,24 @@ mod tests {
         template: &str,
         pointer: &str,
     ) {
+        preserve_private_response::<T>(template, pointer, "Number").await;
+    }
+
+    async fn preserve_private_response<T: serde::de::DeserializeOwned + serde::Serialize>(
+        template: &str,
+        pointer: &str,
+        protocol: &str,
+    ) {
         use wiremock::{matchers::path, Mock, MockServer, ResponseTemplate};
 
         let server = MockServer::start().await;
         let client =
             GoogleApiClient::new(&server.uri(), &test_credentials(), "drive", "Drive").unwrap();
         let http = reqwest::Client::builder().no_proxy().build().unwrap();
-        for (index, (literal, value)) in crate::test_support::preserved_private_number_cases()
-            .into_iter()
-            .enumerate()
+        for (index, (literal, value)) in
+            crate::test_support::preserved_private_protocol_cases(protocol)
+                .into_iter()
+                .enumerate()
         {
             let route = format!("/case-{index}");
             Mock::given(path(route.as_str()))
@@ -764,6 +773,53 @@ mod tests {
             let forwarded: crate::utils::json_payload::Payload =
                 serde_json::from_str(&wire).unwrap();
             assert_eq!(forwarded.0.pointer(pointer), Some(&value), "{literal}");
+        }
+    }
+
+    #[tokio::test]
+    async fn private_number_docs_table_payloads_through_document_response() {
+        for protocol in ["Number", "RawValue"] {
+            for arm in [
+                "sectionBreak",
+                "pageBreak",
+                "columnBreak",
+                "horizontalRule",
+                "footnoteReference",
+                "autoText",
+                "equation",
+                "person",
+                "richLink",
+            ] {
+                let (content, pointer) = if arm == "sectionBreak" {
+                    (
+                        r#"{"sectionBreak":CASE}"#.to_string(),
+                        "/sectionBreak".to_string(),
+                    )
+                } else {
+                    (
+                        format!(r#"{{"paragraph":{{"elements":[{{"{arm}":CASE}}]}}}}"#),
+                        format!("/paragraph/elements/0/{arm}"),
+                    )
+                };
+                for nested in [false, true] {
+                    let mut content = content.clone();
+                    let mut pointer = pointer.clone();
+                    if nested {
+                        content = format!(
+                            r#"{{"table":{{"tableRows":[{{"tableCells":[{{"content":[{content}]}}]}}]}}}}"#
+                        );
+                        pointer = format!("/table/tableRows/0/tableCells/0/content/0{pointer}");
+                    }
+                    let template = format!(
+                        r#"{{"documentId":"d1","tabs":[{{"documentTab":{{"body":{{"content":[{{"table":{{"rows":1,"columns":1,"tableRows":[{{"tableCells":[{{"content":[{content}]}}]}}]}}}}]}}}}}}]}}"#
+                    );
+                    let pointer = format!("/tabs/0/documentTab/body/content/0/table/tableRows/0/tableCells/0/content/0{pointer}");
+                    preserve_private_response::<crate::drive::docs::types::Document>(
+                        &template, &pointer, protocol,
+                    )
+                    .await;
+                }
+            }
         }
     }
 

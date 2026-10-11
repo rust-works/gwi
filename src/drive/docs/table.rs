@@ -510,6 +510,33 @@ mod tests {
     }
 
     #[test]
+    fn refuses_suggestions_in_literal_wire_metadata_around_private_objects() {
+        for protocol in ["Number", "RawValue"] {
+            for metadata in [
+                format!(
+                    r#"{{"$serde_json::private::{protocol}":"not-json","nested":[{{"suggestedChanges":{{"s":{{}}}}}}]}}"#
+                ),
+                format!(r#"{{"suggestedChanges":{{"$serde_json::private::{protocol}":"null"}}}}"#),
+                format!(
+                    r#"{{"nested":[{{"$serde_json::private::{protocol}":"123","suggestedChanges":["s"]}}]}}"#
+                ),
+            ] {
+                let mut value = fixture();
+                table(&mut value)["tableRows"][0]["tableCells"][0]["future"] = json!("CASE");
+                let wire = serde_json::to_string(&value)
+                    .unwrap()
+                    .replace("\"CASE\"", &metadata);
+                let document: Document = serde_json::from_str(&wire).unwrap();
+                assert_eq!(
+                    resolve(&document, &dimension(TableVerb::DeleteRow)).unwrap_err(),
+                    TableError::SuggestedTable,
+                    "{metadata}"
+                );
+            }
+        }
+    }
+
+    #[test]
     fn refuses_merged_nested_suggested_and_invalid_tables() {
         for (kind, expected) in [
             (0, TableError::UnsupportedTable),

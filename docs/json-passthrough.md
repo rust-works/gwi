@@ -54,7 +54,7 @@ or a test fixture is not itself a passthrough boundary.
 | Sheets chart updates (`src/drive/sheets/embedded_object.rs`, chart `extra` maps in `types.rs`) | Updates send a replacement spec and retain unmodelled fields in `ChartSpec`, `BasicChartSpec`, `BasicChartAxis`, `BasicChartDomain`, `BasicChartSeries`, `PieChartSpec` and `ChartData`. Title-update regressions preserve the literal private-key objects throughout the retained basic-chart metadata; pie-chart metadata has separate round-trip coverage. |
 | Sheets slicer snapshots (`SlicerSpec::extra`) | Unknown fields survive read/output serialization, including private-number-key objects, through an explicit raw boundary confirmed by literal HTTP fixtures. Slicer updates use field masks and constructed specs, so they do not wholesale re-send unknown fields. |
 | Gmail message MIME `payload` (`src/gmail/types.rs`), Docs unmodelled structural/paragraph arms (`src/drive/docs/types.rs`), Slides `pageSize`/`image` (`src/drive/slides/types.rs`), Sheets cell values (`ValueRange::values`) | These `Value` slots preserve selected API payloads for output or serve as presence discriminators. Field adapters capture raw JSON and explicitly construct objects before Value can interpret its private number protocol. Literal HTTP response parsing/output tests preserve every selected slot, including all unmodelled Docs paragraph arms. They do not promise preservation of every unknown field of the enclosing typed models. Slides' bounded read uses `from_slice` rather than the shared HTTP parser; both use the same wire models and protected field adapters. |
-| Docs table suggestion inspection (`Table::deserialize` in `src/drive/docs/types.rs`) | A generic intermediate scans unknown nested suggestion fields before narrowing to typed data. Bad private-number objects can reject the table even in otherwise ignored fields. The numeric case is parsed, then unmodelled data is discarded; this is not arbitrary metadata retention. |
+| Docs table suggestion inspection (`Table::deserialize` in `src/drive/docs/types.rs`) | Raw capture precedes a shape-preserving suggestion scan, including unknown nested fields. Typed table fields decode from the original JSON, protecting selected payloads inside cells and nested tables from both private protocols. Unknown metadata is inspected then discarded; only the suggestion flag is retained, without duplicate document prose. |
 | Sheets JSON cell input (`src/cli/drive/sheets/values.rs`) | Intended scalar conversion, not arbitrary JSON passthrough. Borrowed JSON slices validate original kinds before scalar conversion. All object/array cells, including private-number objects and nested containers, fail cell validation with row/column diagnostics. Supported numeric precision is retained. No Sheets request is built when this parser fails. |
 | Google error parsing (`src/drive/api_client.rs`, `src/gmail/client.rs`) | Temporary `Value` extracts error messages/reasons or quota hints, not JSON forwarding. Parse failures use existing fallback diagnostics; no unknown-object retention contract. |
 | Drive sync manifest, Gmail archive state/manifest/insert ledger, OAuth client-secret import, Chrome Local State, request/audit log records | Typed models (or raw body strings), not arbitrary unknown-JSON retention. Unknown typed fields are ignored or rejected according to their model; they are not merged back as Value. |
@@ -97,17 +97,22 @@ known-field rejection. Missing or null optional payloads remain absent. Sheets
 cell matrices remain ragged and reject malformed matrix shapes. Unknown payload
 nesting is bounded to 128 levels to avoid unbounded recursion. No guarantee is
 made for whitespace or duplicate unknown keys, or for ignored unknown fields of
-an enclosing typed model. Docs content passing through the separate Table
-suggestion-scanning intermediate remains subject to its limitation above.
+an enclosing typed model. Docs tables capture raw JSON before suggestion scanning,
+so these guarantees also apply to selected payloads inside cells and nested tables.
+The temporary inspection tree uses the same 128-level bound and detects pending
+suggestions in unmodelled metadata, including around literal private-key objects.
+Typed table fields decode from the original JSON and retain validation/defaults;
+duplicate known table fields are rejected instead of collapsed by an intermediate.
+Unknown metadata is discarded after inspection.
 Chart/filter serialization and request field masks are
 unchanged; slicer updates still construct only masked fields.
 
 ## Deferred implementation
 
 No current writer is known to produce this unusual key. Retaining `arbitrary_precision`
-avoids regressing [#95](https://github.com/rust-works/gwi/issues/95). Distinct future
-changes could protect Docs table suggestion scanning
-([#286](https://github.com/rust-works/gwi/issues/286)). The Sheets scalar validator
+avoids regressing [#95](https://github.com/rust-works/gwi/issues/95). Docs table
+suggestion scanning is protected by
+[#286](https://github.com/rust-works/gwi/issues/286). The Sheets scalar validator
 already checks raw JSON kinds before Value conversion (#274), and the selected payload
 boundaries are implemented by #275. Simply adding raw values to flattened fields does
 not avoid serde's buffering.
