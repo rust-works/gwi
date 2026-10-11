@@ -316,7 +316,7 @@ mod tests {
         cli.try_update_from(["gwi", "log", "--limit", "1"]).unwrap();
         assert_eq!(cli.profile.as_deref(), Some("work"));
         let crate::cli::Commands::Log(cmd) = cli.command else {
-            panic!("expected log");
+            panic!("expected log"); // patchcov: coverage ignore-line reason="guards this test's assumption; the parse above always yields Commands::Log for a log argv"
         };
         assert_eq!(cmd.limit, Some(1));
         assert_eq!(cmd.since.as_deref(), Some("2h"));
@@ -329,7 +329,7 @@ mod tests {
 
     fn log_from_cli(cli: crate::Cli) -> Box<LogCommand> {
         let crate::cli::Commands::Log(cmd) = cli.command else {
-            panic!("expected log");
+            panic!("expected log"); // patchcov: coverage ignore-line reason="guards this test helper; every caller passes a parsed log argv"
         };
         cmd
     }
@@ -386,7 +386,7 @@ mod tests {
 
     fn log_from_cli_ref(cli: &crate::Cli) -> &LogCommand {
         let crate::cli::Commands::Log(cmd) = &cli.command else {
-            panic!("expected log");
+            panic!("expected log"); // patchcov: coverage ignore-line reason="guards this test helper; every caller passes a parsed log argv"
         };
         cmd
     }

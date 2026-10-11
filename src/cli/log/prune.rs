@@ -152,10 +152,10 @@ mod tests {
             .unwrap();
         cli.try_update_from(["gwi", "log"]).unwrap();
         let crate::cli::Commands::Log(log) = cli.command else {
-            panic!("expected log");
+            panic!("expected log"); // patchcov: coverage ignore-line reason="guards this test's assumption; the parse above always yields Commands::Log for a log argv"
         };
         let Some(super::super::LogAction::Prune(cmd)) = log.action.0 else {
-            panic!("expected prune");
+            panic!("expected prune"); // patchcov: coverage ignore-line reason="guards this test's assumption; the parse above always yields LogAction::Prune for a prune argv"
         };
         assert_eq!(cmd.older_than.as_deref(), Some("7d"));
         assert_eq!(cmd.max_size.as_deref(), Some("10mb"));
