@@ -631,6 +631,80 @@ fn import_carries_the_lease_ledger_across_and_a_second_run_changes_nothing() {
 }
 
 #[test]
+fn import_preserves_private_number_objects_and_ignores_json_formatting() {
+    let values = r#"[{"$serde_json::private::Number":"123"},{"$serde_json::private::Number":"not-a-number"},{"$serde_json::private::Number":"123","other":"keep"}]"#;
+    for backup in [
+        r#"{"kind":"bytes","path":"backup.bin","sha256":"abc","size":42}"#,
+        r#"{"kind":"drive_copy","file_id":"backup-copy"}"#,
+    ] {
+        let home = tempfile::tempdir().unwrap();
+        write_omni_dev_settings(home.path());
+        let source = write_omni_dev_ledger(home.path());
+        let target = state_dir(home.path())
+            .join("gwi")
+            .join("lease-ledger.jsonl");
+        let backup = format!(
+            "{},\"future\":{{\"nested\":{values}}}}}",
+            backup.strip_suffix('}').unwrap()
+        );
+        let text = format!(
+            r#"{{"token":"private-key","file_id":"f1","version":"1","backup":{backup},"acquired_at":"2026-01-01T00:00:00Z","expires_at":"2026-01-02T00:00:00Z","future":{values}}}"#
+        );
+        std::fs::write(&source, &text).unwrap();
+        let first = gwi(home.path(), &["import"]);
+        assert!(
+            first.status.success(),
+            "{}",
+            String::from_utf8_lossy(&first.stderr)
+        );
+        let saved = std::fs::read_to_string(&target).unwrap();
+        assert!(saved.contains(values), "{saved}");
+        assert!(saved.contains(&backup), "{saved}");
+        assert_eq!(std::fs::read_to_string(&source).unwrap(), text);
+
+        // Whitespace, escaped strings and member order are semantically insignificant.
+        let formatted = text
+            .replace("\"other\":\"keep\"", "\"other\":\"k\\u0065ep\"")
+            .replace(
+                r#"{"$serde_json::private::Number":"123","other":"k\u0065ep"}"#,
+                r#"{ "other":"keep", "$serde_json::private::Number":"123" }"#,
+            )
+            .replace(r#""not-a-number""#, r#""not-a-\u006eumber""#)
+            .replace("[{", "[ {");
+        std::fs::write(&source, &formatted).unwrap();
+        let again = gwi(home.path(), &["import"]);
+        assert!(
+            again.status.success(),
+            "{}",
+            String::from_utf8_lossy(&again.stderr)
+        );
+        assert!(String::from_utf8_lossy(&again.stdout).contains("1 unchanged, 0 conflict(s)"));
+        assert_eq!(std::fs::read_to_string(&target).unwrap(), saved);
+        assert_eq!(std::fs::read_to_string(&source).unwrap(), formatted);
+
+        let changed = text.replace("not-a-number", "changed");
+        std::fs::write(&source, &changed).unwrap();
+        let conflict = gwi(home.path(), &["import"]);
+        assert!(!conflict.status.success());
+        assert!(String::from_utf8_lossy(&conflict.stdout).contains("1 conflict(s)"));
+        assert_eq!(std::fs::read_to_string(&target).unwrap(), saved);
+        let forced = gwi(home.path(), &["import", "--force"]);
+        assert!(
+            forced.status.success(),
+            "{}",
+            String::from_utf8_lossy(&forced.stderr)
+        );
+        assert!(String::from_utf8_lossy(&forced.stdout).contains("1 overwritten"));
+        let forced = std::fs::read_to_string(&target).unwrap();
+        assert!(
+            forced.contains(&values.replace("not-a-number", "changed")),
+            "{forced}"
+        );
+        assert_eq!(std::fs::read_to_string(&source).unwrap(), changed);
+    }
+}
+
+#[test]
 fn import_after_a_source_write_without_release_reports_freshness_conflict() {
     let home = tempfile::tempdir().unwrap();
     write_omni_dev_settings(home.path());

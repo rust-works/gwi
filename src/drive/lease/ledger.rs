@@ -175,10 +175,9 @@ pub(crate) struct LeaseRecord {
     /// `preserve_order` and `arbitrary_precision` features retain the relative
     /// order of unknown keys (including nested objects) and number precision.
     /// Known fields are written in declaration order before unknown fields;
-    /// whitespace is not preserved. Objects whose first key is
-    /// `$serde_json::private::Number` collide with serde_json's number protocol:
-    /// they can become numbers or fail to load, including recursively and inside
-    /// backup metadata. See [the compatibility decision](../../../docs/lease-ledger-json.md).
+    /// whitespace is not preserved. The explicit boundary in [`LeaseLedger::load`]
+    /// preserves literal objects even with `$serde_json::private::Number` first.
+    /// See [JSON compatibility](../../../docs/lease-ledger-json.md).
     #[serde(flatten)]
     pub(crate) extra: serde_json::Map<String, serde_json::Value>,
 }
@@ -191,6 +190,158 @@ impl LeaseRecord {
     pub(crate) fn is_live(&self, now: DateTime<Utc>) -> bool {
         self.released_at.is_none() && now < self.expires_at
     }
+}
+
+/// An object decoded directly from JSON, before serde can buffer flattened or
+/// internally tagged values. A vector keeps input order without interpreting any
+/// object key as serde_json's private arbitrary-precision number marker.
+struct RawObject(Vec<(String, Box<serde_json::value::RawValue>)>);
+
+impl<'de> Deserialize<'de> for RawObject {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct ObjectVisitor;
+        impl<'de> serde::de::Visitor<'de> for ObjectVisitor {
+            type Value = RawObject;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("a JSON object")
+            }
+
+            fn visit_map<M: serde::de::MapAccess<'de>>(
+                self,
+                mut map: M,
+            ) -> Result<Self::Value, M::Error> {
+                let mut entries = Vec::new();
+                while let Some(entry) = map.next_entry()? {
+                    entries.push(entry);
+                }
+                Ok(RawObject(entries))
+            }
+        }
+        deserializer.deserialize_map(ObjectVisitor)
+    }
+}
+
+impl Serialize for RawObject {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::SerializeMap;
+        let mut map = serializer.serialize_map(Some(self.0.len()))?;
+        for (key, value) in &self.0 {
+            map.serialize_entry(key, value)?;
+        }
+        map.end()
+    }
+}
+
+/// Builds objects and arrays explicitly; only primitives go through Value's
+/// deserializer, so real numbers retain precision and literal objects stay objects.
+fn parse_unknown(raw: &serde_json::value::RawValue) -> Result<serde_json::Value> {
+    parse_unknown_at_depth(raw, 0)
+}
+
+/// Bounds recursive parsing even though each raw subtree is decoded separately.
+fn parse_unknown_at_depth(
+    raw: &serde_json::value::RawValue,
+    depth: usize,
+) -> Result<serde_json::Value> {
+    // Match serde_json's default recursion budget for the separately parsed subtrees.
+    const MAX_UNKNOWN_DEPTH: usize = 128;
+    anyhow::ensure!(
+        depth < MAX_UNKNOWN_DEPTH,
+        "Unknown ledger JSON exceeds the recursion limit"
+    );
+    use serde_json::Value;
+    let text = raw.get().trim_start();
+    match text.as_bytes().first() {
+        Some(b'{') => {
+            let object: RawObject = serde_json::from_str(text)?;
+            let mut values = serde_json::Map::new();
+            for (key, value) in object.0 {
+                values.insert(key, parse_unknown_at_depth(&value, depth + 1)?);
+            }
+            Ok(Value::Object(values))
+        }
+        Some(b'[') => {
+            let array: Vec<Box<serde_json::value::RawValue>> = serde_json::from_str(text)?;
+            array
+                .iter()
+                .map(|value| parse_unknown_at_depth(value, depth + 1))
+                .collect::<Result<Vec<_>>>()
+                .map(Value::Array)
+        }
+        _ => Ok(serde_json::from_str(text)?),
+    }
+}
+
+/// Removes unknown fields before typed deserialization can buffer them. Keep
+/// these field lists aligned with LeaseRecord and the selected LeaseBackup variant.
+fn split_unknown(
+    object: &mut RawObject,
+    known: &[&str],
+) -> Result<serde_json::Map<String, serde_json::Value>> {
+    let mut extra = serde_json::Map::new();
+    let mut typed = Vec::new();
+    for (key, value) in std::mem::take(&mut object.0) {
+        if known.contains(&key.as_str()) {
+            typed.push((key, value));
+        } else {
+            extra.insert(key, parse_unknown(&value)?);
+        }
+    }
+    object.0 = typed;
+    Ok(extra)
+}
+
+/// The ledger's explicit JSON boundary. Unknown values never pass through the
+/// flattened row or internally tagged backup deserializer. Equality remains
+/// parsed Value equality, so formatting and object key order do not affect import.
+fn parse_record(line: &str) -> Result<LeaseRecord> {
+    let mut row: RawObject = serde_json::from_str(line)?;
+    let extra = split_unknown(
+        &mut row,
+        &[
+            "token",
+            "file_id",
+            "version",
+            "modified_time",
+            "backup",
+            "acquired_at",
+            "expires_at",
+            "released_at",
+            "superseded_by",
+            "restored_at",
+            "restored_sheet_id",
+        ],
+    )?;
+    let mut backup_extra = serde_json::Map::new();
+    for (key, raw) in &mut row.0 {
+        if key != "backup" {
+            continue;
+        }
+        let mut backup: RawObject = serde_json::from_str(raw.get())?;
+        let kind = backup
+            .0
+            .iter()
+            .find(|(key, _)| key == "kind")
+            .map(|(_, value)| serde_json::from_str::<String>(value.get()))
+            .transpose()?;
+        let fields: &[&str] = match kind.as_deref() {
+            Some("bytes") => &["kind", "path", "sha256", "size"],
+            Some("drive_copy") => &["kind", "file_id"],
+            // Leave missing/unknown tags to the typed enum's existing diagnostics.
+            _ => &["kind"],
+        };
+        backup_extra = split_unknown(&mut backup, fields)?;
+        *raw = serde_json::value::to_raw_value(&backup)?;
+    }
+    let mut record: LeaseRecord = serde_json::from_str(&serde_json::to_string(&row)?)?;
+    record.extra = extra;
+    match &mut record.backup {
+        LeaseBackup::Bytes { extra, .. } | LeaseBackup::DriveCopy { extra, .. } => {
+            *extra = backup_extra;
+        }
+    }
+    Ok(record)
 }
 
 /// The whole ledger, keyed by token.
@@ -248,7 +399,7 @@ impl LeaseLedger {
             if line.is_empty() {
                 continue;
             }
-            let record: LeaseRecord = serde_json::from_str(line).with_context(|| {
+            let record = parse_record(line).with_context(|| {
                 format!(
                     "Failed to parse lease ledger line {} at {} — this ledger is the sole \
                      record of which lease tokens are still valid, against what version, and \
@@ -899,6 +1050,18 @@ mod tests {
     }
 
     #[test]
+    fn parse_record_rejects_a_row_or_backup_that_is_not_an_object() {
+        let row = format!("{:#}", parse_record("[1]").unwrap_err());
+        assert!(row.contains("a JSON object"), "{row}");
+
+        let backup = format!(
+            "{:#}",
+            parse_record(r#"{"token":"t","backup":"nope"}"#).unwrap_err()
+        );
+        assert!(backup.contains("a JSON object"), "{backup}");
+    }
+
+    #[test]
     fn load_rejects_the_whole_ledger_for_an_unknown_backup_kind() {
         let fixture =
             include_str!("../../../tests/fixtures/lease-ledger-unknown-backup-kind.jsonl");
@@ -1268,22 +1431,16 @@ mod tests {
         }
     }
 
-    /// Characterizes the accepted serde_json limitation documented in #143.
+    /// Preserves the literal objects that collided with serde_json in #143.
     /// Build the input as text: parsing the fixture as Value would hide the collision.
     #[test]
-    fn private_number_key_limitation_applies_to_unknown_row_and_backup_values() {
+    fn private_number_key_objects_survive_unknown_row_and_backup_values() {
         for backup_kind in [None, Some("drive_copy"), Some("bytes")] {
             for nested in [false, true] {
-                for (value, error) in [
-                    (r#"{"$serde_json::private::Number":"123"}"#, None),
-                    (
-                        r#"{"$serde_json::private::Number":"not-a-number"}"#,
-                        Some("invalid number"),
-                    ),
-                    (
-                        r#"{"$serde_json::private::Number":"123","other":"keep"}"#,
-                        Some("invalid length 2"),
-                    ),
+                for value in [
+                    r#"{"$serde_json::private::Number":"123"}"#,
+                    r#"{"$serde_json::private::Number":"not-a-number"}"#,
+                    r#"{"$serde_json::private::Number":"123","other":"keep"}"#,
                 ] {
                     let dir = tempfile::tempdir().unwrap();
                     let path = dir.path().join("lease-ledger.jsonl");
@@ -1312,39 +1469,49 @@ mod tests {
                     };
                     std::fs::write(&path, &row).unwrap();
 
-                    if let Some(error) = error {
-                        let err = format!("{:#}", LeaseLedger::load(&path).unwrap_err());
-                        assert!(err.contains(error), "{err}");
-                        assert!(err.contains("line 1"), "{err}");
-                        assert_eq!(std::fs::read_to_string(&path).unwrap(), row);
-                        continue;
-                    }
-
                     let ledger = LeaseLedger::load(&path).unwrap();
                     ledger.save(&path).unwrap();
-                    let expected = if nested {
-                        r#""future":{"nested":[123]}"#
-                    } else {
-                        r#""future":123"#
-                    };
+                    let expected = format!("\"future\":{value}");
                     let saved = std::fs::read_to_string(&path).unwrap();
-                    assert!(saved.contains(expected), "{saved}");
-                    assert!(!saved.contains("$serde_json::private::Number"), "{saved}");
+                    assert!(saved.contains(&expected), "{saved}");
 
                     let lock = LedgerLock::acquire(&path).unwrap();
                     LeaseLedger::mutate(&lock, &path, |ledger| {
                         ledger.record_write("t1", "9".into(), None);
+                        ledger.mark_restored("t1", Utc::now(), Some(7));
                         ledger.release("t1", Utc::now(), None);
                     })
                     .unwrap();
                     let saved = std::fs::read_to_string(&path).unwrap();
-                    assert!(saved.contains(expected), "{saved}");
+                    assert!(saved.contains(&expected), "{saved}");
                     assert_eq!(
                         LeaseLedger::load(&path).unwrap().get("t1").unwrap().version,
                         "9"
                     );
                 }
             }
+        }
+    }
+
+    #[test]
+    fn raw_boundary_rejects_deep_metadata_and_invalid_known_fields_without_rewriting() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("lease-ledger.jsonl");
+        let known = serde_json::to_string(&sample_record("t1")).unwrap();
+        let deep = format!("{}null{}", "[".repeat(130), "]".repeat(130));
+        for row in [
+            format!("{},\"future\":{deep}}}", known.strip_suffix('}').unwrap()),
+            known.replace("\"version\":\"1\"", "\"version\":{}"),
+            format!(
+                "{},\"restored_sheet_id\":9223372036854775808}}",
+                known.strip_suffix('}').unwrap()
+            ),
+            format!("{},\"future\": [}}", known.strip_suffix('}').unwrap()),
+        ] {
+            std::fs::write(&path, &row).unwrap();
+            let err = format!("{:#}", LeaseLedger::load(&path).unwrap_err());
+            assert!(err.contains("line 1"), "{err}");
+            assert_eq!(std::fs::read_to_string(&path).unwrap(), row);
         }
     }
 
