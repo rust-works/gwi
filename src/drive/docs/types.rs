@@ -653,9 +653,17 @@ impl<'de> Deserialize<'de> for Table {
             #[serde(default, rename = "tableRows")]
             table_rows: Vec<TableRow>,
         }
-        let raw = serde_json::Value::deserialize(deserializer)?;
-        let has_pending_suggestions = has_suggestions(&raw);
-        let wire: WireTable = serde_json::from_value(raw).map_err(serde::de::Error::custom)?;
+        let raw = Box::<serde_json::value::RawValue>::deserialize(deserializer)?;
+        // Inspect literal objects before Value can interpret private serde_json
+        // keys. Drop the inspection tree before decoding the retained model.
+        let has_pending_suggestions = {
+            let payload: crate::utils::json_payload::Payload =
+                serde_json::from_str(raw.get()).map_err(serde::de::Error::custom)?;
+            has_suggestions(&payload.0)
+        };
+        // Decode the original JSON so selected payload adapters see original
+        // objects and known fields retain their typed validation.
+        let wire: WireTable = serde_json::from_str(raw.get()).map_err(serde::de::Error::custom)?;
         Ok(Self {
             rows: wire.rows,
             columns: wire.columns,
@@ -1155,30 +1163,78 @@ mod tests {
     }
 
     #[test]
-    fn private_number_table_inspection_parses_even_unmodelled_fields() {
-        for (literal, expected) in crate::test_support::private_number_cases() {
-            let parsed = serde_json::from_str::<Table>(&format!(
-                r#"{{"rows":1,"columns":2,"future":{literal}}}"#
-            ));
-            match expected {
-                Ok(_) => {
-                    let table = parsed.unwrap();
-                    assert_eq!(table.rows, Some(1));
-                    assert_eq!(table.columns, Some(2));
-                    assert!(!table.has_pending_suggestions);
+    fn private_number_table_inspection_accepts_unmodelled_fields() {
+        for (literal, _) in crate::test_support::preserved_private_number_cases() {
+            for literal in [literal.clone(), literal.replace("::Number", "::RawValue")] {
+                let table: Table = serde_json::from_str(&format!(
+                    r#"{{"rows":1,"columns":2,"future":{literal}}}"#
+                ))
+                .unwrap();
+                assert_eq!(table.rows, Some(1));
+                assert_eq!(table.columns, Some(2));
+                assert!(!table.has_pending_suggestions);
+                assert_eq!(
+                    serde_json::to_value(table).unwrap(),
+                    serde_json::json!({"rows":1,"columns":2})
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn table_inspection_detects_suggestions_around_private_objects() {
+        for protocol in ["Number", "RawValue"] {
+            for (suggestion, expected) in [
+                (r#"["s"]"#, true),
+                (r#"{"s":{}}"#, true),
+                ("false", true),
+                ("[]", false),
+                ("{}", false),
+                ("null", false),
+            ] {
+                for field in ["future", "tableCellStyle"] {
+                    let table: Table = serde_json::from_str(&format!(
+                        r#"{{"tableRows":[{{"tableCells":[{{"{field}":{{"nested":[{{"$serde_json::private::{protocol}":"not-json","suggestedChanges":{suggestion}}}]}}}}]}}]}}"#
+                    ))
+                    .unwrap();
+                    assert_eq!(table.has_pending_suggestions, expected);
+                    // Unknown metadata and the captured flag are not retained.
                     assert_eq!(
-                        serde_json::to_value(table).unwrap(),
-                        serde_json::json!({"rows":1,"columns":2})
-                    );
-                }
-                Err(message) => {
-                    let error = parsed.unwrap_err().to_string();
-                    assert!(
-                        error.contains(&message.replace("invalid length", "trailing comma")),
-                        "{error}"
+                        serde_json::to_string(&table).unwrap(),
+                        if field == "future" {
+                            r#"{"tableRows":[{"tableCells":[{}]}]}"#
+                        } else {
+                            r#"{"tableRows":[{"tableCells":[{"tableCellStyle":{}}]}]}"#
+                        }
                     );
                 }
             }
         }
+    }
+
+    #[test]
+    fn table_raw_boundary_keeps_validation_defaults_and_precision() {
+        assert_eq!(
+            serde_json::from_str::<Table>("{}").unwrap(),
+            Table::default()
+        );
+        for literal in [
+            "null",
+            r#"{"rows":"1"}"#,
+            r#"{"columns":1.5}"#,
+            r#"{"tableRows":null}"#,
+            r#"{"tableRows":[{"tableCells":false}]}"#,
+            r#"{"rows":1,"rows":2}"#,
+            r#"{"columns":1,"columns":2}"#,
+            r#"{"tableRows":[],"tableRows":[]}"#,
+            r#"{"future":{"bad":}}"#,
+        ] {
+            assert!(serde_json::from_str::<Table>(literal).is_err(), "{literal}");
+        }
+        let literal = r#"{"tableRows":[{"tableCells":[{"content":[{"paragraph":{"elements":[{"equation":{"integer":184467440737095516160,"decimal":0.12345678901234567890123456789}}]}}]}]}]}"#;
+        let table: Table = serde_json::from_str(literal).unwrap();
+        assert_eq!(serde_json::to_string(&table).unwrap(), literal);
+        let deep = format!(r#"{{"future":{}null{}}}"#, "[".repeat(129), "]".repeat(129));
+        assert!(serde_json::from_str::<Table>(&deep).is_err());
     }
 }
