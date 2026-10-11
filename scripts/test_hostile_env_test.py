@@ -163,7 +163,8 @@ class HostileEnvTest(unittest.TestCase):
             if sys.platform == 'linux':
                 try:
                     state = Path(f'/proc/{pid}/stat').read_text().rsplit(')', 1)[1].split()[0]
-                except FileNotFoundError:
+                except (FileNotFoundError, ProcessLookupError):
+                    # Linux can report ESRCH if the process exits during the read.
                     state = ''
             else:
                 state = subprocess.run(
@@ -174,6 +175,19 @@ class HostileEnvTest(unittest.TestCase):
                 return
             self.assertLess(time.monotonic(), deadline, (pid, state))
             time.sleep(0.01)
+
+    def test_assert_terminated_handles_linux_process_disappearance(self):
+        for error in (FileNotFoundError, ProcessLookupError):
+            with self.subTest(error=error):
+                with patch.object(sys, 'platform', 'linux'), \
+                        patch.object(Path, 'read_text', side_effect=['123 (child) S', error()]) as read, \
+                        patch.object(time, 'sleep'):
+                    self.assert_terminated(123)
+                self.assertEqual(read.call_count, 2)
+        with patch.object(sys, 'platform', 'linux'), \
+                patch.object(Path, 'read_text', side_effect=PermissionError):
+            with self.assertRaises(PermissionError):
+                self.assert_terminated(123)
 
     @unittest.skipUnless(sys.platform in ('linux', 'darwin'), 'POSIX runner')
     def test_real_timeout_terminates_group_before_continuing(self):
