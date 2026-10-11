@@ -75,8 +75,8 @@ Changing that exclusion would not address the new description-attributed region.
 The head lcov has two instantiations of a zero-hit function whose mangled name
 ends in `GwiServer27drive_sheets_read_tool_attr0Bb_`, both beginning at line 122.
 The baseline has neither function record. Their overlapping regions contribute
-eleven source lines to the denominator, not twenty-two. All 42 function records shared by the
-reports have identical `FNDA` counts; none were removed, and the only additions
+eleven source lines to the denominator, not twenty-two. All 42 function records
+shared by the reports have identical `FNDA` counts; none were removed, and the only additions
 are these two zero-hit closure instantiations. Both reports still have the read
 handler's async body with one hit and the fixture-backed `run_sheets_read` with
 four hits. The eleven extra lines are therefore a change in emitted coverage
@@ -169,11 +169,14 @@ lcov-export sequence, including the doctest. It again emits `LF:290`, `LH:265`
 and the two zero-hit read metadata closures:
 
 ```bash
-export CARGO_TARGET_DIR="$WT/target/llvm-cov-target"
-eval "$(cargo llvm-cov show-env --sh)"
-cargo llvm-cov clean --profraw-only
-cargo test --manifest-path "$WT/Cargo.toml" --all-features --workspace
-cargo llvm-cov report --lcov --output-path /tmp/sheets-ci.lcov
+(
+  cd "$WT"
+  export CARGO_TARGET_DIR="$WT/target/llvm-cov-target"
+  eval "$(cargo llvm-cov show-env --sh)"
+  cargo llvm-cov clean --profraw-only
+  cargo test --manifest-path "$WT/Cargo.toml" --all-features --workspace
+  cargo llvm-cov report --lcov --output-path /tmp/sheets-ci.lcov
+)
 ```
 
 The first driver run started with a clean workspace coverage build. This second
