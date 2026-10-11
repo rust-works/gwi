@@ -57,6 +57,21 @@ fn text(expr: &Expr, macros: &Macros) -> Result<String, String> {
     }
 }
 
+// Deferred literal doc attributes keep clap derives from inferring redundant calls.
+// Resolve only literal strings; arbitrary expressions still fail closed.
+fn doc_text(expr: &Expr, macros: &Macros) -> Result<String, String> {
+    if let Expr::Macro(expr) = expr {
+        if expr.mac.path.is_ident("concat") {
+            let literals = expr
+                .mac
+                .parse_body_with(Punctuated::<syn::LitStr, Token![,]>::parse_terminated)
+                .map_err(|_| "unsupported description concat arguments".to_owned())?;
+            return Ok(literals.iter().map(syn::LitStr::value).collect());
+        }
+    }
+    text(expr, macros)
+}
+
 // This is deliberately a small authoring convention, not a Markdown renderer.
 fn plain(doc: &str) -> String {
     assert!(
@@ -138,9 +153,9 @@ fn check_attrs(attrs: &[Attribute], name: &str, macros: &Macros) -> Result<usize
         let Meta::NameValue(value) = &attr.meta else {
             continue;
         };
-        let line = text(&value.value, macros)
+        let line = doc_text(&value.value, macros)
             .map_err(|error| format!("{name}:{} rustdoc: {error}", attr.span().start().line))?;
-        lines.push(line.trim().to_owned());
+        lines.extend(line.split('\n').map(|line| line.trim().to_owned()));
     }
     // Explicit independently authored text without rustdoc has no pair to compare.
     if lines.is_empty() {
@@ -401,6 +416,24 @@ fn unsupported_description_expressions_fail_closed() {
             .unwrap_err()
             .contains("unsupported description"));
     }
+}
+
+#[test]
+fn deferred_literal_docs_preserve_paragraphs_and_detect_drift() {
+    let source = r#"
+        #[doc = concat!(" Read `file_id`.\n", "\n", " Omit for default.\n")]
+        #[command(about = "Read file_id", long_about = "Read file_id.\n\nOmit for default.")]
+        struct Read;
+    "#;
+    assert_eq!(check_fixture(source).unwrap(), 2);
+    assert!(check_fixture(&source.replace("`file_id`", "`other_id`"))
+        .unwrap_err()
+        .contains("differs from rustdoc"));
+    assert!(
+        check_fixture(&source.replace("\" Omit for default.\\n\"", "UNKNOWN"))
+            .unwrap_err()
+            .contains("unsupported description")
+    );
 }
 
 #[test]
