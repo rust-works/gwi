@@ -273,13 +273,51 @@ pub fn try_lock_file_exclusive(path: &Path) -> std::result::Result<FileLock, Fil
 /// [`ensure_parent_dir_0700`] first.
 #[cfg(not(unix))]
 pub fn try_lock_file_exclusive(path: &Path) -> std::result::Result<FileLock, FileLockError> {
-    match create_new_file_0600(path) {
+    match retry_while_delete_pending(|| create_new_file_0600(path)) {
         Ok(_) => Ok(FileLock {
             path: path.to_path_buf(),
         }),
         Err(err) if is_already_exists_error(&err) => Err(FileLockError::Busy),
         Err(err) => Err(FileLockError::Io(err)),
     }
+}
+
+/// Attempts a marker create again for a short, bounded time while it reports
+/// `PermissionDenied`.
+///
+/// On Windows a file whose last handle has been unlinked stays "delete
+/// pending" until the kernel finishes, and creating it in that window fails
+/// with `ERROR_ACCESS_DENIED` instead of `AlreadyExists`. A waiter racing the
+/// holder's `Drop` therefore sees a permission error for what is really a
+/// released lock. A genuine permission problem keeps failing past the
+/// bounded retries and is reported as the I/O error it is.
+#[cfg(any(not(unix), test))]
+fn retry_while_delete_pending<T>(mut attempt: impl FnMut() -> Result<T>) -> Result<T> {
+    const RETRIES: u32 = 20;
+    const DELAY: std::time::Duration = std::time::Duration::from_millis(5);
+
+    let mut result = attempt();
+    for _ in 0..RETRIES {
+        match &result {
+            Err(err) if is_permission_denied_error(err) => {
+                std::thread::sleep(DELAY);
+                result = attempt();
+            }
+            _ => break,
+        }
+    }
+    result
+}
+
+/// Whether `err`'s cause chain includes an `io::Error` of kind
+/// `PermissionDenied`.
+#[cfg(any(not(unix), test))]
+fn is_permission_denied_error(err: &anyhow::Error) -> bool {
+    err.chain().any(|cause| {
+        cause
+            .downcast_ref::<std::io::Error>()
+            .is_some_and(|io_err| io_err.kind() == std::io::ErrorKind::PermissionDenied)
+    })
 }
 
 #[cfg(not(unix))]
@@ -331,6 +369,52 @@ pub fn set_file_0600(path: &Path) -> Result<()> {
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn delete_pending_retry_outlasts_a_transient_permission_denial() {
+        let mut denials = 3;
+        let result = retry_while_delete_pending(|| {
+            if denials > 0 {
+                denials -= 1;
+                return Err(anyhow::Error::from(std::io::Error::from(
+                    std::io::ErrorKind::PermissionDenied,
+                ))
+                .context("failed to exclusively create file"));
+            }
+            Ok("created")
+        });
+        assert_eq!(result.unwrap(), "created");
+        assert_eq!(denials, 0);
+    }
+
+    #[test]
+    fn delete_pending_retry_gives_up_on_a_persistent_permission_denial() {
+        let mut attempts = 0;
+        let err = retry_while_delete_pending::<()>(|| {
+            attempts += 1;
+            Err(anyhow::Error::from(std::io::Error::from(
+                std::io::ErrorKind::PermissionDenied,
+            )))
+        })
+        .unwrap_err();
+        assert!(is_permission_denied_error(&err));
+        assert_eq!(attempts, 21);
+    }
+
+    #[test]
+    fn delete_pending_retry_does_not_retry_other_errors() {
+        let mut attempts = 0;
+        let err = retry_while_delete_pending::<()>(|| {
+            attempts += 1;
+            Err(anyhow::Error::from(std::io::Error::from(
+                std::io::ErrorKind::AlreadyExists,
+            )))
+        })
+        .unwrap_err();
+        assert!(is_already_exists_error(&err));
+        assert!(!is_permission_denied_error(&err));
+        assert_eq!(attempts, 1);
+    }
 
     #[test]
     fn write_file_0600_creates_owner_only() {

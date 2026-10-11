@@ -12,6 +12,7 @@ pub struct Presentation {
     /// Opaque editor-only revision token.
     pub revision_id: Option<String>,
     /// Page dimensions in the API's units.
+    #[serde(default, deserialize_with = "crate::utils::json_payload::optional")]
     pub page_size: Option<serde_json::Value>,
     /// Ordinary slides, in display order.
     pub slides: Vec<Page>,
@@ -54,6 +55,7 @@ pub struct PageElement {
     /// Cells, when this is a table.
     pub table: Option<Table>,
     /// Presence identifies an image without exposing its content URL.
+    #[serde(default, deserialize_with = "crate::utils::json_payload::optional")]
     pub image: Option<serde_json::Value>,
     /// Recursively grouped elements.
     pub element_group: Option<ElementGroup>,

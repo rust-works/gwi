@@ -32,6 +32,101 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
+// Keep typed field dispatch explicit: flatten buffers before raw adapters run.
+// Required fields and duplicate known fields retain the derived model's checks.
+macro_rules! metadata_deserialize {
+    ($model:ident { $($field:ident: $ty:ty => $wire:literal),* } required { $($required:ident => $required_wire:literal),* }) => {
+        impl<'de> Deserialize<'de> for $model {
+            fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+                struct ModelVisitor;
+                impl<'de> serde::de::Visitor<'de> for ModelVisitor {
+                    type Value = $model;
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                        formatter.write_str(concat!("a ", stringify!($model), " object"))
+                    }
+                    fn visit_map<M: serde::de::MapAccess<'de>>(self, mut map: M) -> Result<$model, M::Error> {
+                        $(let mut $field: Option<$ty> = None;)*
+                        let mut extra = BTreeMap::new();
+                        while let Some(key) = map.next_key::<String>()? {
+                            match key.as_str() {
+                                $($wire => {
+                                    if $field.is_some() {
+                                        return Err(serde::de::Error::duplicate_field($wire));
+                                    }
+                                    $field = Some(map.next_value()?);
+                                },)*
+                                _ => {
+                                    let payload: crate::utils::json_payload::Payload = map.next_value()?;
+                                    extra.insert(key, payload.0);
+                                }
+                            }
+                        }
+                        $(if $required.is_none() {
+                            return Err(serde::de::Error::missing_field($required_wire));
+                        })*
+                        Ok($model { $($field: $field.unwrap_or_default(),)* extra })
+                    }
+                }
+                deserializer.deserialize_map(ModelVisitor)
+            }
+        }
+    };
+}
+
+metadata_deserialize!(FilterCriteria {
+    hidden_values: Vec<String> => "hiddenValues"
+} required {  });
+
+metadata_deserialize!(ChartSpec {
+    title: Option<String> => "title",
+    subtitle: Option<String> => "subtitle",
+    basic_chart: Option<BasicChartSpec> => "basicChart",
+    pie_chart: Option<PieChartSpec> => "pieChart"
+} required {  });
+
+metadata_deserialize!(BasicChartSpec {
+    chart_type: String => "chartType",
+    legend_position: Option<String> => "legendPosition",
+    stacked_type: Option<String> => "stackedType",
+    header_count: Option<i64> => "headerCount",
+    axis: Vec<BasicChartAxis> => "axis",
+    domains: Vec<BasicChartDomain> => "domains",
+    series: Vec<BasicChartSeries> => "series"
+} required {  });
+
+metadata_deserialize!(BasicChartAxis {
+    position: String => "position",
+    title: Option<String> => "title"
+} required {  });
+
+metadata_deserialize!(BasicChartDomain {
+    domain: ChartData => "domain"
+} required { domain => "domain" });
+
+metadata_deserialize!(BasicChartSeries {
+    series: ChartData => "series",
+    target_axis: Option<String> => "targetAxis"
+} required { series => "series" });
+
+metadata_deserialize!(PieChartSpec {
+    domain: ChartData => "domain",
+    series: ChartData => "series",
+    legend_position: Option<String> => "legendPosition",
+    pie_hole: Option<f64> => "pieHole"
+} required { domain => "domain", series => "series" });
+
+metadata_deserialize!(ChartData {
+    source_range: ChartSourceRange => "sourceRange"
+} required { source_range => "sourceRange" });
+
+metadata_deserialize!(SlicerSpec {
+    data_range: Option<GridRange> => "dataRange",
+    filter_criteria: Option<FilterCriteria> => "filterCriteria",
+    column_index: Option<i64> => "columnIndex",
+    apply_to_pivot_tables: Option<bool> => "applyToPivotTables",
+    title: Option<String> => "title"
+} required {  });
+
 /// A spreadsheet's metadata, from `spreadsheets.get`.
 ///
 /// Always request an explicit `fields` mask when fetching this to limit
@@ -462,6 +557,7 @@ pub struct ValueRange {
     /// Rows are ragged: trailing empty cells are truncated per row, and
     /// trailing empty rows dropped entirely.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(deserialize_with = "crate::utils::json_payload::cells")]
     pub values: Vec<Vec<serde_json::Value>>,
 }
 
@@ -1758,7 +1854,7 @@ pub struct DeleteProtectedRangeRequest {
 /// (`condition`, `visibleBackgroundColorStyle`, …) are kept in
 /// [`Self::extra`] rather than dropped, so a filter view `update-filter-view`
 /// re-creates wholesale (issue #1931) keeps them.
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, Serialize, PartialEq, Eq)]
 pub struct FilterCriteria {
     /// Values to hide in this column.
     #[serde(
@@ -1769,7 +1865,7 @@ pub struct FilterCriteria {
     pub hidden_values: Vec<String>,
     /// Every other `FilterCriteria` field this crate doesn't model,
     /// preserved verbatim across a read-then-write cycle — the same
-    /// `flatten` technique as [`ChartSpec::extra`].
+    /// raw deserialization boundary and flattened serialization as [`ChartSpec::extra`].
     #[serde(flatten)]
     pub extra: BTreeMap<String, serde_json::Value>,
 }
@@ -2178,8 +2274,10 @@ pub struct DeleteNamedRangeRequest {
 // `backgroundColor`, `hiddenDimensionStrategy`, per-series `styleOverrides`,
 // the other 13 chart-type variants (`bubbleChart`, `histogramChart`, …) —
 // is **not modelled as a named field**. Instead each of these types carries
-// `#[serde(flatten)] extra: BTreeMap<String, serde_json::Value>`, which does
-// two jobs at once: reading an existing chart preserves every field this
+// `extra: BTreeMap<String, serde_json::Value>`. Explicit typed map visitors
+// capture unknown values as raw JSON before constructing Value objects;
+// `#[serde(flatten)]` is used only for serialization. This does two jobs:
+// reading an existing chart preserves every field this
 // crate doesn't touch losslessly (essential for `update-chart`, which sends
 // a *whole* replacement spec — see [`UpdateChartSpecRequest`]), and finding
 // a key like `"histogramChart"` in `ChartSpec::extra` is exactly how
@@ -2239,7 +2337,7 @@ pub struct EmbeddedChart {
 /// A chart's content and styling — `ChartSpec`. See the module-level note
 /// above for which chart types this crate models and why unmodelled fields
 /// round-trip through `extra`.
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Default, Serialize, PartialEq)]
 pub struct ChartSpec {
     /// The chart's title.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -2275,7 +2373,7 @@ pub struct ChartSpec {
 /// `chartType` is a named field) — but
 /// `embedded_object.rs::merge_chart_spec` refuses to *update* one, since
 /// `COMBO` needs a per-series `type` this crate doesn't model.
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, Serialize, PartialEq, Eq)]
 pub struct BasicChartSpec {
     /// `"COLUMN"`, `"BAR"`, `"LINE"`, `"AREA"`, `"SCATTER"` (this crate's
     /// supported set), or another wire value read back from an existing
@@ -2321,7 +2419,7 @@ pub struct BasicChartSpec {
 }
 
 /// One axis of a [`BasicChartSpec`] — `BasicChartAxis`.
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, Serialize, PartialEq, Eq)]
 pub struct BasicChartAxis {
     /// Which physical axis this is — `"BOTTOM_AXIS"`, `"LEFT_AXIS"`, or
     /// `"RIGHT_AXIS"`. `--horizontal-axis-title`/`--vertical-axis-title`
@@ -2341,7 +2439,7 @@ pub struct BasicChartAxis {
 }
 
 /// One domain of a [`BasicChartSpec`] — `BasicChartDomain`.
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, Serialize, PartialEq, Eq)]
 pub struct BasicChartDomain {
     /// The domain's source data.
     pub domain: ChartData,
@@ -2352,7 +2450,7 @@ pub struct BasicChartDomain {
 }
 
 /// One series of a [`BasicChartSpec`] — `BasicChartSeries`.
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, Serialize, PartialEq, Eq)]
 pub struct BasicChartSeries {
     /// The series' source data.
     pub series: ChartData,
@@ -2371,7 +2469,7 @@ pub struct BasicChartSeries {
 }
 
 /// A pie chart's configuration — `PieChartSpec`.
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Default, Serialize, PartialEq)]
 pub struct PieChartSpec {
     /// The category labels (the pie's slices).
     pub domain: ChartData,
@@ -2396,7 +2494,7 @@ pub struct PieChartSpec {
 }
 
 /// One chart series or domain's source data — `ChartData`.
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, Serialize, PartialEq, Eq)]
 pub struct ChartData {
     /// The cell range(s) this series/domain reads from.
     #[serde(rename = "sourceRange")]
@@ -2522,7 +2620,7 @@ pub struct Slicer {
 }
 
 /// A slicer's filtering configuration — `SlicerSpec`.
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, Serialize, PartialEq, Eq)]
 pub struct SlicerSpec {
     /// The range the slicer filters.
     #[serde(default, skip_serializing_if = "Option::is_none", rename = "dataRange")]
@@ -5246,5 +5344,130 @@ mod tests {
         let round_tripped: Spreadsheet = serde_json::from_value(wire_shape)
             .expect("every zero-valued scalar here must have #[serde(default)]");
         assert_eq!(round_tripped, original);
+    }
+    #[test]
+    fn private_number_pie_and_slicer_metadata_preserved() {
+        for (literal, expected) in crate::test_support::preserved_private_number_cases() {
+            let input = format!(
+                r#"{{"domain":{{"sourceRange":{{"sources":[]}}}},"series":{{"sourceRange":{{"sources":[]}}}},"future":{literal}}}"#
+            );
+            let pie: PieChartSpec = serde_json::from_str(&input).unwrap();
+            assert_eq!(pie.extra["future"], expected);
+            assert_eq!(
+                serde_json::from_str::<PieChartSpec>(&serde_json::to_string(&pie).unwrap())
+                    .unwrap(),
+                pie
+            );
+            let input = format!(
+                r#"{{"columnIndex":2,"filterCriteria":{{"future":{literal}}},"future":{literal}}}"#
+            );
+            let slicer: SlicerSpec = serde_json::from_str(&input).unwrap();
+            assert_eq!(slicer.extra["future"], expected);
+            assert_eq!(
+                slicer.filter_criteria.as_ref().unwrap().extra["future"],
+                expected
+            );
+            assert_eq!(
+                serde_json::from_str::<SlicerSpec>(&serde_json::to_string(&slicer).unwrap())
+                    .unwrap(),
+                slicer
+            );
+        }
+    }
+
+    #[test]
+    fn metadata_known_fields_keep_validation_and_defaults() {
+        assert_eq!(
+            serde_json::from_str::<ChartSpec>("{}").unwrap(),
+            ChartSpec::default()
+        );
+        assert_eq!(
+            serde_json::from_str::<BasicChartSpec>("{}").unwrap(),
+            BasicChartSpec::default()
+        );
+        assert_eq!(
+            serde_json::from_str::<BasicChartAxis>("{}").unwrap(),
+            BasicChartAxis::default()
+        );
+        assert_eq!(
+            serde_json::from_str::<FilterCriteria>("{}").unwrap(),
+            FilterCriteria::default()
+        );
+        assert_eq!(
+            serde_json::from_str::<SlicerSpec>("{}").unwrap(),
+            SlicerSpec::default()
+        );
+        assert!(serde_json::from_str::<BasicChartDomain>("{}").is_err());
+        assert!(serde_json::from_str::<BasicChartSeries>("{}").is_err());
+        assert!(serde_json::from_str::<PieChartSpec>("{}").is_err());
+        assert!(serde_json::from_str::<ChartData>("{}").is_err());
+        for text in [
+            r#"{"title":123}"#,
+            r#"{"title":null,"title":"duplicate"}"#,
+            r#"{"basicChart":{"headerCount":"bad"}}"#,
+            r#"{"basicChart":{"axis":null}}"#,
+        ] {
+            assert!(serde_json::from_str::<ChartSpec>(text).is_err(), "{text}");
+        }
+        for text in [
+            r#"{"columnIndex":"bad"}"#,
+            r#"{"applyToPivotTables":1}"#,
+            r#"{"filterCriteria":{"hiddenValues":[1]}}"#,
+        ] {
+            assert!(serde_json::from_str::<SlicerSpec>(text).is_err(), "{text}");
+        }
+        assert!(serde_json::from_str::<ValueRange>(r#"{"values":null}"#).is_err());
+        assert_eq!(
+            serde_json::from_str::<ValueRange>("{}").unwrap().values,
+            Vec::<Vec<serde_json::Value>>::new()
+        );
+    }
+
+    /// Every macro-generated model rejects a non-object and a repeated known
+    /// field, so each expansion's `expecting` and duplicate arms run.
+    #[test]
+    fn metadata_models_reject_non_objects_and_duplicate_known_fields() {
+        fn check<T: serde::de::DeserializeOwned>(name: &str, duplicate: &str) {
+            let message = serde_json::from_str::<T>("1").err().unwrap().to_string();
+            assert!(message.contains(&format!("a {name} object")), "{message}");
+            let message = serde_json::from_str::<T>(duplicate)
+                .err()
+                .unwrap()
+                .to_string();
+            assert!(message.contains("duplicate field"), "{name}: {message}");
+        }
+        let data = r#"{"sourceRange":{"sources":[]}}"#;
+        check::<FilterCriteria>("FilterCriteria", r#"{"hiddenValues":[],"hiddenValues":[]}"#);
+        check::<ChartSpec>("ChartSpec", r#"{"title":"a","title":"b"}"#);
+        check::<BasicChartSpec>("BasicChartSpec", r#"{"chartType":"a","chartType":"b"}"#);
+        check::<BasicChartAxis>("BasicChartAxis", r#"{"position":"a","position":"b"}"#);
+        check::<BasicChartDomain>(
+            "BasicChartDomain",
+            &format!(r#"{{"domain":{data},"domain":{data}}}"#),
+        );
+        check::<BasicChartSeries>(
+            "BasicChartSeries",
+            &format!(r#"{{"series":{data},"series":{data}}}"#),
+        );
+        check::<PieChartSpec>(
+            "PieChartSpec",
+            &format!(r#"{{"domain":{data},"domain":{data}}}"#),
+        );
+        check::<ChartData>(
+            "ChartData",
+            r#"{"sourceRange":{"sources":[]},"sourceRange":{"sources":[]}}"#,
+        );
+        check::<SlicerSpec>("SlicerSpec", r#"{"title":"a","title":"b"}"#);
+    }
+
+    #[test]
+    fn metadata_preserves_precision_nested_order_and_sorts_outer_keys() {
+        let text =
+            r#"{"z":{"z":184467440737095516160,"a":0.12345678901234567890123456789},"a":true}"#;
+        let chart: ChartSpec = serde_json::from_str(text).unwrap();
+        assert_eq!(
+            serde_json::to_string(&chart).unwrap(),
+            r#"{"a":true,"z":{"z":184467440737095516160,"a":0.12345678901234567890123456789}}"#
+        );
     }
 }

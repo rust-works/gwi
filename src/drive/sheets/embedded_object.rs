@@ -7162,20 +7162,28 @@ mod tests {
         if let EmbeddedObjectVerb::UpdateChart { title, .. } = &mut verb {
             *title = Some("new title".to_string());
         }
-        for (literal, expected) in crate::test_support::private_number_cases() {
+        for (literal, value) in crate::test_support::preserved_private_number_cases() {
             let input = format!(
-                r#"{{"title":"old title","basicChart":{{"chartType":"COLUMN"}},"future":{literal}}}"#
+                r#"{{"title":"old title","basicChart":{{"chartType":"COLUMN","future":{literal},"axis":[{{"future":{literal}}}],"domains":[{{"domain":{{"sourceRange":{{"sources":[]}},"future":{literal}}},"future":{literal}}}],"series":[{{"series":{{"sourceRange":{{"sources":[]}},"future":{literal}}},"future":{literal}}}]}},"future":{literal}}}"#
             );
             let parsed = serde_json::from_str::<ChartSpec>(&input);
-            match expected {
-                Ok(value) => {
-                    let (spec, _) = merge_chart_spec(&workbook, &parsed.unwrap(), &verb).unwrap();
-                    let saved = serde_json::to_value(&spec).unwrap();
-                    assert_eq!(saved["future"], value);
-                    assert_eq!(saved["title"], "new title");
-                }
-                Err(message) => assert!(parsed.unwrap_err().to_string().contains(message)),
+            let (spec, _) = merge_chart_spec(&workbook, &parsed.unwrap(), &verb).unwrap();
+            let saved = serde_json::to_value(&spec).unwrap();
+            for pointer in [
+                "/future",
+                "/basicChart/future",
+                "/basicChart/axis/0/future",
+                "/basicChart/domains/0/future",
+                "/basicChart/domains/0/domain/future",
+                "/basicChart/series/0/future",
+                "/basicChart/series/0/series/future",
+            ] {
+                assert_eq!(saved.pointer(pointer), Some(&value), "{pointer}: {literal}");
             }
+            let wire = serde_json::to_string(&spec).unwrap();
+            let reparsed: ChartSpec = serde_json::from_str(&wire).unwrap();
+            assert_eq!(reparsed, spec);
+            assert_eq!(saved["title"], "new title");
         }
     }
 }

@@ -4,9 +4,10 @@ Settings updates and settings import preserve arbitrary unknown JSON through an 
 read/merge/write boundary ([#273](https://github.com/rust-works/gwi/issues/273)).
 Sheets JSON cell input validates original JSON kinds before scalar conversion
 ([#274](https://github.com/rust-works/gwi/issues/274)). The
-[#209](https://github.com/rust-works/gwi/issues/209) audit's accepted private
-number-key limitation still applies to the API/Sheets payload paths below. The ledger's
-separate preservation guarantee is documented in
+[#209](https://github.com/rust-works/gwi/issues/209) audit documented the private
+number-key collision. [#275](https://github.com/rust-works/gwi/issues/275) now
+preserves selected API payloads and Sheets metadata at explicit raw JSON boundaries.
+The ledger's separate preservation guarantee is documented in
 [lease ledger JSON](lease-ledger-json.md) and introduced by
 [#208](https://github.com/rust-works/gwi/issues/208).
 
@@ -31,6 +32,13 @@ and arrays. The ordinary-key-first control
 values. Writers using the affected Value boundaries should avoid the private key rather than rely on member order.
 A string containing the key's text is safe.
 
+The raw boundaries enable serde_json's crate-wide `raw_value` feature. In
+unprotected Value deserializers, a first-key `$serde_json::private::RawValue`
+object also collides with serde_json's internal protocol: its string content is
+interpreted as JSON rather than retained as a string-valued object. Protected
+payload slots explicitly construct both private-key objects. Avoid either
+private key in the remaining unprotected consumers.
+
 ## Production inventory
 
 The inventory follows deserialization into `Value`, including generic HTTP parsing,
@@ -42,10 +50,10 @@ or a test fixture is not itself a passthrough boundary.
 | --- | --- |
 | Settings env/profile upsert/removal, Gmail/Drive account upsert/removal and default-account updates (`src/utils/settings.rs`) | Read the entire file as a settings JSON tree with explicitly parsed ordered objects and arrays. All ten writer paths preserve the literal objects above, including nested unknown profile metadata. Only scalar leaves use `Value`; typed `Settings::load_from_path` continues to ignore unknown fields. |
 | Settings `gwi import` (`src/cli/import.rs`) | The same settings JSON tree preserves unknown fields in selected Gmail/Drive items and the lease settings block, and retains unrelated destination metadata. Valid private-number-key objects in unselected source fields no longer block import. Only selected fields are imported; unrelated source fields are not copied. |
-| Sheets filter-view re-creation (`src/drive/sheets/filter.rs`, `FilterCriteria::extra`) | Clearing a sort column re-creates the view with retained unknown criteria. Literal read/build/serialize tests confirm numeric rewriting, parse rejection and ordinary-first preservation. An ordinary masked criteria update leaves untouched columns on the server instead of re-sending them. |
-| Sheets chart updates (`src/drive/sheets/embedded_object.rs`, chart `extra` maps in `types.rs`) | Updates send a replacement spec and retain unmodelled fields in `ChartSpec`, `BasicChartSpec`, `BasicChartAxis`, `BasicChartDomain`, `BasicChartSeries`, `PieChartSpec` and `ChartData`. Title-update tests confirm the collision in retained metadata. |
-| Sheets slicer snapshots (`SlicerSpec::extra`) | Unknown fields survive read/output serialization subject to the same collision, confirmed at the HTTP response boundary. Slicer updates use field masks and constructed specs, so they do not wholesale re-send unknown fields. |
-| Gmail message MIME `payload` (`src/gmail/types.rs`), Docs unmodelled structural/paragraph arms (`src/drive/docs/types.rs`), Slides `pageSize`/`image` (`src/drive/slides/types.rs`), Sheets cell values (`ValueRange::values`) | These `Value` slots preserve selected API payloads for output or serve as presence discriminators. Literal HTTP response parsing and wire-model serialization tests confirm the same collision in representative slots. They do not promise preservation of every unknown field of the enclosing typed models. Slides' bounded read uses `from_slice` rather than the shared HTTP parser; both use the same wire models and Value deserialization. |
+| Sheets filter-view re-creation (`src/drive/sheets/filter.rs`, `FilterCriteria::extra`) | Clearing a sort column re-creates the view with retained unknown criteria. Literal read/build/serialize regressions preserve all four object variants and their nested forms using explicit typed map deserialization. An ordinary masked criteria update leaves untouched columns on the server instead of re-sending them. |
+| Sheets chart updates (`src/drive/sheets/embedded_object.rs`, chart `extra` maps in `types.rs`) | Updates send a replacement spec and retain unmodelled fields in `ChartSpec`, `BasicChartSpec`, `BasicChartAxis`, `BasicChartDomain`, `BasicChartSeries`, `PieChartSpec` and `ChartData`. Title-update regressions preserve the literal private-key objects throughout the retained basic-chart metadata; pie-chart metadata has separate round-trip coverage. |
+| Sheets slicer snapshots (`SlicerSpec::extra`) | Unknown fields survive read/output serialization, including private-number-key objects, through an explicit raw boundary confirmed by literal HTTP fixtures. Slicer updates use field masks and constructed specs, so they do not wholesale re-send unknown fields. |
+| Gmail message MIME `payload` (`src/gmail/types.rs`), Docs unmodelled structural/paragraph arms (`src/drive/docs/types.rs`), Slides `pageSize`/`image` (`src/drive/slides/types.rs`), Sheets cell values (`ValueRange::values`) | These `Value` slots preserve selected API payloads for output or serve as presence discriminators. Field adapters capture raw JSON and explicitly construct objects before Value can interpret its private number protocol. Literal HTTP response parsing/output tests preserve every selected slot, including all unmodelled Docs paragraph arms. They do not promise preservation of every unknown field of the enclosing typed models. Slides' bounded read uses `from_slice` rather than the shared HTTP parser; both use the same wire models and protected field adapters. |
 | Docs table suggestion inspection (`Table::deserialize` in `src/drive/docs/types.rs`) | A generic intermediate scans unknown nested suggestion fields before narrowing to typed data. Bad private-number objects can reject the table even in otherwise ignored fields. The numeric case is parsed, then unmodelled data is discarded; this is not arbitrary metadata retention. |
 | Sheets JSON cell input (`src/cli/drive/sheets/values.rs`) | Intended scalar conversion, not arbitrary JSON passthrough. Borrowed JSON slices validate original kinds before scalar conversion. All object/array cells, including private-number objects and nested containers, fail cell validation with row/column diagnostics. Supported numeric precision is retained. No Sheets request is built when this parser fails. |
 | Google error parsing (`src/drive/api_client.rs`, `src/gmail/client.rs`) | Temporary `Value` extracts error messages/reasons or quota hints, not JSON forwarding. Parse failures use existing fallback diagnostics; no unknown-object retention contract. |
@@ -57,10 +65,8 @@ or a test fixture is not itself a passthrough boundary.
 Settings updates retain unknown objects, keys and strings, including the private-number
 objects above. The boundary validates JSON with serde_json's streaming `IgnoredAny` scanner and uses
 its byte offsets to parse object members and array elements as source slices before
-building an ordered tree, avoiding Value's object/number protocol. The crate's
-settings boundary does not use serde_json's `raw_value` protocol. The ledger boundary
-enables that crate-wide feature; existing Value consumers remain outside these
-explicit preservation guarantees.
+building an ordered tree, avoiding Value's object/number protocol. The settings parser does not depend on `raw_value`; the ledger and selected API payload boundaries
+enable that crate-wide feature, with the unprotected-consumer limitation described above.
 Scalar numbers retain the crate's `arbitrary_precision` behavior; large integers and
 high-precision decimals remain exact. Deletions retain the relative order of surviving
 object members. Known boolean and numeric settings retain their typed behavior.
@@ -82,14 +88,29 @@ independently, so a settings error does not prevent an attempted ledger import.
 Sheets' outer `extra` maps are `BTreeMap`s and sort their unknown keys; nested Value
 objects retain insertion order. This is not the ledger's outer-key ordering contract.
 
+## Selected payload guarantees
+
+Protected slots retain object shape, keys and string contents, large integers,
+high-precision decimals and nested object member order. Known fields still use
+their typed deserializers, with the same defaults, required fields and duplicate
+known-field rejection. Missing or null optional payloads remain absent. Sheets
+cell matrices remain ragged and reject malformed matrix shapes. Unknown payload
+nesting is bounded to 128 levels to avoid unbounded recursion. No guarantee is
+made for whitespace or duplicate unknown keys, or for ignored unknown fields of
+an enclosing typed model. Docs content passing through the separate Table
+suggestion-scanning intermediate remains subject to its limitation above.
+Chart/filter serialization and request field masks are
+unchanged; slicer updates still construct only masked fields.
+
 ## Deferred implementation
 
 No current writer is known to produce this unusual key. Retaining `arbitrary_precision`
 avoids regressing [#95](https://github.com/rust-works/gwi/issues/95). Distinct future
-changes could preserve selected API/Sheets unknown payloads. Those boundaries remain
-outside the settings and scalar cell-input fixes. The Sheets scalar validator now
-checks raw JSON kinds before Value conversion (#274). Simply adding raw values to
-flattened fields does not avoid serde's buffering.
+changes could protect Docs table suggestion scanning
+([#286](https://github.com/rust-works/gwi/issues/286)). The Sheets scalar validator
+already checks raw JSON kinds before Value conversion (#274), and the selected payload
+boundaries are implemented by #275. Simply adding raw values to flattened fields does
+not avoid serde's buffering.
 
 The audit tests use literal JSON inputs and independently constructed expectations
 in [`src/test_support.rs`](../src/test_support.rs); the Sheets cell rejection

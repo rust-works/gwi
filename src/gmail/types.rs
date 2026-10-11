@@ -60,6 +60,7 @@ pub struct Message {
     /// JSON — see the module doc for why. Present when `format` is
     /// `full`, `metadata`, or `minimal` with parts; absent otherwise.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "crate::utils::json_payload::optional")]
     pub payload: Option<serde_json::Value>,
     /// The full RFC 2822 message, base64url-encoded. Present only when
     /// `format=raw` was requested.
