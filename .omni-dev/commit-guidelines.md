@@ -59,12 +59,12 @@ In addition to the YAML-defined scopes, this project is a Rust crate, so the
 ecosystem default scopes `cargo`, `core`, `lib` and `test` are also
 accepted.
 
-Shared infrastructure with no subsystem owner — `src/lib.rs`, `src/utils.rs` /
-`src/utils/**`, `src/test_support.rs`, `src/bin/**`, `src/templates/**`, and
-loose `src/*.rs` helpers with no natural home (e.g. `build_info.rs`,
-`github_metrics.rs`) — uses the ecosystem `lib` scope rather than a dedicated
-one. `omni-dev config scopes lint` encodes the same files as the `allow:`
-list in `scopes.yaml`.
+Shared utilities in `src/utils.rs` and `src/utils/**` have a dedicated `utils`
+scope. Shared Rust infrastructure with no subsystem owner, such as `src/lib.rs`
+and `src/test_support.rs`, uses the ecosystem `lib` scope instead. These unowned
+infrastructure files are listed in `allow:` in `scopes.yaml` for
+`omni-dev config scopes lint`; the utility paths are covered by the `utils`
+scope's `file_patterns`.
 
 For multi-scope commits, the scopes are correct when each listed scope
 matches at least one modified file. Do not flag scopes as incorrect
@@ -123,54 +123,52 @@ For breaking changes:
 
 ### Simple change
 ```
-fix(git): handle detached HEAD in branch analysis
+fix(gmail): handle empty search results
 ```
 
 ### Feature with body
 ```
-feat(claude): implement contextual prompting for commit analysis
+feat(drive): add a command to restore files from trash
 
-Adds context-aware system prompts that incorporate project scopes,
-branch analysis, and file-level architectural understanding to
-produce higher-quality commit message suggestions.
+Let users restore individual files from Drive Trash without opening
+the browser. Apply the same permission checks as the trash command.
 
-- Add CommitContext with project, branch, and file context
-- Implement scope-aware prompt generation
-- Extract file purpose and architectural layer classification
+- Add the untrash CLI command
+- Require write authorization and trash permission
+- Refuse folders before making the restore request
 
 Closes #85
 ```
 
 ### Documentation
 ```
-docs(docs): add ADR for context intelligence design
+docs(docs): explain drive write leases
 ```
 
 ```
-docs(docs): add architecture overview document
+docs(docs): document gmail search output
 ```
 
 ### Multiple scopes
 ```
-feat(cli,claude): add twiddle contextual options
+feat(cli,gmail): add enriched gmail search output
 ```
 
 ```
-feat(git,data): integrate branch analysis with commit context
+fix(drive, utils): apply shared timeouts to drive requests
 
-Wires branch detection into the commit analysis pipeline and
-exposes branch context through the data structures.
+Use the shared HTTP timeout settings for Drive clients so a stalled
+connection or response cannot wait indefinitely.
 
-- Add BranchContext with work type detection
-- Integrate branch parsing into GitRepository
-- Surface branch context in YAML output
+- Configure connect and per-read timeouts in the shared HTTP helper
+- Apply that helper when building Drive clients
 ```
 
 ### Breaking change
 ```
-feat(cli)!: change commit check output format
+feat(cli)!: change gmail search json output format
 
-BREAKING CHANGE: The check command now returns structured YAML
-instead of plain text. Update scripts that parse the output
-to use the new format.
+BREAKING CHANGE: The gmail search command's JSON output now wraps
+results in a messages object instead of a top-level array. Update
+scripts to read the messages field before iterating over results.
 ```
