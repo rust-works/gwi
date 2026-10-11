@@ -1,0 +1,8 @@
+[package]
+name = "span-case"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+span-macro = { path = "../macros" }

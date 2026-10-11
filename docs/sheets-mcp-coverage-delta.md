@@ -184,10 +184,161 @@ run resets raw profiles while reusing that build; it does not reuse the first
 run's execution counts. For a cold reproduction, replace `--profraw-only` with
 `--workspace`, as the action does before its test run.
 
-This is an exact replay of historical CI reports plus a fresh measurement of the
-later checkout, not a fresh rebuild of both historical revisions. The archived
+This earlier investigation replayed historical CI reports and freshly measured
+the later checkout; it did not rebuild both historical revisions. The archived
 artifacts contain lcov and codecov summaries, not raw LLVM regions. They identify
 which generated function appeared, but do not establish the compiler-internal
 span/optimization decision that omitted it in the baseline. The local JSON and
 macro expansion resolve the nature of the uncovered region without claiming that
-internal decision has been diagnosed.
+internal decision had been diagnosed at that stage. The follow-up below tests
+the compiler-span mechanism directly.
+
+## Clean historical rebuilds (#287)
+
+On 2026-10-11, separate clean builds of both historical revisions reproduce the
+archived difference. Both complete instrumented test suites pass, including
+5,281 library tests per revision and the integration suites and doctest. The
+macro expansions retain the identical read-schema error expression in both.
+
+| Measurement | Clean base | Clean head |
+| --- | --- | --- |
+| Raw executable lines (`LF`) | 279 | 290 |
+| Raw covered lines (`LH`) | 265 | 265 |
+| Read-schema fallback records in LLVM JSON | 0 | 2 |
+| Fallback execution count | No mapping | 0 for both |
+| Fallback code region | No mapping | `[122, 5, 132, 98, 0, 0, 0, 0]` for both |
+
+All 42 shared `FNDA` records have unchanged hit counts, after matching the
+lib/test crate disambiguators between the two worktree paths. The only two added
+records are the read metadata fallback; none are removed. The two overlapping
+regions still add eleven unique source lines. The
+[evidence snapshot](repro-schema-coverage/results.json) records the raw regions,
+function names, comparison result, compiler identity and artifact SHA-256s.
+
+The successful builds used rustc 1.99.0 (`b940084d7`), LLVM 23.1.1,
+cargo-llvm-cov 0.9.1, Linux **arm64**, Debian 13.7 in a Docker container, Linuxkit
+7.0.12, uid 0 and `CARGO_BUILD_JOBS=4`. Both revisions used their committed
+lockfiles, separate targets and fresh profiles. Permission-denial tests take
+their existing root skip; no test, credential fixture or exclusion was changed.
+The original head job log identifies Ubuntu 24.04 image `20261004.327.1` and
+Linux **x86_64**. This is a clean historical mapping reproduction, not an exact
+replica of that runner environment.
+
+The initial emulated x86_64 baseline attempt passed 5,278 library tests but
+failed three unrelated fixtures: missing-program detection in browser launch,
+missing bare secret-command detection, and reuse within a short cache TTL.
+It stopped before report export. An accidental restart overwrote its first full
+log; the captured failure diagnostics are retained, but no historical x86_64
+region comparison is claimed. The native arm64 runs pass those tests. The
+standalone reproducer below separately succeeds on x86_64 with the same pinned
+compiler, so the span mechanism does not depend on arm64. A complete historical
+rebuild on the original Ubuntu x86_64 runner remains unverified.
+
+To repeat the historical builds, create external worktrees for the base and
+head SHAs listed above, install the pinned compiler, `llvm-tools-preview` and
+cargo-llvm-cov, then run this sequence separately for each. `REPLAY_WT` is that
+historical worktree and `REPLAY_OUT` is a fresh evidence directory. The recorded
+run used `/work/base` and `/work/head` inside the Linux container.
+
+```bash
+mkdir -p "$REPLAY_OUT"
+(
+  set -euo pipefail
+  cd "$REPLAY_WT"
+  rustc -Vv
+  cargo -V
+  cargo llvm-cov --version
+  uname -a
+  export CARGO_BUILD_JOBS=4
+  export CARGO_TARGET_DIR="$REPLAY_WT/target/arm64-coverage"
+  eval "$(cargo llvm-cov show-env --sh)"
+  cargo llvm-cov clean --workspace
+  cargo test --manifest-path "$REPLAY_WT/Cargo.toml" --locked --all-features --workspace
+  cargo llvm-cov report --manifest-path "$REPLAY_WT/Cargo.toml" \
+    --lcov --output-path "$REPLAY_OUT/coverage.lcov"
+  cargo llvm-cov clean --profraw-only
+  cargo llvm-cov report --manifest-path "$REPLAY_WT/Cargo.toml" \
+    --json --output-path "$REPLAY_OUT/coverage.json"
+  unset RUSTFLAGS LLVM_PROFILE_FILE CARGO_ENCODED_RUSTFLAGS
+  RUSTC_BOOTSTRAP=1 cargo rustc --manifest-path "$REPLAY_WT/Cargo.toml" \
+    --lib --features mcp -- -Zunpretty=expanded > "$REPLAY_OUT/expanded.rs"
+) > "$REPLAY_OUT/run.log" 2>&1
+```
+
+The subshell stops on a failed test or export, as CI does. Removing raw profiles
+happens only after lcov merges them; JSON reads the same merged profile. The local evidence is retained under `/tmp/issue-287-evidence`,
+with `base-arm64/` and `head-arm64/` reports, expansions and logs, the original
+artifacts/job log, pinned coverage action, commands and x86_64 failure notes.
+Only the compact snapshot and standalone source are committed; the full reports
+contain machine-specific paths and can be regenerated with these commands.
+
+## Reduced compiler-span reproducer (#287)
+
+The attribution question in [#287](https://github.com/rust-works/gwi/issues/287)
+has a description-only reproducer. The trigger is the **exclamation mark** in
+`Sheet1!A1:C10`, not the new description's length, an invalid schema, or lost
+execution profiles.
+
+The standalone [fixture](repro-schema-coverage/Cargo.toml) retains the relevant
+shape of rmcp's expansion: a generated metadata function whose identifier keeps
+the handler's span, a description literal, and an `unwrap_or_else` panic closure
+whose generated tokens use the attribute's call-site span. It needs neither rmcp
+nor gwi. Its schema function always returns `Ok(true)` and its registration test
+passes in both variants. The [driver](repro-schema-coverage/replay.py) copies it
+into two independent workspaces and changes only `"x"` to `"x!"`.
+
+```bash
+rustup toolchain install 1.99.0 --component llvm-tools-preview
+# Install cargo-llvm-cov 0.9.1, or use the pinned release binary.
+cargo install cargo-llvm-cov --version 0.9.1 --locked
+python3 "$WT/docs/repro-schema-coverage/replay.py" /tmp/schema-span-repro
+```
+
+Use a new output directory outside the fixture; the driver refuses to overwrite
+existing evidence or copy its output recursively.
+`--toolchain stable` is equivalent only when `rustc +stable -Vv` identifies the
+same compiler. Each variant has a clean coverage target and retains its source,
+log, lcov, LLVM JSON, expansion, LLVM IR and before/after `InstrumentCoverage` MIR.
+The driver uses CI's environment/clean/test/export sequence and fails unless the
+plain variant has no mapped fallback and the bang variant has exactly one
+zero-hit fallback region. No production schema or exclusion is changed.
+
+### Why the mapping appears
+
+In the pinned compiler's
+[coverage span refinement](https://github.com/rust-lang/rust/blob/b940084d7eb6a299eb4bfeb8e34901bc051e7ac4/compiler/rustc_mir_transform/src/coverage/spans.rs),
+`single_covspan_for_child_context` shortens a bang-macro expansion's call-site
+span with `span_through_char(span, '!')`, intending to retain just a macro name
+and its `!`. Here the generated `panic!` tokens have the **whole tool attribute**
+as their call-site span. The search therefore reads the description text.
+
+With no `!` in that attribute, the span stays equal to the generated closure's
+body span. `extract_refined_covspans` explicitly discards spans that fill the
+entire body. There is no usable span left, so the fallback has no coverage
+mapping. With `Sheet1!A1:C10` present, the search stops just after that description's
+`!`. This shortened span is inside the body and no longer equal to it, so it
+survives. The pass adds a span at the start of the body, merges eligible spans,
+and emits one region from the attribute start through that `!`.
+
+This predicts the historical head's exact region: **122:5–132:98**. The `!` on
+line 132 is column 97, and the region's end column is exclusive. Thus the mapping
+covers eleven lines. The baseline attribute contains no `!`. The later checkout's
+**136:5–146:98** region has the same explanation after the source lines move.
+
+The [compact evidence snapshot](repro-schema-coverage/results.json) records the
+reduced case on Linux x86_64 and macOS arm64 with rustc 1.99.0 and
+cargo-llvm-cov 0.9.1. Both have no fallback mapping for `"x"`, and one zero-hit
+region `[8, 1, 8, 27, 0, 0, 0, 0]` for `"x!"`.
+
+The reduced case's closure exists in MIR and LLVM IR in both variants. Its
+before-instrumentation control flow is unchanged; only the source literal and
+span coordinates differ. The plain variant has no coverage mapping after the
+instrumentation pass, while the bang variant already has its zero-hit region at
+that stage. This distinguishes source-span refinement from removal of the
+fallback's generated code, and places the change before LLVM/lcov export.
+
+The justified next action is to offer this reproducer to Rust's coverage
+maintainers: a bang-macro span originating in an attribute is shortened by
+punctuation inside a string. No gwi runtime fix or coverage exclusion follows
+from this diagnosis. The existing measurement remains a valid report of the
+mappings emitted by each build.

@@ -1,0 +1,144 @@
+{
+  "compiler": {
+    "rustc": "1.99.0",
+    "commit": "b940084d7eb6a299eb4bfeb8e34901bc051e7ac4",
+    "llvm": "23.1.1",
+    "cargo_llvm_cov": "0.9.1"
+  },
+  "minimal_reproducer": {
+    "aarch64-apple-darwin": {
+      "plain": {
+        "mapped_fallbacks": 0,
+        "records": []
+      },
+      "bang": {
+        "mapped_fallbacks": 1,
+        "records": [
+          {
+            "name": "_RNCNvCs2J7INAyrxnM_9span_case16handler_metadata0B3_",
+            "count": 0,
+            "regions": [
+              [
+                8,
+                1,
+                8,
+                27,
+                0,
+                0,
+                0,
+                0
+              ]
+            ]
+          }
+        ]
+      },
+      "closure_present_in_mir_and_llvm_ir_in_both_variants": true
+    },
+    "x86_64-unknown-linux-gnu": {
+      "plain": {
+        "mapped_fallbacks": 0,
+        "records": []
+      },
+      "bang": {
+        "mapped_fallbacks": 1,
+        "records": [
+          {
+            "name": "_RNCNvCsfy9mYHJtewe_9span_case16handler_metadata0B3_",
+            "count": 0,
+            "regions": [
+              [
+                8,
+                1,
+                8,
+                27,
+                0,
+                0,
+                0,
+                0
+              ]
+            ]
+          }
+        ]
+      },
+      "closure_present_in_mir_and_llvm_ir_in_both_variants": true
+    }
+  },
+  "historical_rebuilds": {
+    "host": "aarch64-unknown-linux-gnu",
+    "container": "Debian GNU/Linux 13.7, Linuxkit 7.0.12, uid 0",
+    "cargo_build_jobs": 4,
+    "builds": {
+      "base": {
+        "revision": "19bab9447fc0a24749282999e8dd53c8a661897a",
+        "test_status": "passed",
+        "file": "src/mcp/drive_sheets_tools.rs",
+        "LF": 279,
+        "LH": 265,
+        "schema_error_closures": [],
+        "sha256": {
+          "coverage.lcov": "bedc46222feece617b9825e98c6995b653f8741aab766e23e95246e7e827efe9",
+          "coverage.json": "14017c56d2b78bbfa965b49a33c51bce243bc8caf2642a937b51959972753664",
+          "expanded.rs": "980d992ebffd8c22b277b7dfe2dc1358dfd1841e05f2fe3b7795040c7f3f8131",
+          "run.log": "66622cd1f4828f1082d196506755a8a04be3068f35e49cb645253bf5b14bb151"
+        }
+      },
+      "head": {
+        "revision": "90e27241a2138fb774750b9f98e0d8c10430d151",
+        "test_status": "passed",
+        "file": "src/mcp/drive_sheets_tools.rs",
+        "LF": 290,
+        "LH": 265,
+        "schema_error_closures": [
+          {
+            "name": "_RNCNvMs0_NtNtCs1PT2rfVbqz1_3gwi3mcp18drive_sheets_toolsNtNtB9_6server9GwiServer27drive_sheets_read_tool_attr0Bb_",
+            "count": 0,
+            "regions": [
+              [
+                122,
+                5,
+                132,
+                98,
+                0,
+                0,
+                0,
+                0
+              ]
+            ]
+          },
+          {
+            "name": "_RNCNvMs0_NtNtCsf7bJDZFguK2_3gwi3mcp18drive_sheets_toolsNtNtB9_6server9GwiServer27drive_sheets_read_tool_attr0Bb_",
+            "count": 0,
+            "regions": [
+              [
+                122,
+                5,
+                132,
+                98,
+                0,
+                0,
+                0,
+                0
+              ]
+            ]
+          }
+        ],
+        "sha256": {
+          "coverage.lcov": "b6539b3be2c773139953a40caae2301fb6c1ef0ce54900a0831abc60684dd795",
+          "coverage.json": "255ce5ae9b38c456f7d7c36c565f0b3329d8ffd892580ca0111b634749f62c87",
+          "expanded.rs": "196966538ee26f5d1d58d7f97da74519034cff3afceaa0706d09391cf0a24dc2",
+          "run.log": "7ba36e4cfeae000c13019d1c5ed4f0bf93df88dc7e4f320133c0c6618b54568f"
+        }
+      }
+    },
+    "fnda_comparison": {
+      "normalization": "Match gwi crate disambiguators by lib/test role; keep every FNDA record separate.",
+      "shared_records": 42,
+      "changed_shared_records": {},
+      "added_records": {
+        "_RNCNvMs0_NtNtLIB_CRATE3mcp18drive_sheets_toolsNtNtB9_6server9GwiServer27drive_sheets_read_tool_attr0Bb_": 0,
+        "_RNCNvMs0_NtNtTEST_CRATE3mcp18drive_sheets_toolsNtNtB9_6server9GwiServer27drive_sheets_read_tool_attr0Bb_": 0
+      },
+      "removed_records": []
+    }
+  }
+}
