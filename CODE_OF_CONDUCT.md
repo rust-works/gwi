@@ -142,7 +142,7 @@ Community leaders will follow these Community Impact Guidelines in determining t
 ## Resources and Support
 
 ### Getting Help
-* **Technical Questions**: Use GitHub Discussions or issues
+* **Technical Questions**: For public technical questions, use [GitHub issues](https://github.com/rust-works/gwi/issues).
 * **Community Questions**: Reach out to maintainers
 * **Code of Conduct Issues**: Email maintainers directly
 
