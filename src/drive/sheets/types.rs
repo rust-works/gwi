@@ -34,9 +34,12 @@ use serde::{Deserialize, Serialize};
 
 /// A spreadsheet's metadata, from `spreadsheets.get`.
 ///
-/// Always request an explicit `fields` mask when fetching this: the
-/// unmasked response embeds **every cell of every sheet**, which on a large
-/// workbook is an out-of-memory failure rather than a slow request.
+/// Always request an explicit `fields` mask when fetching this to limit
+/// metadata and feature-specific lists to what the caller needs. Grid data
+/// is excluded by default; it is returned only when `fields` selects
+/// grid-data fields or `includeGridData=true` is sent without a mask.
+/// With a mask, `includeGridData` is ignored. See
+/// [`SPREADSHEET_FIELDS`](crate::drive::sheets::api::SPREADSHEET_FIELDS).
 ///
 /// `PartialEq`-only, not `Eq` (issue #1793): a [`Sheet`]'s
 /// `conditional_formats` can embed a `Color` (`f32`-based), which has no
