@@ -38,10 +38,11 @@ use serde::{Deserialize, Serialize};
 
 /// A document's full structural model, from `documents.get`.
 ///
-/// Deliberately **not** `fields`-masked when fetched — unlike
-/// `spreadsheets.get`, whose mask exists to keep every cell out of the
-/// response. A Docs mask has to spell nesting depth out literally, and a
-/// table may contain a table to arbitrary depth, so any fixed-depth mask
+/// Deliberately **not** `fields`-masked when fetched. Our `spreadsheets.get`
+/// masks select the metadata or grid-data fields each caller needs; Sheets
+/// excludes grid data by default. A Docs mask has to spell nesting depth
+/// out literally, and a table may contain a table to arbitrary depth, so any
+/// fixed-depth mask
 /// silently drops document text below its deepest named level. See
 /// `crate::drive::docs::api`.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]

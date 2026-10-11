@@ -69,11 +69,16 @@ pub(in crate::drive) fn applied_reply_unreadable_line(
 
 /// `fields` mask for `spreadsheets.get`.
 ///
-/// **Not optional.** An unmasked `spreadsheets.get` embeds every cell of
-/// every sheet in the response, so on a large workbook the difference
-/// between sending this and not is an out-of-memory failure rather than a
-/// slower request. This mask requests workbook settings and sheet properties,
-/// without cell data or feature-specific lists.
+/// Always send an explicit mask to limit metadata and feature-specific lists
+/// to what the caller needs. This mask requests workbook settings and sheet
+/// properties, without cell data or feature-specific lists.
+///
+/// The [Sheets API](https://developers.google.com/workspace/sheets/api/reference/rest/v4/spreadsheets/get)
+/// excludes grid data by default. Grid data is returned when `fields` selects
+/// grid-data fields, or when `includeGridData=true` is sent without a field
+/// mask. With a mask, `includeGridData` is ignored. Removing this mask alone
+/// would therefore return more metadata, not every cell. Explicit grid-data
+/// reads can be large and should use `ranges` to bound the cells requested.
 ///
 /// `properties.locale,timeZone,autoRecalc,iterativeCalculationSettings`
 /// (issue #1836's `update-workbook-properties`) ride along on the base mask
