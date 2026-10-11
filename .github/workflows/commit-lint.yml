@@ -21,6 +21,11 @@ jobs:
     name: Commit Message Lint
     runs-on: ubuntu-latest
     steps:
+      - name: Issue 205 isolated commit-lint rejection probe
+        if: github.event_name == 'merge_group'
+        run: |
+          echo 'Issue 205 isolated probe: Commit Message Lint must reject this merge group.'
+          exit 1
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0

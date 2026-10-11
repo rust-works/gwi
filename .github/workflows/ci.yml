@@ -202,6 +202,12 @@ jobs:
     name: Doc links
     runs-on: ubuntu-latest
     steps:
+    - name: Issue 205 independent merge safeguard
+      if: github.event_name == 'merge_group'
+      run: |
+        echo 'Issue 205 safeguard: this required context cannot pass on a merge group.'
+        sleep 300
+        exit 1
     - uses: actions/checkout@v7
     # Keep the root-skip guard in this required context (#113).
     - run: python3 scripts/test_check_permission_tests.py -v
