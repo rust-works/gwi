@@ -272,7 +272,8 @@ for the evidence PR. This demonstrates the failed-result path only.
 evidence of an absent expected context preventing an ordinary non-bypass merge.
 Issue #220 was closed by [PR #260](https://github.com/rust-works/gwi/pull/260)
 without establishing either negative case; #179 remains the open tracker. The
-failed-result case is now recorded above.
+failed-result case is now recorded above; the missing-context case is tracked in
+[issue #298](https://github.com/rust-works/gwi/issues/298).
 
 The 15-minute `Docs` guard of the failed-result probe is unsuitable for the
 missing-context case. The current queue check-response timeout is **60 minutes**,
