@@ -1050,6 +1050,18 @@ mod tests {
     }
 
     #[test]
+    fn parse_record_rejects_a_row_or_backup_that_is_not_an_object() {
+        let row = format!("{:#}", parse_record("[1]").unwrap_err());
+        assert!(row.contains("a JSON object"), "{row}");
+
+        let backup = format!(
+            "{:#}",
+            parse_record(r#"{"token":"t","backup":"nope"}"#).unwrap_err()
+        );
+        assert!(backup.contains("a JSON object"), "{backup}");
+    }
+
+    #[test]
     fn load_rejects_the_whole_ledger_for_an_unknown_backup_kind() {
         let fixture =
             include_str!("../../../tests/fixtures/lease-ledger-unknown-backup-kind.jsonl");
