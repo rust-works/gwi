@@ -1,4 +1,7 @@
-//! Source tripwires for caller-chosen MCP paths; not a Rust parser or alias analysis.
+//! Source tripwires for caller-chosen MCP paths; not alias analysis.
+//!
+//! Parameter ownership comes from Rust syntax: public named `Option<String>`
+//! fields named `output_file` or ending in `_path` require review. Macros are not expanded.
 //!
 //! Covers fs reads/writes/copy/rename/removal, File open/create/create_new, and
 //! OpenOptions with std/tokio or imported fs/File spellings. Direct imports of
@@ -6,7 +9,7 @@
 //! rejected at the import, as are renamed std/tokio fs modules and File imports
 //! (flat, grouped/nested, and self-as forms). Unrenamed fs/File imports are allowed.
 //! Arbitrary type aliases, re-exports, indirect alias chains, macros, and
-//! comments/strings are not resolved. Only tool files are scanned; policy helpers
+//! comments/strings in filesystem checks are not resolved. Only tool files are scanned; policy helpers
 //! and trailing tests remain outside the production scan.
 
 #![cfg(test)]
@@ -15,6 +18,8 @@ use std::collections::BTreeSet;
 use std::path::Path;
 
 use regex::Regex;
+use syn::visit::Visit;
+use syn::{GenericArgument, PathArguments, Type, Visibility};
 
 use super::source_guard::production;
 
@@ -40,18 +45,59 @@ const POLICY_CHECKED_PARAMS: &[(&str, &str, &str)] = &[
     ("gmail_tools.rs", "GmailDraftShowParams", "output_file"),
 ];
 
+fn optional_string(ty: &Type) -> bool {
+    let Type::Path(ty) = ty else {
+        return false;
+    };
+    if ty.qself.is_some() || ty.path.leading_colon.is_some() || ty.path.segments.len() != 1 {
+        return false;
+    }
+    let segment = &ty.path.segments[0];
+    let PathArguments::AngleBracketed(arguments) = &segment.arguments else {
+        return false;
+    };
+    segment.ident == "Option"
+        && arguments.args.len() == 1
+        && matches!(&arguments.args[0], GenericArgument::Type(Type::Path(inner))
+            if inner.qself.is_none() && inner.path.is_ident("String"))
+}
+
+#[derive(Default)]
+struct PathParams(Vec<(String, String)>);
+
+impl<'ast> Visit<'ast> for PathParams {
+    fn visit_item_struct(&mut self, item: &'ast syn::ItemStruct) {
+        for field in &item.fields {
+            let Some(name) = &field.ident else {
+                continue;
+            };
+            let name = name.to_string();
+            if matches!(field.vis, Visibility::Public(_))
+                && (name == "output_file" || name.ends_with("_path"))
+                && optional_string(&field.ty)
+            {
+                self.0.push((item.ident.to_string(), name));
+            }
+        }
+        syn::visit::visit_item_struct(self, item);
+    }
+}
+
 fn path_params(source: &str) -> Vec<(String, String)> {
-    let structs = Regex::new(r"\bstruct\s+(\w+)\s*\{").unwrap();
-    let fields = Regex::new(r"pub\s+(\w+)\s*:\s*Option\s*<\s*String\s*>").unwrap();
     let source = production(source).unwrap();
-    fields
-        .captures_iter(source)
-        .filter(|field| &field[1] == "output_file" || field[1].ends_with("_path"))
-        .map(|field| {
-            let before = &source[..field.get(0).unwrap().start()];
-            let owner = structs.captures_iter(before).last().unwrap();
-            (owner[1].to_owned(), field[1].to_owned())
+    let file = syn::parse_file(source).unwrap();
+    let mut params = PathParams::default();
+    params.visit_file(&file);
+    params.0
+}
+
+fn stale_params(found: &BTreeSet<(String, String, String)>) -> Vec<String> {
+    POLICY_CHECKED_PARAMS
+        .iter()
+        .filter(|&&(file, owner, field)| {
+            !found.contains(&(file.to_owned(), owner.to_owned(), field.to_owned()))
         })
+        .map(|&(file, owner, field)| format!("{file}: {owner}.{field}"))
         .collect()
 }
 
@@ -174,11 +220,12 @@ fn mcp_tool_paths_require_policy_review() {
         let errors = filesystem_policy_errors(file, &source);
         assert!(errors.is_empty(), "{}", errors.join("\n"));
     }
-    let expected = POLICY_CHECKED_PARAMS
-        .iter()
-        .map(|&(file, owner, field)| (file.to_owned(), owner.to_owned(), field.to_owned()))
-        .collect();
-    assert_eq!(found, expected, "update stale PathPolicy allowlist entries");
+    let stale = stale_params(&found);
+    assert!(
+        stale.is_empty(),
+        "update stale PathPolicy allowlist entries: {}",
+        stale.join("\n")
+    );
 }
 
 #[test]
@@ -207,6 +254,141 @@ fn known_paths_and_non_path_parameters_are_accepted() {
     assert_eq!(unchecked_params("new_tools.rs", source).len(), 1);
     let extended = format!("{source}\nstruct NewParams {{ pub output_file: Option<String> }}");
     assert_eq!(unchecked_params("gmail_tools.rs", &extended).len(), 1);
+}
+
+#[test]
+fn comments_and_strings_cannot_spoof_allowlisted_ownership() {
+    for decoy in [
+        "// struct GmailMessageReadParams {",
+        "/* struct GmailMessageReadParams { */",
+        "/* outer /* struct GmailMessageReadParams { */ nested */",
+        "#[doc = \"struct GmailMessageReadParams {\"]",
+        "#[doc = r###\"struct GmailMessageReadParams {\"###]",
+    ] {
+        let source = format!(
+            "struct GmailMessageReadParams {{ pub output_file: Option<String> }}
+             struct NewParams {{ {decoy}
+ pub output_file: Option<String> }}"
+        );
+        assert_eq!(
+            path_params(&source),
+            [
+                (
+                    "GmailMessageReadParams".to_owned(),
+                    "output_file".to_owned()
+                ),
+                ("NewParams".to_owned(), "output_file".to_owned()),
+            ],
+            "{source}"
+        );
+        assert_eq!(
+            unchecked_params("gmail_tools.rs", &source),
+            ["gmail_tools.rs: NewParams.output_file must go through PathPolicy before being allowlisted"],
+            "{source}"
+        );
+    }
+}
+
+#[test]
+fn field_shaped_comments_and_literals_do_not_create_parameters() {
+    let source = r####"
+        // struct Fake { pub comment_path: Option<String> }
+        /* struct Fake { /* nested */ pub block_path: Option<String> } */
+        const TEXT: &str = "struct Fake { pub string_path: Option<String> }";
+        const RAW: &str = r###"struct Fake { pub raw_path: Option<String> }"###;
+        struct Real {
+            // pub comment_path: Option<String>,
+            /* pub block_path: Option<String>, */
+            #[doc = "pub string_path: Option<String>"]
+            #[doc = r###"pub raw_path: Option<String>"###]
+            pub source_path: Option<String>,
+        }
+    "####;
+    assert_eq!(
+        path_params(source),
+        [("Real".to_owned(), "source_path".to_owned())]
+    );
+}
+
+#[test]
+fn real_structs_own_fields_in_modules_and_functions() {
+    let source = "struct First { pub source_path: Option<String> }
+        mod nested { struct Second { pub output_file: Option<String> } }
+        fn execute() { struct Local { pub values_path: Option<String> } }
+        struct Last { pub text_path: Option<String> }";
+    assert_eq!(
+        path_params(source),
+        [
+            ("First".to_owned(), "source_path".to_owned()),
+            ("Second".to_owned(), "output_file".to_owned()),
+            ("Local".to_owned(), "values_path".to_owned()),
+            ("Last".to_owned(), "text_path".to_owned()),
+        ]
+    );
+}
+
+#[test]
+fn only_public_named_optional_string_paths_are_scanned() {
+    let source = "struct Params {
+        source_path: Option<String>,
+        pub(crate) crate_path: Option<String>,
+        pub(super) parent_path: Option<String>,
+        pub required_path: String,
+        pub number_path: Option<u32>,
+        pub nested_path: Option<Option<String>>,
+        pub qualified_path: std::option::Option<String>,
+        pub qualified_string_path: Option<std::string::String>,
+        pub query: Option<String>,
+        pub output_file: Option /* type comment */ < String >,
+    }
+    struct Tuple(pub Option<String>);
+    enum Other { Named { output_file: Option<String> } }";
+    assert_eq!(
+        path_params(source),
+        [("Params".to_owned(), "output_file".to_owned())]
+    );
+}
+
+#[test]
+fn removed_allowlist_entries_are_reported_as_stale() {
+    let found: BTreeSet<_> = POLICY_CHECKED_PARAMS
+        .iter()
+        .map(|&(file, owner, field)| (file.to_owned(), owner.to_owned(), field.to_owned()))
+        .collect();
+    assert!(stale_params(&found).is_empty());
+    for entry in &found {
+        let mut remaining = found.clone();
+        remaining.remove(entry);
+        assert_eq!(
+            stale_params(&remaining),
+            [format!("{}: {}.{}", entry.0, entry.1, entry.2)]
+        );
+    }
+}
+
+#[test]
+fn path_fields_use_the_shared_fail_closed_boundary() {
+    let prefix = "struct NewParams { pub source_path: Option<String> }";
+    let source = format!(
+        "{prefix}
+#[cfg( /* boundary */ test )] mod tests {{
+            struct Fixture {{ pub fixture_path: Option<String> }}
+        }}"
+    );
+    assert_eq!(path_params(&source), path_params(prefix));
+    assert!(
+        path_params("#![cfg(test)] struct Fixture { pub fixture_path: Option<String> }").is_empty()
+    );
+    for source in [
+        "#[cfg(test)] fn helper() {} struct NewParams { pub source_path: Option<String> }",
+        "#[cfg(test)] mod tests {} struct NewParams { pub output_file: Option<String> }",
+        "struct NewParams { pub output_file: Option<String>",
+    ] {
+        assert!(
+            std::panic::catch_unwind(|| path_params(source)).is_err(),
+            "{source}"
+        );
+    }
 }
 
 #[test]
