@@ -74,6 +74,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
+    - name: Deliberate queue rejection probe for issue 255
+      if: github.event_name == 'merge_group'
+      run: |
+        echo 'Issue 255 isolated probe: Hostile Environment Test must reject this merge group.'
+        exit 1
     - uses: actions/checkout@v7
     - uses: dtolnay/rust-toolchain@stable
     - uses: Swatinem/rust-cache@v2
