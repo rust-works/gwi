@@ -19,9 +19,9 @@
 //! - The file is written through the same hardened writer as every other settings
 //!   change (`0700` directory, `0600` file).
 //!
-//! The settings are handled as raw JSON, not through gwi's typed `Settings`, so the
-//! Drive and lease blocks (which gwi does not model yet) and any field a newer
-//! omni-dev added come across verbatim.
+//! The settings are handled as generic JSON, not through gwi's typed `Settings`,
+//! so selected blocks retain unknown fields, subject to the accepted
+//! [JSON compatibility limitation](../../docs/json-passthrough.md).
 
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -1033,5 +1033,78 @@ mod tests {
         let defaults = ImportCommand::try_parse_from(["import"]).unwrap();
         assert!(defaults.source.is_none() && !defaults.dry_run && !defaults.force);
         assert!(defaults.source_ledger.is_none());
+    }
+
+    #[test]
+    fn private_number_settings_import_characterizes_source_and_target() {
+        for (literal, expected) in crate::test_support::private_number_cases() {
+            for in_source in [true, false] {
+                let (_dir, source, target) = setup();
+                let source_input = if in_source {
+                    format!(
+                        r#"{{"gmail":{{"accounts":{{"work":{{"client_id":"id","future":{literal}}}}}}}}}"#
+                    )
+                } else {
+                    r#"{"env":{"GMAIL_CLIENT_ID":"id"}}"#.to_string()
+                };
+                let target_input = if in_source {
+                    r#"{"future":"keep"}"#.to_string()
+                } else {
+                    format!(r#"{{"future":{literal}}}"#)
+                };
+                std::fs::write(&source, &source_input).unwrap();
+                std::fs::create_dir_all(target.parent().unwrap()).unwrap();
+                std::fs::write(&target, &target_input).unwrap();
+                for force in [false, true] {
+                    let (preview, _) = import(&source, &target, true, force);
+                    assert_eq!(preview.is_ok(), expected.is_ok());
+                    assert_eq!(std::fs::read_to_string(&target).unwrap(), target_input);
+                }
+                let (result, _) = import(&source, &target, false, false);
+                match &expected {
+                    Ok(value) => {
+                        result.unwrap();
+                        let saved = read_json(&target);
+                        let actual = if in_source {
+                            &saved["gmail"]["accounts"]["work"]["future"]
+                        } else {
+                            &saved["future"]
+                        };
+                        assert_eq!(actual, value, "{literal}");
+                        let bytes = std::fs::read(&target).unwrap();
+                        let (repeated, report) = import(&source, &target, false, false);
+                        repeated.unwrap();
+                        assert!(report.contains("unchanged"), "{report}");
+                        assert_eq!(std::fs::read(&target).unwrap(), bytes);
+                    }
+                    Err(message) => {
+                        let message = message.replace("invalid length", "trailing comma");
+                        assert!(format!("{:#}", result.unwrap_err()).contains(&message));
+                        let (forced, _) = import(&source, &target, false, true);
+                        assert!(forced.is_err());
+                        assert_eq!(std::fs::read_to_string(&target).unwrap(), target_input);
+                    }
+                }
+                assert_eq!(std::fs::read_to_string(&source).unwrap(), source_input);
+            }
+        }
+    }
+
+    #[test]
+    fn private_number_import_keeps_supported_precision_order_and_typed_fields() {
+        let (_dir, source, target) = setup();
+        let metadata =
+            r#"{"z":123456789012345678901234567890,"a":0.12345678901234567890123456789}"#;
+        std::fs::write(&source, format!(r#"{{"gmail":{{"accounts":{{"work":{{"chrome_profile_from_email":true,"future":{metadata}}}}}}},"mcp":{{"max_response_bytes":2048}}}}"#)).unwrap();
+        let (result, _) = import(&source, &target, false, false);
+        result.unwrap();
+        assert_eq!(
+            serde_json::to_string(&read_json(&target)["gmail"]["accounts"]["work"]["future"])
+                .unwrap(),
+            metadata
+        );
+        let typed = Settings::load_from_path(&target).unwrap();
+        assert!(typed.gmail.accounts["work"].chrome_profile_from_email);
+        assert_eq!(typed.mcp.max_response_bytes, Some(2048));
     }
 }

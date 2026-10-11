@@ -3639,4 +3639,91 @@ mod tests {
         assert_eq!(rules.len(), 1);
         assert_eq!(rules[0].file_id.as_deref(), Some("sheet-1"));
     }
+
+    #[test]
+    fn private_number_settings_mutations_characterize_unknown_metadata() {
+        let writers: [fn(&Path) -> Result<()>; 10] = [
+            |p| Settings::upsert_env_vars(p, &[("CHANGE", "new")]),
+            |p| Settings::upsert_env_vars_in(p, Some("work"), &[("CHANGE", "new")]),
+            |p| Settings::remove_env_vars(p, &["CHANGE"]).map(|_| ()),
+            |p| Settings::remove_env_vars_in(p, Some("work"), &["CHANGE"]).map(|_| ()),
+            |p| {
+                Settings::upsert_gmail_account(
+                    p,
+                    "work",
+                    &[("chrome_profile_from_email", serde_json::json!(true))],
+                )
+            },
+            |p| {
+                Settings::upsert_drive_account(
+                    p,
+                    "work",
+                    &[("chrome_profile_from_email", serde_json::json!(true))],
+                )
+            },
+            |p| Settings::set_gmail_default_account(p, Some("work")),
+            |p| Settings::set_drive_default_account(p, Some("work")),
+            |p| Settings::remove_gmail_account(p, "remove").map(|_| ()),
+            |p| Settings::remove_drive_account(p, "remove").map(|_| ()),
+        ];
+        for (literal, expected) in crate::test_support::private_number_cases() {
+            for (index, writer) in writers.iter().enumerate() {
+                let (_tmp, path) = temp_settings_path();
+                fs::create_dir_all(path.parent().unwrap()).unwrap();
+                let input = format!(
+                    r#"{{"env":{{"CHANGE":"old"}},"profiles":{{"work":{{"env":{{"CHANGE":"old"}},"future":{literal}}}}},"gmail":{{"accounts":{{"work":{{}},"remove":{{}}}}}},"drive":{{"accounts":{{"work":{{}},"remove":{{}}}}}},"future":{literal}}}"#
+                );
+                fs::write(&path, &input).unwrap();
+                // Typed loads ignore unknown metadata, including the collision objects.
+                Settings::load_from_path(&path).unwrap();
+                let result = writer(&path);
+                match &expected {
+                    Ok(value) => {
+                        result.unwrap();
+                        let saved = read_json(&path);
+                        assert_eq!(&saved["future"], value, "writer {index}: {literal}");
+                        assert_eq!(&saved["profiles"]["work"]["future"], value);
+                        assert_ne!(fs::read_to_string(&path).unwrap(), input);
+                        let typed = Settings::load_from_path(&path).unwrap();
+                        if index == 4 {
+                            assert!(typed.gmail.accounts["work"].chrome_profile_from_email);
+                        }
+                        if index == 5 {
+                            assert!(typed.drive.accounts["work"].chrome_profile_from_email);
+                        }
+                    }
+                    Err(message) => {
+                        let message = message.replace("invalid length", "trailing comma");
+                        let error = format!("{:#}", result.unwrap_err());
+                        assert!(error.contains(&message), "{error}");
+                        assert_eq!(fs::read_to_string(&path).unwrap(), input);
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn private_number_settings_supported_precision_and_order_survive_update() {
+        let (_tmp, path) = temp_settings_path();
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let future = r#"{"z":123456789012345678901234567890,"a":0.12345678901234567890123456789,"text":"$serde_json::private::Number"}"#;
+        fs::write(
+            &path,
+            format!(r#"{{"mcp":{{"max_response_bytes":2048}},"future":{future}}}"#),
+        )
+        .unwrap();
+        Settings::upsert_env_vars(&path, &[("CHANGE", "new")]).unwrap();
+        assert_eq!(
+            serde_json::to_string(&read_json(&path)["future"]).unwrap(),
+            future
+        );
+        assert_eq!(
+            Settings::load_from_path(&path)
+                .unwrap()
+                .mcp
+                .max_response_bytes,
+            Some(2048)
+        );
+    }
 }

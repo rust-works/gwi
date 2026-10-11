@@ -538,4 +538,20 @@ mod tests {
         let rows = parse("a,b\n", ValuesFormat::Auto).unwrap();
         assert_eq!(rows, vec![vec!["a", "b"]]);
     }
+
+    #[test]
+    fn private_number_cell_objects_are_rewritten_or_rejected_before_forwarding() {
+        for (literal, expected) in crate::test_support::private_number_cases() {
+            let result = parse_json(&format!("[[{literal}]]"));
+            if expected.as_ref().is_ok_and(serde_json::Value::is_number) {
+                // The object has already become a scalar before cell validation.
+                assert_eq!(result.unwrap(), vec![vec!["123".to_string()]]);
+            } else {
+                assert!(
+                    result.is_err(),
+                    "objects and arrays must not become cells: {literal}"
+                );
+            }
+        }
+    }
 }

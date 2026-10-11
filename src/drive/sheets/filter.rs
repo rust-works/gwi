@@ -4543,4 +4543,38 @@ mod tests {
         let outcome = filter(&drive, &sheets, &opts, &rules).await;
         assert!(matches!(outcome.result, FilterResult::Failed { .. }));
     }
+
+    #[test]
+    fn private_number_filter_metadata_through_recreation() {
+        for (literal, expected) in crate::test_support::private_number_cases() {
+            let input = format!(
+                r#"{{"filterViewId":7,"range":{{"sheetId":0}},"sortSpecs":[{{"dimensionIndex":0,"sortOrder":"ASCENDING"}}],"criteria":{{"0":{{"future":{literal}}}}}}}"#
+            );
+            let parsed = serde_json::from_str::<FilterView>(&input);
+            match expected {
+                Ok(value) => {
+                    let existing = parsed.unwrap();
+                    let updated = build_update(
+                        &existing,
+                        7,
+                        &None,
+                        None,
+                        vec![],
+                        BTreeMap::new(),
+                        true,
+                        false,
+                    )
+                    .unwrap();
+                    let FilterViewWrite::Replace(view) = updated else {
+                        panic!("clearing sort must re-create the view")
+                    };
+                    let saved = serde_json::to_value(&view).unwrap();
+                    assert_eq!(saved["criteria"]["0"]["future"], value);
+                    assert!(view.sort_specs.is_empty());
+                    assert_eq!(view.filter_view_id, Some(7));
+                }
+                Err(message) => assert!(parsed.unwrap_err().to_string().contains(message)),
+            }
+        }
+    }
 }
