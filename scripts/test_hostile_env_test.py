@@ -137,23 +137,73 @@ class HostileEnvTest(unittest.TestCase):
         self.assertIn('valid:', self.output.getvalue())
         self.assert_cleaned()
 
-    def test_signal_denial_is_only_ignored_for_verified_dead_macos_group(self):
-        for platform, listing, denied in (
-            ('darwin', '123 Z\n999 S\n', False),
-            ('darwin', '999 S\n', False),
-            ('darwin', '123 S\n', True),
-            ('linux', '', True),
-        ):
-            with self.subTest(platform=platform, listing=listing):
-                with patch.object(runner.sys, 'platform', platform), \
-                        patch.object(runner.os, 'killpg', side_effect=PermissionError), \
-                        patch.object(runner.subprocess, 'run', return_value=
-                                     subprocess.CompletedProcess([], 0, listing)):
-                    if denied:
-                        with self.assertRaises(PermissionError):
-                            runner.signal_group(123, signal.SIGKILL)
-                    else:
-                        runner.signal_group(123, signal.SIGKILL)
+    def test_session_discovery_filters_unrelated_and_zombie_processes(self):
+        listing = subprocess.CompletedProcess([], 0, '123 S\n124 Z\n125 S\n126 S\n')
+        with patch.object(runner.subprocess, 'run', return_value=listing) as run, \
+                patch.object(runner.os, 'getsid', side_effect=[99, 88, ProcessLookupError()]):
+            self.assertEqual(runner.session_members(99, time.monotonic() + 1), [123])
+        self.assertGreater(run.call_args.kwargs['timeout'], 0)
+        with patch.object(runner.subprocess, 'run', return_value=subprocess.CompletedProcess([], 1, '')):
+            with self.assertRaisesRegex(RuntimeError, 'inspect'):
+                runner.session_members(99, time.monotonic() + 1)
+        with self.assertRaisesRegex(RuntimeError, 'discovering'):
+            runner.session_members(99, time.monotonic() - 1)
+
+    def test_session_signals_revalidate_ownership_and_propagate_denial(self):
+        with patch.object(runner.os, 'getsid', side_effect=[88, 99, 88, ProcessLookupError()]), \
+                patch.object(runner.os, 'kill') as kill:
+            runner.signal_session(99, [123, 124, 125], signal.SIGKILL)
+            kill.assert_called_once_with(123, signal.SIGKILL)
+        with patch.object(runner.os, 'getsid', return_value=99), \
+                patch.object(runner.os, 'kill') as kill:
+            with self.assertRaisesRegex(RuntimeError, 'runner session'):
+                runner.signal_session(99, [123], signal.SIGKILL)
+            kill.assert_not_called()
+        with patch.object(runner.os, 'getsid', side_effect=[88, 99]), \
+                patch.object(runner.os, 'kill', side_effect=PermissionError()):
+            with self.assertRaises(PermissionError):
+                runner.signal_session(99, [123], signal.SIGKILL)
+
+    def test_signalling_stops_at_phase_deadline(self):
+        with patch.object(runner.os, 'getsid', return_value=88), \
+                patch.object(runner.os, 'kill') as kill:
+            with self.assertRaisesRegex(runner.DiscoveryTimeout, 'signalling'):
+                runner.signal_session(99, [123], signal.SIGKILL,
+                                      deadline=time.monotonic() - 1)
+            kill.assert_not_called()
+
+    def test_discovery_deadline_during_grace_still_escalates(self):
+        for error in (runner.DiscoveryTimeout('deadline'),
+                      subprocess.TimeoutExpired('ps', 0.1)):
+            with self.subTest(error=error), \
+                    patch.object(runner, 'session_members', side_effect=[error, [123], []]), \
+                    patch.object(runner, 'signal_session') as send:
+                runner.terminate_session(99)
+            self.assertEqual(send.call_count, 1)
+            self.assertEqual(send.call_args.args, (99, [123], signal.SIGKILL))
+
+    def test_known_members_escalate_before_slow_discovery(self):
+        with patch.object(runner.time, 'sleep'), \
+                patch.object(runner, 'session_members', side_effect=[
+                    [123], subprocess.TimeoutExpired('ps', 0.01), []]), \
+                patch.object(runner, 'signal_session') as send:
+            runner.terminate_session(99)
+        self.assertEqual([call.args[2] for call in send.call_args_list],
+                         [signal.SIGTERM, signal.SIGKILL])
+
+    def test_session_cleanup_rescans_and_has_a_deadline(self):
+        with patch.object(runner, 'session_members', side_effect=[[123], [123, 124], []]), \
+                patch.object(runner, 'signal_session') as send:
+            runner.terminate_session(99)
+        self.assertEqual([call.args[1] for call in send.call_args_list], [[123], [123, 124]])
+        with patch.object(runner, 'TERMINATION_GRACE', 0.02), \
+                patch.object(runner, 'CLEANUP_TIMEOUT', 0.02), \
+                patch.object(runner, 'session_members', return_value=[123]), \
+                patch.object(runner, 'signal_session') as send:
+            with self.assertRaisesRegex(RuntimeError, 'still live'):
+                runner.terminate_session(99)
+        self.assertEqual({call.args[2] for call in send.call_args_list},
+                         {signal.SIGTERM, signal.SIGKILL})
 
     def assert_terminated(self, pid):
         # Orphans belong to the OS reaper. Zombies have exited and cannot retain
@@ -172,24 +222,32 @@ class HostileEnvTest(unittest.TestCase):
                 ).stdout.strip()
             if not state or state.startswith('Z'):
                 return
-            self.assertLess(time.monotonic(), deadline, (pid, state))
+            self.assertLess(time.monotonic(), deadline, (pid, state, self.output.getvalue()))
             time.sleep(0.01)
 
     @unittest.skipUnless(sys.platform in ('linux', 'darwin'), 'POSIX runner')
-    def test_real_timeout_terminates_group_before_continuing(self):
-        for phase, resistant, leader_exits, retain_output in (
-            ('list', False, False, True),
-            ('run', False, False, True),
-            ('run', True, False, True),
-            ('list', True, True, True),
-            ('run', True, False, False),
+    def test_real_timeout_terminates_session_before_continuing(self):
+        for phase, resistant, leader_exits, retain_output, sibling_group in (
+            ('list', False, False, True, False),
+            ('run', False, False, True, False),
+            ('run', True, False, True, False),
+            ('list', True, True, True, False),
+            ('run', True, False, False, False),
+            ('list', False, False, True, True),
+            ('run', False, False, True, True),
+            ('list', True, True, True, True),
+            ('run', True, False, True, True),
+            ('list', True, False, False, True),
+            ('run', True, False, False, True),
         ):
             with self.subTest(phase=phase, resistant=resistant,
-                              leader_exits=leader_exits, retain_output=retain_output):
+                              leader_exits=leader_exits, retain_output=retain_output,
+                              sibling_group=sibling_group):
                 records = self.root / 'processes.jsonl'
                 records.unlink(missing_ok=True)
                 child_code = (
                     "import os, pathlib, signal, time; "
+                    + ("os.setpgid(0, 0); " if sibling_group else "")
                     + ("signal.signal(signal.SIGTERM, signal.SIG_IGN); " if resistant else "")
                     + f"pathlib.Path({str(self.root / 'ready')!r}).write_text('ready'); "
                     + "time.sleep(20)"
@@ -208,7 +266,9 @@ class HostileEnvTest(unittest.TestCase):
                     + "while not ready.exists(): time.sleep(0.005)\n"
                     + f"with open({str(records)!r}, 'a') as record:\n"
                     + "    record.write(json.dumps({'parent': os.getpid(), 'child': child.pid, "
-                    + "'group': os.getpgrp(), 'scratch': str(pathlib.Path(os.environ['GWI_LOG_FILE']).parent)}) + '\\n')\n"
+                    + "'group': os.getpgrp(), 'session': os.getsid(0), "
+                    + "'child_group': os.getpgid(child.pid), 'child_session': os.getsid(child.pid), "
+                    + "'scratch': str(pathlib.Path(os.environ['GWI_LOG_FILE']).parent)}) + '\\n')\n"
                     + ("sys.exit(0)\n" if leader_exits else "time.sleep(20)\n")
                 )
                 bad.chmod(0o755)
@@ -250,6 +310,9 @@ class HostileEnvTest(unittest.TestCase):
                         for line in records.read_text().splitlines():
                             record = json.loads(line)
                             self.assertNotEqual(record['group'], os.getpgrp())
+                            self.assertNotEqual(record['session'], os.getsid(0))
+                            self.assertEqual(record['session'], record['child_session'])
+                            self.assertEqual(record['group'] != record['child_group'], sibling_group)
                             self.assert_terminated(record['parent'])
                             self.assert_terminated(record['child'])
                             self.assertFalse(Path(record['scratch']).exists())
@@ -289,7 +352,7 @@ class HostileEnvTest(unittest.TestCase):
                                     pass
                     for process in owned:
                         if process.returncode is None:
-                            runner.signal_group(process.pid, signal.SIGKILL)
+                            process.kill()
                         process.wait(timeout=2)
 
     def artifacts(self, missing=False):

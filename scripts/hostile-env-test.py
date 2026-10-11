@@ -91,31 +91,82 @@ def build_binaries():
     return [found[key] for key in sorted(expected)]
 
 
-def signal_group(group, sig):
-    """Signal our session, tolerating disappeared or macOS zombie-only groups."""
-    try:
-        os.killpg(group, sig)
-    except ProcessLookupError:
-        pass
-    except PermissionError:
-        if sys.platform != "darwin":
-            raise
-        # Darwin can return EPERM for a group containing only zombies. Verify
-        # there are no live members rather than suppressing a real denial.
-        listing = subprocess.run(
-            ["/bin/ps", "-axo", "pgid=,stat="], capture_output=True,
-            text=True, timeout=CLEANUP_TIMEOUT,
-        )
-        if listing.returncode:
-            raise RuntimeError("Failed to inspect timed-out process group")
-        for line in listing.stdout.splitlines():
-            pgid, state = line.split()
-            if int(pgid) == group and not state.startswith("Z"):
-                raise
+class DiscoveryTimeout(RuntimeError):
+    """The current termination phase exhausted its discovery budget."""
+
+
+def session_members(session, deadline):
+    """Discover live members without trusting platform-specific ps SID fields."""
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        raise DiscoveryTimeout("Timed out discovering test session")
+    listing = subprocess.run(
+        ["/bin/ps", "-axo", "pid=,stat="], capture_output=True,
+        text=True, timeout=remaining,
+    )
+    if listing.returncode:
+        raise RuntimeError("Failed to inspect test session")
+    members = []
+    for line in listing.stdout.splitlines():
+        if time.monotonic() >= deadline:
+            raise DiscoveryTimeout("Timed out discovering test session")
+        pid, state = line.split()
+        if state.startswith("Z"):
+            continue
+        pid = int(pid)
+        try:
+            if os.getsid(pid) == session:
+                members.append(pid)
+        except ProcessLookupError:
+            pass
+    return members
+
+
+def signal_session(session, members, sig, *, deadline=None):
+    """Recheck ownership after discovery; group changes do not change ownership."""
+    if session == os.getsid(0):
+        raise RuntimeError("Refusing to signal runner session")
+    for pid in members:
+        if deadline is not None and time.monotonic() >= deadline:
+            raise DiscoveryTimeout("Timed out signalling test session")
+        try:
+            if os.getsid(pid) == session:
+                os.kill(pid, sig)
+        except ProcessLookupError:
+            pass
+
+
+def terminate_session(session):
+    """Rescan during grace and escalation, with bounded discovery and exit waits."""
+    known = []
+    for sig, duration in ((signal.SIGTERM, TERMINATION_GRACE),
+                          (signal.SIGKILL, CLEANUP_TIMEOUT)):
+        deadline = time.monotonic() + duration
+        if sig == signal.SIGKILL and known:
+            # Escalate already-discovered members before another ps invocation
+            # can exhaust the cleanup budget under system load. Revalidate as usual.
+            signal_session(session, known, sig, deadline=deadline)
+        while True:
+            try:
+                members = session_members(session, deadline)
+                if not members:
+                    return
+                known = members
+                signal_session(session, members, sig, deadline=deadline)
+            except (DiscoveryTimeout, subprocess.TimeoutExpired):
+                # A grace-period discovery deadline must not skip SIGKILL.
+                break
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                break
+            time.sleep(min(0.02, remaining))
+            if time.monotonic() >= deadline:
+                break
+    raise RuntimeError("Test session still live after SIGKILL")
 
 
 def run_isolated(arguments, *, env, timeout, stderr=None):
-    """Bound execution and timeout cleanup of a dedicated POSIX process group."""
+    """Bound execution and timeout cleanup of a dedicated POSIX session."""
     process = subprocess.Popen(
         arguments, cwd=ROOT, env=env, stdout=subprocess.PIPE, stderr=stderr,
         text=True, start_new_session=True,
@@ -123,19 +174,15 @@ def run_isolated(arguments, *, env, timeout, stderr=None):
     try:
         stdout, _ = process.communicate(timeout=timeout)
     except subprocess.TimeoutExpired:
-        # Keep the leader unreaped until escalation, so its PID/group cannot be
-        # reused. A descendant can survive TERM even when the leader exits or
-        # closes its pipes; always signal the whole group again after the grace.
+        # communicate has not reaped the leader on this timeout path. Keep
+        # it unreaped until discovery/escalation finishes, anchoring the SID.
         try:
-            for sig in (signal.SIGTERM, signal.SIGKILL):
-                signal_group(process.pid, sig)
-                if sig == signal.SIGTERM:
-                    time.sleep(TERMINATION_GRACE)
+            terminate_session(process.pid)
         finally:
             try:
                 process.communicate(timeout=CLEANUP_TIMEOUT)
             except subprocess.TimeoutExpired:
-                # An escaped descendant may still hold stdout. Do not wait for
+                # A new-session descendant may still hold stdout. Do not wait for
                 # EOF forever; separately kill/reap the owned executable even
                 # if signalling the group failed.
                 process.stdout.close()

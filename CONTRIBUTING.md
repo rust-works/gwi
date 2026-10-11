@@ -134,10 +134,17 @@ Missing executables, empty test selections and failed tests fail the command wit
 case and binary diagnostics. Subsequent binaries and cases still run after a test
 failure. Each binary has a five-minute execution limit; the CI job has a fifteen-minute
 limit. Listings have a thirty-second limit. Each invocation starts a separate process
-group. On timeout the runner sends SIGTERM to that group, allows one second to exit,
-then sends SIGKILL to remaining members and reaps the executable before deleting its
-scratch paths or advancing. Pipe draining and reaping each have a two-second cleanup
-limit. Descendants that deliberately leave the process group escape group cleanup.
+session. On timeout the runner discovers live members of that session with bounded
+process listings, rechecks session membership before signalling each process, and
+repeats discovery during a one-second SIGTERM grace and two-second SIGKILL cleanup
+limit. This includes sibling process groups created by secret-command helpers and
+descendants with redirected output. The executable remains unreaped during escalation
+to prevent session-ID reuse, then is reaped before scratch deletion or continuation.
+Pipe draining and reaping each have a two-second limit. Discovery or termination
+failures are reported explicitly; kernel-uninterruptible processes cannot be forced
+to exit within a user-space deadline. POSIX membership checks and signals are separate
+operations, so immediate revalidation minimizes the exit/PID-reuse race. Descendants
+that deliberately create another session escape this cleanup.
 The `Hostile Runner Lifecycle` CI jobs exercise real timeout fixtures on Linux and
 macOS, including inherited output pipes and children that ignore SIGTERM.
 Ignored tests retain their normal behavior, and doctests are excluded because
