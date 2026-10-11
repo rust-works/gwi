@@ -55,25 +55,95 @@ gh run view 38013416205 --repo rust-works/gwi --log
 gh api repos/rust-works/gwi/commits/426bf4fa6eecca0fc9f189e49d9842fb7d7f073d/check-runs
 ```
 
-## Pending live acceptance checks
+## Post-update healthy queue evidence
 
-The successful run above predates the required-context update. It proves that the
-queue workflow reports the correct context and runs both lints, but does not prove
-queue enforcement under the updated policy. No post-update queue rejection or
-healthy merge was available in the Actions and rule-suite evidence inspected for
-this record.
+[Merge-group run 38017826702](https://github.com/rust-works/gwi/actions/runs/38017826702)
+reported a successful
+[Commit Message Lint job 114111949012](https://github.com/rust-works/gwi/actions/runs/38017826702/job/114111949012)
+from GitHub Actions app `15368` on queue head
+`f46cfb6f95d9376a450ad73e8cb918ad3146bf2e`. The job completed on
+10 October 2026 at 13:41:58 AEDT, after the requirement was enabled at
+12:42:24 AEDT. Both lint steps passed:
 
-Before treating #145 as fully verified, record direct evidence of both:
+- Commit range: `7afbe407451fd4135b687f9cdf05def15acda892..f46cfb6f95d9376a450ad73e8cb918ad3146bf2e`.
+- Commit message lint: one commit passed, zero with issues.
+- Scopes lint: 13 scopes, 275 files checked, zero violations.
 
-1. A queued group with a failed `Commit Message Lint` result being prevented from
-   merging because of that required check.
-2. A healthy queue entry passing the required context and proceeding normally
-   under the updated policy.
+[PR #194](https://github.com/rust-works/gwi/pull/194) merged at 13:54:42 AEDT
+with that exact merge commit. The matching post-update merge-group check and
+merge establish the healthy queue path. The main rule-suite history query on
+11 October 2026 returned no suite for this head; no particular rule evaluation
+or bypass result is inferred from that absence.
 
-Link the queue head SHA, Actions job, and queue/rule evaluation for each case.
-Keep policy readback distinct from observed queue behavior. The issue-to-pr run
-did not enqueue or merge a PR, inject failures into another session's checks, or
-remove administrator bypass to manufacture this evidence.
+Inspect the exact event, check identity, logs and merge with:
+
+```bash
+gh run view 38017826702 --repo rust-works/gwi --json event,headSha,jobs,conclusion,url
+gh run view 38017826702 --repo rust-works/gwi --log
+gh api repos/rust-works/gwi/check-runs/114111949012
+gh api repos/rust-works/gwi/pulls/194 --jq '{merged_at,merge_commit_sha}'
+```
+
+## Failed-check queue rejection
+
+The explicitly authorized disposable
+[probe PR #292](https://github.com/rust-works/gwi/pull/292) used signed head
+`9e93dc831b8de577f612f6f24c1bc3e8d74c3512`. Its normal required PR checks all
+passed. It added an immediate `exit 1` step to `Commit Message Lint` only on
+`merge_group`, deliberately failing the existing required context. This tests
+queue enforcement of the failed context, not detection of an invalid message.
+The later scopes step also failed because the initial failure skipped binary
+installation; both failures belong to the same job/context.
+
+An independent safeguard in the probe's existing required `Doc links` job
+sleeps 300 seconds and then unconditionally exits 1 on merge-group events.
+It cannot pass, so normal merging remains prevented if commit-lint enforcement
+is ineffective. Both jobs retain their normal PR behavior. Production protection
+was unchanged. The first enqueue attempt stopped before mutation because other
+PRs were queued; the probe waited until the queue was empty and revalidated
+protection, required PR results and its exact head before enqueueing. No other
+entries or sessions' checks were altered.
+
+The ordinary `enqueuePullRequest` mutation used `expectedHeadOid` and
+`jump: false`, without bypass. The resulting queue head was
+`e517162b5905f8302af17ce8e89bf9f67dd4e99b`. The
+[merge-group run 38134824570](https://github.com/rust-works/gwi/actions/runs/38134824570)
+reported a failed
+[Commit Message Lint job 114456443260](https://github.com/rust-works/gwi/actions/runs/38134824570/job/114456443260)
+from GitHub Actions app `15368`, completing on
+11 October 2026 at 22:14:33 AEDT. Its logs record the deliberate step exiting 1.
+
+The PR's `RemovedFromMergeQueueEvent` records removal at 22:14:52 AEDT,
+reason `failed_checks`, and `beforeCommit` equal to that exact queue head.
+The [API evidence snapshot](merge-queue-commit-lint-probe-205.json), captured
+after rejection and before cleanup, records all 22 check runs and no commit
+statuses. Commit lint was the sole failed check. The independent Doc links
+safeguard was still queued; other checks were pending or successful and are not
+claimed to have all passed. Same-head removal for failed checks while only the
+required commit-lint context had failed establishes rejection attributable to
+that check. No main update was attempted, so the queue timeline provides the
+rejection evidence rather than a failed main-push rule suite.
+
+Inspect the failure and exact queue removal with:
+
+```bash
+gh api repos/rust-works/gwi/check-runs/114456443260
+gh api repos/rust-works/gwi/actions/jobs/114456443260/logs
+gh run view 38134824570 --repo rust-works/gwi --json event,headSha,jobs,conclusion,url
+gh api graphql -f query='{repository(owner:"rust-works",name:"gwi"){pullRequest(number:292){merged timelineItems(last:10,itemTypes:[REMOVED_FROM_MERGE_QUEUE_EVENT]){nodes{... on RemovedFromMergeQueueEvent{createdAt reason beforeCommit{oid}}}}}}}'
+```
+
+The probe was closed without merging and its remote branch deleted. Remaining
+owned probe runs were cancelled; all probe runs are now completed. The failed
+commit-lint run retains its `failure` conclusion. The safeguard was cancelled
+before it produced a failed result. The queue was empty after cleanup. Full
+ruleset and classic-protection readbacks matched the pre-probe snapshots
+exactly, including required checks, app IDs, queue parameters and administrator
+bypass. The probe commit is not an ancestor of main, and both deliberate steps
+are absent from main and from this documentation PR. No protection changes or
+administrator bypass were used. Together with the post-update healthy merge,
+this establishes both acceptance paths for
+[issue #205](https://github.com/rust-works/gwi/issues/205).
 
 ## Empty HOME required context
 

@@ -1,0 +1,217 @@
+{
+  "issue": 205,
+  "probe_pr": "https://github.com/rust-works/gwi/pull/292",
+  "probe_head": "9e93dc831b8de577f612f6f24c1bc3e8d74c3512",
+  "queue_head": "e517162b5905f8302af17ce8e89bf9f67dd4e99b",
+  "captured_at": "2026-10-11T11:14:59.189656+00:00",
+  "sources": {
+    "check": "https://api.github.com/repos/rust-works/gwi/check-runs/114456443260",
+    "job_logs": "https://api.github.com/repos/rust-works/gwi/actions/jobs/114456443260/logs",
+    "run": "https://github.com/rust-works/gwi/actions/runs/38134824570",
+    "checks": "https://api.github.com/repos/rust-works/gwi/commits/e517162b5905f8302af17ce8e89bf9f67dd4e99b/check-runs",
+    "timeline": "GraphQL repository(owner: \"rust-works\", name: \"gwi\").pullRequest(number: 292).timelineItems(itemTypes: [REMOVED_FROM_MERGE_QUEUE_EVENT])"
+  },
+  "failed_check": {
+    "id": 114456443260,
+    "name": "Commit Message Lint",
+    "head_sha": "e517162b5905f8302af17ce8e89bf9f67dd4e99b",
+    "conclusion": "failure",
+    "completed_at": "2026-10-11T11:14:33Z",
+    "html_url": "https://github.com/rust-works/gwi/actions/runs/38134824570/job/114456443260",
+    "app_id": 15368
+  },
+  "queue_observation": {
+    "merged": false,
+    "mergeQueueEntry": null,
+    "timelineItems": {
+      "nodes": [
+        {
+          "createdAt": "2026-10-11T11:14:52Z",
+          "reason": "failed_checks",
+          "beforeCommit": {
+            "oid": "e517162b5905f8302af17ce8e89bf9f67dd4e99b"
+          }
+        }
+      ]
+    }
+  },
+  "checks_snapshot_note": "Captured after queue rejection and before cleanup. Commit lint is the sole failed check; Doc links safeguard remains queued. Pending checks are not claimed to have passed.",
+  "total_count": 22,
+  "checks_snapshot": [
+    {
+      "id": 114456443421,
+      "name": "Windows CLI Stack",
+      "app_id": 15368,
+      "status": "queued",
+      "conclusion": null
+    },
+    {
+      "id": 114456443377,
+      "name": "Test (stable)",
+      "app_id": 15368,
+      "status": "queued",
+      "conclusion": null
+    },
+    {
+      "id": 114456443357,
+      "name": "Test (nightly)",
+      "app_id": 15368,
+      "status": "queued",
+      "conclusion": null
+    },
+    {
+      "id": 114456443318,
+      "name": "Test (beta)",
+      "app_id": 15368,
+      "status": "queued",
+      "conclusion": null
+    },
+    {
+      "id": 114456443293,
+      "name": "Docs",
+      "app_id": 15368,
+      "status": "queued",
+      "conclusion": null
+    },
+    {
+      "id": 114456443260,
+      "name": "Commit Message Lint",
+      "app_id": 15368,
+      "status": "completed",
+      "conclusion": "failure"
+    },
+    {
+      "id": 114456443247,
+      "name": "Windows Build",
+      "app_id": 15368,
+      "status": "queued",
+      "conclusion": null
+    },
+    {
+      "id": 114456443243,
+      "name": "Doc links",
+      "app_id": 15368,
+      "status": "queued",
+      "conclusion": null
+    },
+    {
+      "id": 114456443228,
+      "name": "Sandboxed Test",
+      "app_id": 15368,
+      "status": "queued",
+      "conclusion": null
+    },
+    {
+      "id": 114456443221,
+      "name": "Empty HOME Test",
+      "app_id": 15368,
+      "status": "in_progress",
+      "conclusion": null
+    },
+    {
+      "id": 114456443220,
+      "name": "Cargo Deny",
+      "app_id": 15368,
+      "status": "queued",
+      "conclusion": null
+    },
+    {
+      "id": 114456443218,
+      "name": "Rustfmt",
+      "app_id": 15368,
+      "status": "queued",
+      "conclusion": null
+    },
+    {
+      "id": 114456443193,
+      "name": "Windows Clippy",
+      "app_id": 15368,
+      "status": "in_progress",
+      "conclusion": null
+    },
+    {
+      "id": 114456443185,
+      "name": "Hostile Environment Test",
+      "app_id": 15368,
+      "status": "queued",
+      "conclusion": null
+    },
+    {
+      "id": 114456443170,
+      "name": "Coverage",
+      "app_id": 15368,
+      "status": "in_progress",
+      "conclusion": null
+    },
+    {
+      "id": 114456443103,
+      "name": "Hostile Runner Lifecycle (ubuntu-latest)",
+      "app_id": 15368,
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "id": 114456443097,
+      "name": "Clippy",
+      "app_id": 15368,
+      "status": "in_progress",
+      "conclusion": null
+    },
+    {
+      "id": 114456443017,
+      "name": "Hostile Runner Lifecycle (macos-latest)",
+      "app_id": 15368,
+      "status": "queued",
+      "conclusion": null
+    },
+    {
+      "id": 114456442995,
+      "name": "Changelog fragments",
+      "app_id": 15368,
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "id": 114456442882,
+      "name": "Windows Log Replacement",
+      "app_id": 15368,
+      "status": "in_progress",
+      "conclusion": null
+    },
+    {
+      "id": 114456442758,
+      "name": "Log Follow Probe Lifecycle (macos-latest)",
+      "app_id": 15368,
+      "status": "queued",
+      "conclusion": null
+    },
+    {
+      "id": 114456442712,
+      "name": "Log Follow Probe Lifecycle (ubuntu-latest)",
+      "app_id": 15368,
+      "status": "completed",
+      "conclusion": "success"
+    }
+  ],
+  "commit_statuses_snapshot": [],
+  "safeguard": {
+    "required_context": "Doc links",
+    "app_id": 15368,
+    "merge_group_behavior": "Sleep 300 seconds, then unconditionally exit 1; ordinary PR behavior unchanged.",
+    "state_at_capture": "queued",
+    "state_after_cleanup": "cancelled"
+  },
+  "failure_log_excerpt": "Issue 205 isolated probe: Commit Message Lint must reject this merge group.\nProcess completed with exit code 1.",
+  "cleanup": {
+    "pr_state": "CLOSED",
+    "merged_at": null,
+    "remote_branch_deleted": true,
+    "all_probe_runs_completed": true,
+    "remaining_probe_runs_cancelled": true,
+    "ruleset_unchanged": true,
+    "classic_protection_unchanged": true,
+    "probe_commit_absent_from_main": true,
+    "probe_steps_absent_from_main": true,
+    "queue_empty": true
+  }
+}
