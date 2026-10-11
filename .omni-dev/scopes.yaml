@@ -10,7 +10,7 @@ scopes:
   - name: "docs"
     description: "Documentation, ADRs and guides"
     examples: ["docs: add shared-infrastructure ADR", "docs: fix quickstart link"]
-    file_patterns: ["docs/**", "README.md", "CONTRIBUTING.md"]
+    file_patterns: ["docs/**", "README.md", "CONTRIBUTING.md", "AGENTS.md", "CLAUDE.md"]
   - name: "changelog"
     description: "Changelog entries"
     examples: ["changelog: note the new drive command"]
@@ -46,7 +46,7 @@ scopes:
   - name: "test"
     description: "Integration tests, shared test helpers, fixtures and snapshots"
     examples: ["test(test): add CLI regression coverage"]
-    file_patterns: ["tests/**"]
+    file_patterns: ["tests/**", "src/test_support.rs"]
   - name: "scripts"
     description: "Development scripts, sandbox tooling and validation helpers"
     examples: ["chore(scripts): improve sandbox test runner"]
@@ -54,16 +54,10 @@ scopes:
 
 # Paths that legitimately belong to no scope.
 allow:
-  - "src/lib.rs"
-  - "src/test_support.rs"
-  - "src/main.rs"
-  - "LICENSE"
-  - "CODE_OF_CONDUCT.md"
-  - "Cargo.toml"
-  - "Cargo.lock"
-  - "clippy.toml"
-  - "rustfmt.toml"
-  - "deny.toml"
-  - ".gitignore"
-  - "CLAUDE.md"
-  - "AGENTS.md"
+  - "src/lib.rs" # Crate-wide module registration and exports span subsystem owners.
+  - "LICENSE" # Repository-wide licensing terms have no subsystem owner.
+  - "CODE_OF_CONDUCT.md" # Community conduct policy applies to the whole project.
+  - "clippy.toml" # Shared Rust lint thresholds apply across all subsystems.
+  - "rustfmt.toml" # Shared Rust formatting rules apply across all subsystems.
+  - "deny.toml" # Dependency security, license and source policy applies crate-wide.
+  - ".gitignore" # Repository-wide exclusions cover build, editor and local artifacts.
