@@ -11,6 +11,7 @@
 
 use anyhow::{Context, Result};
 use clap::ValueEnum;
+use serde::de::IgnoredAny;
 
 /// How to interpret the `--values` payload.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, ValueEnum)]
@@ -223,24 +224,26 @@ fn parse_delimited(content: &str, delimiter: u8) -> Result<Vec<Vec<String>>> {
 /// natural thing to write, and the API takes strings for every cell anyway.
 /// `null` becomes an empty cell. A nested array or object is an error: there
 /// is no sensible single-cell rendering of one, and silently writing
-/// `{"a":1}` into a cell would be worse than refusing. The accepted
-/// [private number-key limitation](../../../../docs/json-passthrough.md) can
-/// turn an object into a number before this cell validation.
+/// `{"a":1}` into a cell would be worse than refusing. Raw JSON kind checks
+/// reject containers before `Value` can interpret a private number-key object
+/// as a scalar, while retaining arbitrary-precision numeric conversion.
 fn parse_json(content: &str) -> Result<Vec<Vec<String>>> {
-    let parsed: serde_json::Value =
-        serde_json::from_str(content).context("Failed to parse --values as JSON")?;
-    let rows = parsed
-        .as_array()
-        .context("--values JSON must be an array of arrays (rows of cells)")?;
+    serde_json::from_str::<IgnoredAny>(content).context("Failed to parse --values as JSON")?;
+    let parsed = content.trim();
+    anyhow::ensure!(
+        parsed.starts_with('['),
+        "--values JSON must be an array of arrays (rows of cells)"
+    );
+    let rows = json_array_elements(parsed)?;
 
     let mut out = Vec::with_capacity(rows.len());
     for (row_index, row) in rows.iter().enumerate() {
-        let cells = row.as_array().with_context(|| {
-            format!(
-                "--values JSON row {} is not an array; expected an array of arrays",
-                row_index + 1
-            )
-        })?;
+        anyhow::ensure!(
+            row.starts_with('['),
+            "--values JSON row {} is not an array; expected an array of arrays",
+            row_index + 1
+        );
+        let cells = json_array_elements(row)?;
         let mut parsed_row = Vec::with_capacity(cells.len());
         for (col_index, cell) in cells.iter().enumerate() {
             parsed_row.push(cell_to_string(cell).with_context(|| {
@@ -256,14 +259,39 @@ fn parse_json(content: &str) -> Result<Vec<Vec<String>>> {
     Ok(out)
 }
 
-fn cell_to_string(cell: &serde_json::Value) -> Result<String> {
-    match cell {
-        serde_json::Value::String(s) => Ok(s.clone()),
+/// Borrows the elements of an already syntax-validated JSON array.
+///
+/// `IgnoredAny` locates each complete value without interpreting private number
+/// keys. Only the validated outer brackets and element separators are sliced;
+/// serde_json handles strings, escapes and nested containers.
+fn json_array_elements(array: &str) -> Result<Vec<&str>> {
+    let mut remaining = array[1..array.len() - 1].trim();
+    let mut elements = Vec::new();
+    while !remaining.is_empty() {
+        let mut stream = serde_json::Deserializer::from_str(remaining).into_iter::<IgnoredAny>();
+        stream.next().context("Expected a JSON array element")??;
+        let (element, rest) = remaining.split_at(stream.byte_offset());
+        elements.push(element);
+        remaining = rest.trim_start();
+        if let Some(rest) = remaining.strip_prefix(',') {
+            remaining = rest.trim_start();
+        }
+    }
+    Ok(elements)
+}
+
+fn cell_to_string(raw: &str) -> Result<String> {
+    anyhow::ensure!(
+        !raw.starts_with(['[', '{']),
+        "a cell must be a string, number, boolean or null, not {raw}"
+    );
+    // Only validated scalars reach Value, so its private number protocol
+    // cannot turn an object into an accepted cell.
+    let scalar: serde_json::Value = serde_json::from_str(raw)?;
+    match scalar {
+        serde_json::Value::String(s) => Ok(s),
         serde_json::Value::Null => Ok(String::new()),
-        serde_json::Value::Bool(_) | serde_json::Value::Number(_) => Ok(cell.to_string()),
-        serde_json::Value::Array(_) | serde_json::Value::Object(_) => Err(anyhow::anyhow!(
-            "a cell must be a string, number, boolean or null, not {cell}"
-        )),
+        _ => Ok(scalar.to_string()),
     }
 }
 
@@ -542,18 +570,106 @@ mod tests {
     }
 
     #[test]
-    fn private_number_cell_objects_are_rewritten_or_rejected_before_forwarding() {
-        for (literal, expected) in crate::test_support::private_number_cases() {
-            let result = parse_json(&format!("[[{literal}]]"));
-            if expected.as_ref().is_ok_and(serde_json::Value::is_number) {
-                // The object has already become a scalar before cell validation.
-                assert_eq!(result.unwrap(), vec![vec!["123".to_string()]]);
-            } else {
+    fn private_number_cell_objects_are_rejected_before_forwarding() {
+        let literals = [
+            r#"{"$serde_json::private::Number":"123"}"#,
+            r#"{"$serde_json::private::Number":"not-a-number"}"#,
+            r#"{"$serde_json::private::Number":"123","other":"keep"}"#,
+            r#"{"other":"keep","$serde_json::private::Number":"123"}"#,
+            r#"{"\u0024serde_json::private::Number":"123"}"#,
+        ];
+        for literal in literals {
+            for cell in [
+                literal.to_string(),
+                format!("{{\"nested\":{literal}}}"),
+                format!("{{\"nested\":[{{\"deep\":{literal}}}]}}"),
+                format!("[{literal}]"),
+            ] {
+                let input = format!("[[], [\"ok\", \n {cell} \t]]");
+                let err = parse(&input, ValuesFormat::Json).unwrap_err();
+                let chain = format!("{err:#}");
+                assert!(chain.contains("row 2, column 2"), "{input}: {chain}");
                 assert!(
-                    result.is_err(),
-                    "objects and arrays must not become cells: {literal}"
+                    chain.contains("a cell must be a string, number, boolean or null"),
+                    "{input}: {chain}"
                 );
+                assert!(chain.contains(&cell), "{input}: {chain}");
+                assert!(!chain.contains("Failed to parse"), "{input}: {chain}");
             }
+        }
+    }
+
+    #[test]
+    fn json_preserves_numeric_precision_and_supported_scalars() {
+        let input = r#"[[184467440737095516160, 0.12345678901234567890123456789,
+            -42, 1e400, false, null, "\u0024serde_json::private::Number", "a\nb"], [], ["last"]]"#;
+        assert_eq!(
+            parse(input, ValuesFormat::Json).unwrap(),
+            vec![
+                vec![
+                    "184467440737095516160",
+                    "0.12345678901234567890123456789",
+                    "-42",
+                    "1e+400",
+                    "false",
+                    "",
+                    "$serde_json::private::Number",
+                    "a\nb"
+                ],
+                vec![],
+                vec!["last"],
+            ]
+        );
+    }
+
+    #[test]
+    fn json_borrows_complete_cells_with_json_punctuation_in_strings() {
+        let input = r#" [ ["comma,brackets[]{}", "quote\"and\\slash", "\u005b"],
+            [1,true,null], [] ] "#;
+        assert_eq!(
+            parse(input, ValuesFormat::Json).unwrap(),
+            vec![
+                vec!["comma,brackets[]{}", "quote\"and\\slash", "["],
+                vec!["1", "true", ""],
+                vec![],
+            ]
+        );
+    }
+
+    #[test]
+    fn json_rejects_containers_and_scalars_at_the_wrong_level() {
+        for literal in [
+            "null",
+            "true",
+            "123",
+            r#""text""#,
+            r#"{"$serde_json::private::Number":"not-a-number"}"#,
+        ] {
+            let err = parse(literal, ValuesFormat::Json).unwrap_err();
+            assert!(err.to_string().contains("array of arrays"), "{err:#}");
+            let input = format!("[[], {literal}]");
+            let err = parse(&input, ValuesFormat::Json).unwrap_err();
+            assert!(err.to_string().contains("row 2 is not an array"), "{err:#}");
+        }
+        for cell in ["[]", "{}", "[[1]]"] {
+            let err = parse(&format!("[[{cell}]]"), ValuesFormat::Json).unwrap_err();
+            assert!(format!("{err:#}").contains("a cell must be"), "{err:#}");
+        }
+    }
+
+    #[test]
+    fn json_validates_syntax_before_cell_kinds() {
+        for input in [
+            r#"[[{"$serde_json::private::Number":}]]"#,
+            r#"[[{"$serde_json::private::Number":"123",}]]"#,
+            "[[{}]] trailing",
+            "[[1,]]",
+        ] {
+            let err = parse(input, ValuesFormat::Json).unwrap_err();
+            assert!(
+                err.to_string().contains("Failed to parse --values as JSON"),
+                "{err:#}"
+            );
         }
     }
 }
