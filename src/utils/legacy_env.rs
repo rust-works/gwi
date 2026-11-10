@@ -25,7 +25,9 @@ enum Kind {
     LeasePolicy,
 }
 
-/// The `OMNI_DEV_*` names the moved code read, with each one's kind. Its gwi replacement is
+/// The `OMNI_DEV_*` names the moved code read and gwi now reads under a `GWI_` name, with each
+/// one's kind. omni-dev reads many more (`OMNI_DEV_MODEL`, the gateway and daemon settings), but
+/// gwi has no counterpart for those, so there is nothing to rename. Its gwi replacement is
 /// `GWI_` plus the same suffix.
 const LEGACY_ENV: &[(&str, Kind)] = &[
     ("OMNI_DEV_GMAIL_ACCOUNT", Kind::Option),
@@ -39,6 +41,15 @@ const LEGACY_ENV: &[(&str, Kind)] = &[
     ("OMNI_DEV_DRIVE_LEASE_BIOMETRICS_ONLY", Kind::LeasePolicy),
     ("OMNI_DEV_DRIVE_LEASE_ALLOW_HEADLESS", Kind::LeasePolicy),
     ("OMNI_DEV_LEASE_LOCK_WAIT_SECS", Kind::LeasePolicy),
+    ("OMNI_DEV_AUDIT_LOG_FILE", Kind::Option),
+    ("OMNI_DEV_LOG_MAX_SIZE", Kind::Option),
+    ("OMNI_DEV_LOG_KEEP_FILES", Kind::Option),
+    ("OMNI_DEV_LOG_BODIES", Kind::Option),
+    ("OMNI_DEV_LOG_HEADERS", Kind::Option),
+    ("OMNI_DEV_HTTP_CONNECT_TIMEOUT_SECS", Kind::Option),
+    ("OMNI_DEV_HTTP_READ_TIMEOUT_SECS", Kind::Option),
+    ("OMNI_DEV_SECRET_COMMAND_TIMEOUT_SECS", Kind::Option),
+    ("OMNI_DEV_SECRET_COMMAND_TTL_SECS", Kind::Option),
 ];
 
 /// The prefix omni-dev used and the one gwi uses in its place.
@@ -53,12 +64,12 @@ fn replacement(legacy: &str) -> String {
 /// Builds one warning line for each legacy variable set in `env`, in table order.
 ///
 /// A variable counts as set when it is non-empty, matching how gwi treats its own variables
-/// (`VAR=` neutralises an export for one invocation). The value is looked at only to tell
-/// empty from non-empty; it is neither kept, formatted nor acted on.
+/// (`VAR=` neutralises an export for one invocation). Only [`EnvSource::has_value`] is
+/// asked, so the value is never read into this module, let alone formatted or acted on.
 pub(crate) fn legacy_env_warnings(env: &impl EnvSource) -> Vec<String> {
     LEGACY_ENV
         .iter()
-        .filter(|(name, _)| env.var(name).is_some_and(|value| !value.is_empty()))
+        .filter(|(name, _)| env.has_value(name))
         .map(|(name, kind)| {
             let new = replacement(name);
             match kind {
@@ -76,10 +87,14 @@ pub(crate) fn legacy_env_warnings(env: &impl EnvSource) -> Vec<String> {
 
 /// Prints [`legacy_env_warnings`] for the process environment to stderr, once per call.
 ///
-/// Written with `eprintln!` rather than `tracing`, so `RUST_LOG=error` cannot hide it.
+/// Written straight to stderr rather than through `tracing`, so `RUST_LOG=error` cannot hide
+/// it. A write error (stderr closed, a broken pipe) is ignored: a warning must never be the
+/// reason a command or the MCP server cannot start.
 pub fn warn_legacy_env() {
+    use std::io::Write;
+    let mut stderr = std::io::stderr().lock();
     for line in legacy_env_warnings(&SystemEnv) {
-        eprintln!("{line}");
+        let _ = writeln!(stderr, "{line}");
     }
 }
 
@@ -96,7 +111,7 @@ mod tests {
 
     #[test]
     fn every_legacy_name_has_a_gwi_replacement_with_the_same_suffix() {
-        assert_eq!(LEGACY_ENV.len(), 11);
+        assert_eq!(LEGACY_ENV.len(), 20);
         for (name, _) in LEGACY_ENV {
             assert!(name.starts_with("OMNI_DEV_"), "{name}");
             assert_eq!(replacement(name), name.replacen("OMNI_DEV_", "GWI_", 1));
@@ -125,6 +140,27 @@ mod tests {
         }
         let joined = legacy_env_warnings(&env).join("\n");
         assert!(!joined.contains("SENTINEL"), "{joined}");
+    }
+
+    #[test]
+    fn a_name_is_listed_only_once() {
+        let mut names: Vec<_> = LEGACY_ENV.iter().map(|(name, _)| *name).collect();
+        names.sort_unstable();
+        names.dedup();
+        assert_eq!(names.len(), LEGACY_ENV.len());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn the_system_environment_detects_a_value_that_is_not_unicode() {
+        use std::os::unix::ffi::OsStrExt;
+        // A unique name no other test touches, so this does not race with them.
+        let name = "OMNI_DEV_GWI_TEST_NON_UNICODE_PROBE";
+        std::env::set_var(name, std::ffi::OsStr::from_bytes(&[0x66, 0x6f, 0x80]));
+        assert!(SystemEnv.var(name).is_none());
+        assert!(SystemEnv.has_value(name));
+        std::env::remove_var(name);
+        assert!(!SystemEnv.has_value(name));
     }
 
     #[test]

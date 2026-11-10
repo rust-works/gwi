@@ -67,8 +67,8 @@ still exits 1 on a conflict until you pass `--force`, so read the report before
 gwi reads only `GWI_*` variables and never falls back to the `OMNI_DEV_*` names omni-dev used
 ([ADR-0001](docs/adrs/adr-0001.md)). `gwi import` renames them inside `~/.omni-dev/settings.json`, but
 a variable exported from your shell profile or an MCP client's launcher config needs renaming by
-hand. If any is still set, every `gwi` command and `gwi-mcp` prints one line per variable on
-stderr naming the replacement, and never uses the old value. The Drive lease policy variables
+hand. If any is still set, every `gwi` invocation (even `--help`) and `gwi-mcp` prints one line per
+variable on stderr naming the replacement, and never uses the old value. The Drive lease policy variables
 say outright that the policy is not in effect. Unset the variable, or set it empty for one run,
 to silence it.
 
@@ -76,6 +76,8 @@ to silence it.
 |---|---|
 | `OMNI_DEV_GMAIL_ACCOUNT`, `OMNI_DEV_DRIVE_ACCOUNT`, `OMNI_DEV_PROFILE` | `GWI_GMAIL_ACCOUNT`, `GWI_DRIVE_ACCOUNT`, `GWI_PROFILE` |
 | `OMNI_DEV_CONFIG_DIR`, `OMNI_DEV_LOG_FILE`, `OMNI_DEV_LOG_DISABLE` | `GWI_CONFIG_DIR`, `GWI_LOG_FILE`, `GWI_LOG_DISABLE` |
+| `OMNI_DEV_AUDIT_LOG_FILE`, `OMNI_DEV_LOG_MAX_SIZE`, `OMNI_DEV_LOG_KEEP_FILES`, `OMNI_DEV_LOG_BODIES`, `OMNI_DEV_LOG_HEADERS` | `GWI_AUDIT_LOG_FILE`, `GWI_LOG_MAX_SIZE`, `GWI_LOG_KEEP_FILES`, `GWI_LOG_BODIES`, `GWI_LOG_HEADERS` |
+| `OMNI_DEV_HTTP_CONNECT_TIMEOUT_SECS`, `OMNI_DEV_HTTP_READ_TIMEOUT_SECS`, `OMNI_DEV_SECRET_COMMAND_TIMEOUT_SECS`, `OMNI_DEV_SECRET_COMMAND_TTL_SECS` | `GWI_HTTP_CONNECT_TIMEOUT_SECS`, `GWI_HTTP_READ_TIMEOUT_SECS`, `GWI_SECRET_COMMAND_TIMEOUT_SECS`, `GWI_SECRET_COMMAND_TTL_SECS` |
 | `OMNI_DEV_DRIVE_LEASE_EXPIRY_MINUTES`, `OMNI_DEV_DRIVE_LEASE_BACKUP_DIR`, `OMNI_DEV_DRIVE_LEASE_BIOMETRICS_ONLY`, `OMNI_DEV_DRIVE_LEASE_ALLOW_HEADLESS`, `OMNI_DEV_LEASE_LOCK_WAIT_SECS` | `GWI_DRIVE_LEASE_EXPIRY_MINUTES`, `GWI_DRIVE_LEASE_BACKUP_DIR`, `GWI_DRIVE_LEASE_BIOMETRICS_ONLY`, `GWI_DRIVE_LEASE_ALLOW_HEADLESS`, `GWI_LEASE_LOCK_WAIT_SECS` |
 
 A folder you synced with `omni-dev drive sync` needs nothing: `gwi drive sync` reads its

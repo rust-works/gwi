@@ -7,7 +7,7 @@ use std::process::Command;
 /// logging, timeouts and leases. Tests remove these so their results do not
 /// depend on the developer's shell (issues #62 and #120). `src/gmail/test_support.rs` and
 /// `src/drive/test_support.rs` keep the in-process equivalent.
-const AMBIENT_ENV: [&str; 55] = [
+const AMBIENT_ENV: [&str; 64] = [
     "GWI_LOG_FILE",
     "GWI_LOG_DISABLE",
     "GWI_AUDIT_LOG_FILE",
@@ -63,6 +63,15 @@ const AMBIENT_ENV: [&str; 55] = [
     "OMNI_DEV_DRIVE_LEASE_BIOMETRICS_ONLY",
     "OMNI_DEV_DRIVE_LEASE_ALLOW_HEADLESS",
     "OMNI_DEV_LEASE_LOCK_WAIT_SECS",
+    "OMNI_DEV_AUDIT_LOG_FILE",
+    "OMNI_DEV_LOG_MAX_SIZE",
+    "OMNI_DEV_LOG_KEEP_FILES",
+    "OMNI_DEV_LOG_BODIES",
+    "OMNI_DEV_LOG_HEADERS",
+    "OMNI_DEV_HTTP_CONNECT_TIMEOUT_SECS",
+    "OMNI_DEV_HTTP_READ_TIMEOUT_SECS",
+    "OMNI_DEV_SECRET_COMMAND_TIMEOUT_SECS",
+    "OMNI_DEV_SECRET_COMMAND_TTL_SECS",
 ];
 
 /// Removes every variable in [`AMBIENT_ENV`] from `command`'s environment.

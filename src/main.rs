@@ -20,6 +20,10 @@ fn main() {
 
     init_tracing();
 
+    // Report `OMNI_DEV_*` variables gwi no longer reads. This runs before `Cli::parse`, so
+    // `--help`, `--version` and usage errors warn too. The old names are never honoured.
+    gwi::utils::legacy_env::warn_legacy_env();
+
     let cli = Cli::parse();
 
     // Install the per-invocation context up front; `set_global` is

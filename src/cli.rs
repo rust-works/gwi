@@ -102,10 +102,6 @@ impl Cli {
 
     /// Executes the CLI command.
     pub async fn execute(self) -> Result<()> {
-        // Report `OMNI_DEV_*` variables gwi no longer reads, before anything else so the
-        // warning appears even when the command then fails. Old names are never honoured.
-        crate::utils::legacy_env::warn_legacy_env();
-
         self.propagate_profile_flag();
 
         // Validate the selected profile once, before dispatch, so a typo fails

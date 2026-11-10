@@ -422,11 +422,20 @@ fn binary_warns_once_on_stderr_about_a_legacy_omni_dev_variable() {
             .unwrap()
     };
 
-    // `--version` succeeds without credentials, so stdout is a clean channel to check.
-    let output = run(&["--version"]);
-    assert!(output.status.success(), "{output:?}");
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(!stdout.contains("OMNI_DEV"), "{stdout}");
+    // `--version` and `--help` exit inside clap, so the warning has to come before parsing.
+    for args in [&["--version"][..], &["--help"], &["no-such-command"]] {
+        let output = run(args);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert_eq!(
+            stderr
+                .matches("OMNI_DEV_DRIVE_LEASE_BIOMETRICS_ONLY")
+                .count(),
+            1,
+            "{args:?}: {stderr}"
+        );
+        assert!(!stdout.contains("OMNI_DEV"), "{args:?}: {stdout}");
+    }
 
     for args in [
         &["gmail", "auth", "status"][..],
