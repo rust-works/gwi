@@ -550,7 +550,9 @@ known reader delay and does not add a historical-stall reproduction.
 #285 and #294 deferred: a focused follower captured live under full library-suite
 load and under library load plus a concurrent build. Run on 11 November 2026
 (Australia/Sydney), macOS 26.5.2 arm64, 18 logical CPUs, Python 3.15.0, Rust 1.99.0,
-revision `d27cfea8477e` with a clean tree (`git_status` empty in all three summaries).
+revision `d27cfea8477e` (the tooling commit before this branch was rebased onto
+main; identical content, now the probe-loads commit of the same change) with a clean tree
+(`git_status` empty in all three summaries).
 Bounds were fixed before starting and not tuned: six repetitions per feature per
 condition, `--capture-live` with the default two-second capture age and budget, 60
 seconds per focused run, 300 per load command, 1,500 per build, 5,400 total.
