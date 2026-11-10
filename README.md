@@ -64,6 +64,20 @@ and the lease ledger, with a note saying so. It is a preview, not a check: the r
 still exits 1 on a conflict until you pass `--force`, so read the report before
 `gwi import --dry-run && gwi import` (a dry run fails only when the import itself does).
 
+gwi reads only `GWI_*` variables and never falls back to the `OMNI_DEV_*` names omni-dev used
+([ADR-0001](docs/adrs/adr-0001.md)). `gwi import` renames them inside `~/.omni-dev/settings.json`, but
+a variable exported from your shell profile or an MCP client's launcher config needs renaming by
+hand. If any is still set, every `gwi` command and `gwi-mcp` prints one line per variable on
+stderr naming the replacement, and never uses the old value. The Drive lease policy variables
+say outright that the policy is not in effect. Unset the variable, or set it empty for one run,
+to silence it.
+
+| Old name | Use instead |
+|---|---|
+| `OMNI_DEV_GMAIL_ACCOUNT`, `OMNI_DEV_DRIVE_ACCOUNT`, `OMNI_DEV_PROFILE` | `GWI_GMAIL_ACCOUNT`, `GWI_DRIVE_ACCOUNT`, `GWI_PROFILE` |
+| `OMNI_DEV_CONFIG_DIR`, `OMNI_DEV_LOG_FILE`, `OMNI_DEV_LOG_DISABLE` | `GWI_CONFIG_DIR`, `GWI_LOG_FILE`, `GWI_LOG_DISABLE` |
+| `OMNI_DEV_DRIVE_LEASE_EXPIRY_MINUTES`, `OMNI_DEV_DRIVE_LEASE_BACKUP_DIR`, `OMNI_DEV_DRIVE_LEASE_BIOMETRICS_ONLY`, `OMNI_DEV_DRIVE_LEASE_ALLOW_HEADLESS`, `OMNI_DEV_LEASE_LOCK_WAIT_SECS` | `GWI_DRIVE_LEASE_EXPIRY_MINUTES`, `GWI_DRIVE_LEASE_BACKUP_DIR`, `GWI_DRIVE_LEASE_BIOMETRICS_ONLY`, `GWI_DRIVE_LEASE_ALLOW_HEADLESS`, `GWI_LEASE_LOCK_WAIT_SECS` |
+
 A folder you synced with `omni-dev drive sync` needs nothing: `gwi drive sync` reads its
 `.omni-dev-sync.json` and continues in `.gwi-sync.json`, leaving the old file alone.
 
