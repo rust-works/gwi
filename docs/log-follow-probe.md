@@ -538,3 +538,108 @@ passed and recorded `completed_before_fixture_cleanup: true`: followers
 sixteen command groups. Raw evidence and `audit.json` are under
 `/private/tmp/gwi-294-watchdog`. This validates watchdog-enabled tooling with a
 known reader delay and does not add a historical-stall reproduction.
+
+## Library-suite and concurrent-build overlap (#300)
+
+[Issue #300](https://github.com/rust-works/gwi/issues/300) asked for the comparison
+#285 and #294 deferred: a focused follower captured live under full library-suite
+load and under library load plus a concurrent build. Run on 11 November 2026
+(Australia/Sydney), macOS 26.5.2 arm64, 18 logical CPUs, Python 3.15.0, Rust 1.99.0,
+revision `d27cfea8477e` with a clean tree (`git_status` empty in all three summaries).
+Bounds were fixed before starting and not tuned: six repetitions per feature per
+condition, `--capture-live` with the default two-second capture age and budget, 60
+seconds per focused run, 300 per load command, 1,500 per build, 5,400 total.
+
+```sh
+COMMON="--features both --repetitions 6 --capture-live --run-timeout 60 \
+  --workload-timeout 300 --build-timeout 1500 --max-seconds 5400"
+python3 scripts/log-follow-probe.py --output /private/tmp/gwi-300-baseline $COMMON
+python3 scripts/log-follow-probe.py --output /private/tmp/gwi-300-lib $COMMON \
+  --workload lib --concurrency 2 --lib-threads 4
+python3 scripts/log-follow-probe.py --output /private/tmp/gwi-300-lib-build $COMMON \
+  --workload lib --concurrency 2 --lib-threads 4 --build-slots 1 --build-jobs 4
+```
+
+Conditions: **baseline** adds no load; **lib** keeps two slots of the complete library
+test executable (four libtest threads each) running; **lib+build** adds one slot
+repeatedly recompiling this crate with `--jobs 4`. All three invocations exited zero:
+36 of 36 focused repetitions passed, each with its six phase events, and nothing was
+retried or replaced. Each summary's `overlap` record shows the loads live at the start
+and end of every repetition (2 library slots, plus 1 build slot in lib+build) and
+that they overlapped each focused run. Host load average (one-minute, from
+`os.getloadavg()`) before each repetition was 27-37 (baseline), 37-43 (lib) and
+57-94 (lib+build); other sessions' builds and test runs shared the host throughout.
+
+First-focused (run 1) and the slowest subsequent initial receive, in seconds, by
+condition, for the immediate-append scenario. In runs 2-6 every initial receive
+(both scenarios) was 0.008-0.029 seconds, and the slowest recovered append or warning
+was 0.792. Run 1's recovered append followed its delayed initial output, up to 6.970.
+
+| Condition | Features | Run 1 initial | Run 1 wall | Max initial, runs 2-6 |
+| --- | --- | --- | --- | --- |
+| baseline | default | 3.242 | 5.09 | 0.013 |
+| baseline | mcp | 2.919 | 4.74 | 0.013 |
+| lib | default | 6.718 | 8.61 | 0.025 |
+| lib | mcp | 4.667 | 6.75 | 0.029 |
+| lib+build | default | 6.300 | 8.14 | 0.014 |
+| lib+build | mcp | 3.974 | 5.83 | 0.014 |
+
+(The split-append scenario's initial receive was 0.008-0.023 in all 36 repetitions,
+including run 1: only the first follower spawn of each invocation was delayed.)
+
+### What the live captures show
+
+Each invocation's first focused run, in every condition and feature, had an initial
+receive older than two seconds, so the runner captured the live follower (process
+inspection, then `sample`); both captures passed and finished before fixture cleanup
+in all six cases. No other repetition was old enough to capture (`not-delayed-or-missed`).
+Every sample describes the correct `gwi` follower, a child of this harness:
+
+- **baseline:** the main thread was inside dyld startup (`dyld4::prepare`), with a
+  6 MB footprint.
+- **lib and lib+build:** the main thread was at `_dyld_start + 0`, the first
+  instruction of the process, with a 112 KB footprint, about two seconds after the
+  process's launch time. The process had made no progress into dyld.
+
+So the observed first-focused delay is before the follower's `main`, and under library
+load it is before dyld has run at all. The samples describe one interval each and
+cannot say why exec or dyld was slow (for example first execution of a newly built
+executable, security assessment or scheduling); the runner does not record whether
+a run is the executable's first execution, only invocation order. The delay occurred
+in the baseline too, and was longer under load, so load amplifies it without being
+required for it. Later repetitions started in tens of milliseconds, so it was not a
+steady-state cost.
+
+### What this does not establish
+
+- **The historical stall did not reproduce.** No receive approached the ten-second
+  deadline (longest 6.718 seconds), and no repetition failed. The historical failures
+  occurred with a long-running full-suite harness whose follower had presumably
+  executed `gwi` many times before; these delays occur at an invocation's first
+  focused run. The pre-main stage seen here is a candidate worth a startup milestone
+  if a failure recurs, not an attributed cause of the historical failures.
+- **The loads were partial.** Each feature's measurement window lasted 15-18 seconds.
+  The library slots had passed about 550 of 5,184 tests when stopped, and the build
+  slot was inside `Compiling gwi` after `cargo clean -p gwi` (removing 1.4-1.6 GiB).
+  Stopped loads are partial activity; no complete library-suite pass overlapped a
+  measurement, and a longer window (more repetitions) was not attempted.
+- **It is not the original execution order.** The focused test ran `--exact` after the
+  loads started, not partway through a library or full suite.
+- **Uncontrolled:** host idleness (the host was heavily loaded by other sessions),
+  CPU utilization beyond the load averages, filesystem and compiler caches, and
+  whether Spotlight, security scanning or other system services were active. Each
+  summary lists these under `uncontrolled`.
+- Windows and Linux were not run. No production behavior or deadline changed.
+
+Cleanup: after the last invocation an independent `ps -axo pid=,pgid=,stat=,args=`
+audit matched every recorded command PID as a process group and found no live member
+(22, 26 and 30 groups) and no process referencing the evidence directories; every
+command had a recorded return code. The 4 library and 2 build-slot commands were
+stopped by design; all metadata, build, listing, warm-build, focused and capture
+commands passed. Raw evidence stays local (4.4, 6.7 and 8.6 GiB, mostly Cargo
+targets) under `/private/tmp/gwi-300-baseline`, `-lib` and `-lib-build`.
+
+Next probe, only if a receive timeout recurs or the pre-main delay needs explaining:
+record whether each follower is its executable's first execution and add a
+spawn-to-`main` milestone to the fixture snapshot, which would separate exec/dyld
+delay from the reader and follow loop. Do not increase the receive deadline.
