@@ -1498,7 +1498,9 @@ Gmail signals quota exhaustion as **HTTP 403** with `reason:
 rateLimitExceeded` / `userRateLimitExceeded`, not HTTP 429 — the Gmail
 client's requests retry both `429` and this specific 403 shape through the
 shared retry driver (`retry_if`/`retry_429`, `src/utils/http.rs`), with the
-same `Retry-After`-then-exponential-backoff schedule; any other 403 (e.g.
+same `Retry-After`-then-exponential-backoff schedule (up to six retries, waiting
+2, 4, 8, 16, 30 and 30 seconds when no `Retry-After` is sent: 90 seconds, enough for
+a one-minute quota window to roll over); any other 403 (e.g.
 `insufficientPermissions`) is never retried. `gmail sync` additionally
 paces its own `messages.get` requests against the 100-units/second budget
 with a proactive token-bucket limiter, in addition to reactive

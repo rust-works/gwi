@@ -92,7 +92,17 @@ pub(crate) fn duration_from_secs(raw: Option<String>, default: Duration) -> Dura
 
 /// Maximum number of retries on a retryable response (attempts =
 /// `MAX_RETRIES` + 1).
-const MAX_RETRIES: u32 = 3;
+///
+/// With [`DEFAULT_RETRY_DELAY_SECS`] and [`MAX_BACKOFF_SECS`] the default
+/// schedule waits 2, 4, 8, 16, 30 and 30 seconds (90 s in all). That outlasts
+/// a one-minute quota window such as Gmail's "units per minute per user", so
+/// a request that hit the limit during a burst is retried after the window
+/// has rolled over instead of being given up on after a few seconds.
+const MAX_RETRIES: u32 = 6;
+
+/// Ceiling (seconds) on one exponential-backoff wait. Does not cap an explicit
+/// `Retry-After` / `X-RateLimit-Reset`, which is the server's own instruction.
+const MAX_BACKOFF_SECS: u64 = 30;
 
 /// Base (seconds) for exponential backoff when neither `Retry-After` nor
 /// `X-RateLimit-Reset` is present: `DEFAULT_RETRY_DELAY_SECS ^ (attempt + 1)`.
@@ -188,7 +198,8 @@ where
 /// equivalent) response.
 ///
 /// Consults, in order: `Retry-After`, then Datadog's `X-RateLimit-Reset`, then
-/// exponential backoff (`DEFAULT_RETRY_DELAY_SECS ^ (attempt + 1)`).
+/// exponential backoff (`DEFAULT_RETRY_DELAY_SECS ^ (attempt + 1)`, at most
+/// [`MAX_BACKOFF_SECS`]).
 async fn wait_for_retry(
     headers: &reqwest::header::HeaderMap,
     status: u16,
@@ -197,7 +208,7 @@ async fn wait_for_retry(
 ) {
     let delay = header_u64(headers, "Retry-After")
         .or_else(|| header_u64(headers, "X-RateLimit-Reset"))
-        .unwrap_or_else(|| DEFAULT_RETRY_DELAY_SECS.pow(attempt + 1));
+        .unwrap_or_else(|| backoff_secs(attempt));
     let attempt_number = attempt + 1;
 
     match notify {
@@ -209,6 +220,13 @@ async fn wait_for_retry(
         }
     }
     tokio::time::sleep(Duration::from_secs(delay)).await;
+}
+
+/// The exponential-backoff wait (seconds) before retry number `attempt + 1`.
+fn backoff_secs(attempt: u32) -> u64 {
+    DEFAULT_RETRY_DELAY_SECS
+        .saturating_pow(attempt.saturating_add(1))
+        .min(MAX_BACKOFF_SECS)
 }
 
 /// Parses a header value as a `u64`, if present and numeric.
@@ -262,6 +280,43 @@ mod tests {
         // values themselves that matter here, not the env-reading path.
         assert_eq!(DEFAULT_CONNECT_TIMEOUT, Duration::from_secs(10));
         assert_eq!(DEFAULT_READ_TIMEOUT, Duration::from_secs(120));
+    }
+
+    // ── backoff schedule ──────────────────────────────────────────────
+
+    #[test]
+    fn default_backoff_outlasts_a_one_minute_quota_window() {
+        let schedule: Vec<u64> = (0..MAX_RETRIES).map(backoff_secs).collect();
+        assert_eq!(schedule, [2, 4, 8, 16, 30, 30]);
+        assert!(schedule.iter().sum::<u64>() > 60);
+    }
+
+    #[test]
+    fn backoff_secs_never_exceeds_the_cap_or_overflows() {
+        assert_eq!(backoff_secs(u32::MAX), MAX_BACKOFF_SECS);
+    }
+
+    #[tokio::test]
+    async fn retry_if_stops_after_max_retries_when_the_response_never_recovers() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/x"))
+            .respond_with(ResponseTemplate::new(429).append_header("Retry-After", "0"))
+            .expect(u64::from(MAX_RETRIES) + 1)
+            .mount(&server)
+            .await;
+
+        let client = reqwest::Client::new();
+        let url = format!("{}/x", server.uri());
+        let resp = retry_if(
+            || client.get(&url),
+            |_s, _r| {},
+            |status, _body| status == 429,
+            None,
+        )
+        .await
+        .unwrap();
+        assert_eq!(resp.status().as_u16(), 429);
     }
 
     // ── retry_if: caller-supplied predicate (the Gmail 403 case) ──────
