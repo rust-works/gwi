@@ -47,9 +47,14 @@ JSON, so the build still happens before any load. `--build-slots S --build-jobs 
 independently maintains S slots, each repeatedly running `cargo clean -p gwi` and
 `cargo build --jobs J` in its own target directory under `<output>/overlap-build/`.
 Those directories are warmed (dependencies compiled) before any measurement, so a
-pass recompiles only this crate, never touches the measured executables, and never
-shares a Cargo lock with them. Both are ordinary owned commands with the same
-cleanup, timeouts and completed-exit checks as the other loads; a completed build
+pass recompiles only this crate and never touches the measured executables or
+their build-directory lock. Builds use `--locked`, so `Cargo.lock` cannot change
+during a run; they still share Cargo's package-cache lock and the host with every
+other Cargo process. A build-load pass is bounded by `--build-timeout`, not the
+shorter `--workload-timeout`. Both are ordinary owned commands with the same
+cleanup, timeouts and completed-exit checks as the other loads. Exits are observed by
+the supervisor's roughly 50 ms polls, and loads are reaped and restarted just before
+each focused run, so `overlap` times carry that resolution; a completed build
 slot must exit zero, a completed library run must report a nonempty passing summary.
 
 The focused test still runs `--exact` after the loads start. That is **not** the
@@ -612,8 +617,9 @@ steady-state cost.
 
 ### What this does not establish
 
-- **The historical stall did not reproduce.** No receive approached the ten-second
-  deadline (longest 6.718 seconds), and no repetition failed. The historical failures
+- **The historical stall did not reproduce.** No phase approached the ten-second
+  deadline (longest initial receive 6.718 seconds; longest recovered append or warning
+  6.970, relative to follower spawn), and no repetition failed. The historical failures
   occurred with a long-running full-suite harness whose follower had presumably
   executed `gwi` many times before; these delays occur at an invocation's first
   focused run. The pre-main stage seen here is a candidate worth a startup milestone
@@ -623,6 +629,13 @@ steady-state cost.
   slot was inside `Compiling gwi` after `cargo clean -p gwi` (removing 1.4-1.6 GiB).
   Stopped loads are partial activity; no complete library-suite pass overlapped a
   measurement, and a longer window (more repetitions) was not attempted.
+- **The library executable is run directly, as the harness load is.** Run alone the
+  same way (`--test-threads 4`, `INSTA_WORKSPACE_ROOT` set, from the repository
+  root) on this revision's default build it passed all 5,184 tests in 87.8 seconds;
+  no probe-managed pass completed, because of the window above.
+- **The measured runs predate `--locked`.** The warm and build-load commands recorded
+  in the three summaries omit it, and `Cargo.lock` was unchanged (clean tree
+  afterwards). The runner now passes it; load shape is otherwise identical.
 - **It is not the original execution order.** The focused test ran `--exact` after the
   loads started, not partway through a library or full suite.
 - **Uncontrolled:** host idleness (the host was heavily loaded by other sessions),

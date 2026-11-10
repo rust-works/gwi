@@ -175,6 +175,32 @@ else:
         self.assertEqual(set(plain), {'cli_test', 'gwi'})
         self.assertNotIn('--lib', self.probe.runs[-2].record['command'])
 
+    def test_ambiguous_library_executables_fail(self):
+        test = self.fake_test('build/default/cli_test')
+        cli = self.binary('build/default/gwi', 'pass\n')
+        first = self.binary('build/default/lib_a', 'pass\n')
+        second = self.binary('build/default/lib_b', 'pass\n')
+        self.artifacts('default', [('cli_test', 'test', True, test), ('gwi', 'bin', False, cli),
+                                   ('gwi', 'lib', True, first), ('gwi', 'lib', True, second)])
+        with patch.dict(os.environ, {'PATH': str(self.root) + os.pathsep + os.environ['PATH']}):
+            with self.assertRaisesRegex(RuntimeError, 'Ambiguous default library test'):
+                runner.build(self.probe, 'default', 10, lib=True)
+
+    def test_build_load_uses_the_build_timeout_not_the_workload_timeout(self):
+        self.binary('cargo', 'import time\ntime.sleep(60)\n')
+        test = self.fake_test()
+        content = test.read_text().replace("else:\n", "else:\n    import time; time.sleep(0.5)\n")
+        test.write_text(content)
+        args = runner.arguments(['--output', str(self.root), '--repetitions', '1', '--build-slots', '1',
+                                 '--workload-timeout', '0.05', '--build-timeout', '60'])
+        with patch.dict(os.environ, {'PATH': str(self.root) + os.pathsep + os.environ['PATH']}):
+            with contextlib.redirect_stdout(io.StringIO()):
+                self.assertTrue(runner.measure(self.probe, 'default', {'cli_test': test}, args,
+                                               {'repetitions': []}))
+        slot = [r for r in self.probe.runs if r.record['role'] == 'build-load']
+        self.assertEqual(len(slot), 1)
+        self.assertEqual(slot[0].record['timeout_seconds'], 60)
+
     def test_lib_build_without_library_executable_fails(self):
         test = self.fake_test('build/default/cli_test')
         cli = self.binary('build/default/gwi', 'pass\n')
@@ -239,7 +265,7 @@ else:
             self.assertEqual([r.record['outcome'] for r in warm], ['passed', 'passed'])
             commands = [r.record['command'] for r in warm]
             self.assertEqual(len({c[c.index('--target-dir') + 1] for c in commands}), 2)
-            self.assertTrue(all(c[:4] == ['cargo', 'build', '--jobs', '3'] for c in commands))
+            self.assertTrue(all(c[:5] == ['cargo', 'build', '--locked', '--jobs', '3'] for c in commands))
             self.assertEqual(all('--features' in c for c in commands), feature == 'mcp')
         # A TERM-ignoring cargo descendant must die with its slot's session.
         pidfile = self.root / 'build-load.pid'

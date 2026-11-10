@@ -27,7 +27,7 @@ BUILD_LOAD = (
     "manifest, target, jobs, *features = sys.argv[1:]\n"
     "common = ['--manifest-path', manifest, '--target-dir', target]\n"
     "subprocess.run(['cargo', 'clean', '-p', 'gwi'] + common, check=True)\n"
-    "subprocess.run(['cargo', 'build', '--jobs', jobs] + common\n"
+    "subprocess.run(['cargo', 'build', '--locked', '--jobs', jobs] + common\n"
     "               + (['--features', features[0]] if features else []), check=True)\n"
 )
 SUMMARY_WORKLOADS = ("harness", "lib")
@@ -264,6 +264,8 @@ def build(probe, feature, timeout, lib=False):
             binary = Path(artifact["executable"]).resolve()
             if not binary.is_relative_to(target.resolve()) or not binary.is_file():
                 raise RuntimeError(f"Invalid {feature} artifact: {binary}")
+            if "lib_test" in binaries and binaries["lib_test"] != binary:
+                raise RuntimeError(f"Ambiguous {feature} library test executables")
             binaries["lib_test"] = binary
     if set(binaries) != {"gwi", "cli_test", *(["lib_test"] if lib else [])}:
         raise RuntimeError(f"Missing {feature} Cargo executables: {binaries}")
@@ -306,7 +308,8 @@ def build_load_target(output, feature, index):
 def warm_build_load(probe, feature, args):
     """Compile dependencies before any workload so a load pass recompiles only this crate."""
     for index in range(args.build_slots):
-        command = ["cargo", "build", "--jobs", str(args.build_jobs), "--manifest-path", str(ROOT / "Cargo.toml"),
+        command = ["cargo", "build", "--locked", "--jobs", str(args.build_jobs),
+                   "--manifest-path", str(ROOT / "Cargo.toml"),
                    "--target-dir", str(build_load_target(args.output.resolve(), feature, index))]
         if feature == "mcp":
             command += ["--features", "mcp"]
@@ -341,7 +344,6 @@ def measure(probe, feature, binaries, args, summary):
     for name in ("GWI_FOLLOW_PROBE_DIR", "GWI_FOLLOW_PROBE_DELAY"):
         env.pop(name, None)
     workers = []
-    serial = 0
     loads = []
     for index in range(args.cpu_workers):
         workers.append(probe.start(f"{feature}-cpu-{index}", [sys.executable, "-c", BURNER],
@@ -352,23 +354,31 @@ def measure(probe, feature, binaries, args, summary):
     build_slots = [None] * args.build_slots
     success = True
     capture = None
+    serial = 0
+
+    def service_loads():
+        """Record every load exit, including failures, and replenish the slots."""
+        nonlocal success, serial
+        for slots_, role, timeout, name in ((slots, args.workload, args.workload_timeout, "workload"),
+                                            (build_slots, "build-load", args.build_timeout, "build")):
+            for index, worker in enumerate(slots_):
+                if worker is not None:
+                    result = worker.poll()
+                    if result is None:
+                        continue
+                    if load_failed(role, result, worker):
+                        success = False
+                serial += 1
+                command = (worker.record["command"] if worker is not None
+                           else load_command(role, binaries, args, feature, index))
+                slots_[index] = probe.start(f"{feature}-{name}-{serial}", command, role, timeout, env)
+                loads.append(slots_[index])
+
     try:
         for repetition in range(1, args.repetitions + 1):
-            # Launch workload slots before the first focused invocation.
-            for index in range(len(slots)):
-                if slots[index] is None:
-                    serial += 1
-                    slots[index] = probe.start(f"{feature}-workload-{serial}",
-                                              load_command(args.workload, binaries, args, feature, index),
-                                              args.workload, args.workload_timeout, env)
-                    loads.append(slots[index])
-            for index in range(len(build_slots)):
-                if build_slots[index] is None:
-                    serial += 1
-                    build_slots[index] = probe.start(f"{feature}-build-{serial}",
-                                                    load_command("build-load", binaries, args, feature, index),
-                                                    "build-load", args.workload_timeout, env)
-                    loads.append(build_slots[index])
+            # Reap exits and (re)launch every load slot before the focused invocation, so a
+            # load that exited between repetitions is not reported as live at its start.
+            service_loads()
             name = f"{feature}-run-{repetition}"
             focused_env = env.copy()
             if args.capture_live:
@@ -381,28 +391,7 @@ def measure(probe, feature, binaries, args, summary):
             capture = LiveCapture(probe, run, args)
             while True:
                 probe.check_deadline()
-                # Record all workload exits, including failures; replenish live slots.
-                for index, worker in enumerate(slots):
-                    result = worker.poll()
-                    if result is not None:
-                        if load_failed(args.workload, result, worker):
-                            success = False
-                        serial += 1
-                        slots[index] = probe.start(f"{feature}-workload-{serial}", worker.record["command"],
-                                                  args.workload, args.workload_timeout, env)
-                        loads.append(slots[index])
-                for index, worker in enumerate(build_slots):
-                    result = worker.poll()
-                    if result is not None:
-                        if load_failed("build-load", result, worker):
-                            success = False
-                        serial += 1
-                        build_slots[index] = probe.start(f"{feature}-build-{serial}", worker.record["command"],
-                                                        "build-load", args.workload_timeout, env)
-                        loads.append(build_slots[index])
-                for worker in workers:
-                    if worker.poll() is not None:
-                        success = False
+                service_loads()
                 capture.tick()
                 result = run.poll()
                 if result is not None:
