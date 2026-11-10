@@ -14,6 +14,8 @@ use rmcp::transport::stdio;
 async fn main() {
     // MCP defaults from `settings.json`: the log level seeds the tracing filter's
     // fallback, but `RUST_LOG` still wins when set.
+    // `OMNI_DEV_*` names set in the MCP client's launcher config are ignored; say so.
+    gwi::utils::legacy_env::warn_legacy_env();
     let mcp_settings = Settings::load_mcp();
     let _ = mcp::try_init_tracing(mcp_settings.log_level.as_deref());
     mcp::log_startup_event();

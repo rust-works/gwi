@@ -409,6 +409,58 @@ fn binary_rejects_an_unknown_profile_before_dispatch() {
     );
 }
 
+/// A legacy `OMNI_DEV_*` export is reported once on stderr, never on stdout, and never used.
+#[test]
+fn binary_warns_once_on_stderr_about_a_legacy_omni_dev_variable() {
+    let home = tempfile::tempdir().unwrap();
+    let run = |args: &[&str]| {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_gwi"));
+        common::isolate(&mut command, home.path())
+            .env("OMNI_DEV_DRIVE_LEASE_BIOMETRICS_ONLY", "SENTINEL-legacy")
+            .args(args)
+            .output()
+            .unwrap()
+    };
+
+    // `--version` succeeds without credentials, so stdout is a clean channel to check.
+    let output = run(&["--version"]);
+    assert!(output.status.success(), "{output:?}");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(!stdout.contains("OMNI_DEV"), "{stdout}");
+
+    for args in [
+        &["gmail", "auth", "status"][..],
+        &["drive", "lease", "prune"],
+        &["import", "--dry-run"],
+        &["log", "-o", "json"],
+    ] {
+        let output = run(args);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert_eq!(
+            stderr
+                .matches("OMNI_DEV_DRIVE_LEASE_BIOMETRICS_ONLY")
+                .count(),
+            1,
+            "{args:?}: {stderr}"
+        );
+        assert!(
+            stderr.contains("GWI_DRIVE_LEASE_BIOMETRICS_ONLY") && stderr.contains("NOT in effect"),
+            "{args:?}: {stderr}"
+        );
+        assert!(!stderr.contains("SENTINEL"), "{args:?}: {stderr}");
+        assert!(!stdout.contains("OMNI_DEV"), "{args:?}: {stdout}");
+    }
+}
+
+#[test]
+fn binary_does_not_warn_without_a_legacy_omni_dev_variable() {
+    let home = tempfile::tempdir().unwrap();
+    let output = gwi(home.path(), &["gmail", "auth", "status"]);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(!stderr.contains("OMNI_DEV"), "{stderr}");
+}
+
 /// A fixture settings file shaped like omni-dev's, holding one Gmail account.
 fn write_omni_dev_settings(home: &Path) {
     let dir = home.join(".omni-dev");
