@@ -391,6 +391,31 @@ probe uses repository isolation as its safeguard. A future production probe
 must still meet these prerequisites; the copied-configuration result does
 not authorize a production queue operation.
 
+### Issue #179 acceptance reconciliation
+
+[Issue #179](https://github.com/rust-works/gwi/issues/179) lists four acceptance
+criteria; the second (failing or missing check) is split into two rows. Each is
+covered by evidence recorded above:
+
+| Criterion                                                             | Evidence                                                                                                                                                                               |
+| --------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Required for pull requests targeting main and for merge-queue entries | Ruleset `24584603` readback and effective rules for `main` (see [Empty HOME required context](#empty-home-required-context)).                                                          |
+| A failing check prevents merging, without merging a broken change     | Production probe [PR #289](https://github.com/rust-works/gwi/pull/289): removed from the queue with `failed_checks` ([Failed-result queue rejection](#failed-result-queue-rejection)). |
+| A missing check prevents merging, without merging a broken change     | Scratch probe: removed with `checks_timed_out` after 63 minutes 26 seconds ([Missing-context scratch queue rejection](#missing-context-scratch-queue-rejection)).                      |
+| A passing merge-group run satisfies the exact configured context      | Run `38039189775` and [PR #211](https://github.com/rust-works/gwi/pull/211) ([Post-update healthy queue evidence](#post-update-healthy-queue-evidence-1)).                             |
+| Existing required checks and queue settings are preserved             | Full ruleset and classic-protection readbacks matched their pre-probe snapshots after the update and after each probe.                                                                 |
+
+The missing-context case ran on a disposable repository with a copy of the
+production queue parameters and required contexts, not on production ruleset
+`24584603`; production's own missing-context behavior was not exercised, because
+no independent safeguard can coexist with unchanged protection and still
+attribute a timeout to a single missing context. Production is covered by the
+configuration readback (the exact context and app `15368` are required) and by
+the failed-result probe, which shows the same ruleset rejecting a queue entry on
+that context. Treat the criteria as met on that basis. Direct production
+missing-context evidence would need a naturally occurring exact-head record or an
+explicit rule refusal naming the context, and a new issue.
+
 ## Hostile environment required context
 
 [Issue #225](https://github.com/rust-works/gwi/issues/225) added
