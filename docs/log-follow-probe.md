@@ -39,6 +39,24 @@ focused invocation and stop after the last repetition of each feature configurat
 Ongoing harnesses are deliberately stopped; their partial activity is not a passing
 full-suite verification. Completed harnesses must have a nonempty passing summary.
 
+[Issue #300](https://github.com/rust-works/gwi/issues/300) adds two further loads.
+`--workload lib --concurrency N` maintains N slots of the complete `gwi` library test
+executable (`--lib-threads` libtest threads each, default four). The runner adds
+`--lib` to its single Cargo `--no-run` build and selects that executable from Cargo
+JSON, so the build still happens before any load. `--build-slots S --build-jobs J`
+independently maintains S slots, each repeatedly running `cargo clean -p gwi` and
+`cargo build --jobs J` in its own target directory under `<output>/overlap-build/`.
+Those directories are warmed (dependencies compiled) before any measurement, so a
+pass recompiles only this crate, never touches the measured executables, and never
+shares a Cargo lock with them. Both are ordinary owned commands with the same
+cleanup, timeouts and completed-exit checks as the other loads; a completed build
+slot must exit zero, a completed library run must report a nonempty passing summary.
+
+The focused test still runs `--exact` after the loads start. That is **not** the
+original execution order of a full suite, in which this test starts partway through a
+running libtest process; a focused follower under library and build load is a
+different, controlled approximation.
+
 ## Bounds and cleanup
 
 The default total deadline is 2,400 seconds, including builds, with 900 seconds per

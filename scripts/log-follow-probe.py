@@ -19,6 +19,18 @@ ROOT = Path(__file__).resolve().parents[1]
 TEST = "log_follow_recovers_appended_records_and_warns_on_stderr"
 PHASES = ("initial backlog stdout", "recovered appended stdout", "malformed-line stderr")
 BURNER = "while True:\n    sum(i * i for i in range(10000))\n"
+# A concurrent build: recompile this crate (not its dependencies) in a separate,
+# pre-warmed target directory, so each pass is a real rustc run that cannot touch
+# the measured executables. Arguments: manifest, target directory, jobs[, features].
+BUILD_LOAD = (
+    "import subprocess, sys\n"
+    "manifest, target, jobs, *features = sys.argv[1:]\n"
+    "common = ['--manifest-path', manifest, '--target-dir', target]\n"
+    "subprocess.run(['cargo', 'clean', '-p', 'gwi'] + common, check=True)\n"
+    "subprocess.run(['cargo', 'build', '--jobs', jobs] + common\n"
+    "               + (['--features', features[0]] if features else []), check=True)\n"
+)
+SUMMARY_WORKLOADS = ("harness", "lib")
 GRACE = 0.3
 EXIT_GRACE = 2
 INTERRUPTED = None
@@ -41,6 +53,7 @@ class CommandRun:
                        "started_utc": datetime.now(timezone.utc).isoformat(), "timeout_seconds": timeout,
                        "cwd": str(ROOT)}
         self.done = False
+        self.ended = None
         self.capture_lock = threading.Lock()
         self.capture_timer = None
         self.capture_expired = False
@@ -144,8 +157,9 @@ class CommandRun:
         self.wait_for_group_exit()
         for stream in self.files:
             stream.close()
-        self.record.update(outcome=outcome, returncode=status,
-                           elapsed_seconds=time.monotonic() - self.started)
+        self.ended = time.monotonic()
+        self.record.update(outcome=outcome, returncode=status, ended_utc=datetime.now(timezone.utc).isoformat(),
+                           elapsed_seconds=self.ended - self.started)
         self.done = True
         write_json(self.directory / "command.json", self.record)
         return self.record
@@ -221,10 +235,12 @@ def require_pass(run, result):
         raise RuntimeError(f"{run.directory.name}: {result['outcome']}; see {run.directory}")
 
 
-def build(probe, feature, timeout):
+def build(probe, feature, timeout, lib=False):
     target = probe.output / "build" / feature
     command = ["cargo", "test", "--manifest-path", str(ROOT / "Cargo.toml"),
                "--target-dir", str(target), "--test", "cli_test", "--no-run", "--message-format=json"]
+    if lib:
+        command.append("--lib")
     if feature == "mcp":
         command += ["--features", "mcp"]
     run = probe.start(f"build-{feature}", command, "build", timeout)
@@ -244,7 +260,12 @@ def build(probe, feature, timeout):
             if not binary.is_relative_to(target.resolve()) or not binary.is_file():
                 raise RuntimeError(f"Invalid {feature} artifact: {binary}")
             binaries[name] = binary
-    if set(binaries) != {"gwi", "cli_test"}:
+        elif name == "gwi" and "lib" in kind and artifact["profile"]["test"] and lib:
+            binary = Path(artifact["executable"]).resolve()
+            if not binary.is_relative_to(target.resolve()) or not binary.is_file():
+                raise RuntimeError(f"Invalid {feature} artifact: {binary}")
+            binaries["lib_test"] = binary
+    if set(binaries) != {"gwi", "cli_test", *(["lib_test"] if lib else [])}:
         raise RuntimeError(f"Missing {feature} Cargo executables: {binaries}")
     listed = probe.start(f"list-{feature}", [str(binaries["cli_test"]), TEST, "--exact", "--list"],
                          "listing", 30)
@@ -265,6 +286,55 @@ def test_passed(output, expected=None):
                 and (expected is None or int(summaries[-1]) == expected))
 
 
+def load_command(role, binaries, args, feature, index):
+    if role == "startup":
+        return [str(binaries["gwi"]), "--help"]
+    if role == "harness":
+        return [str(binaries["cli_test"]), "--skip", TEST, "--nocapture",
+                "--test-threads", str(args.harness_threads), "--color", "never"]
+    if role == "lib":
+        return [str(binaries["lib_test"]), "--test-threads", str(args.lib_threads), "--color", "never"]
+    command = [sys.executable, "-c", BUILD_LOAD, str(ROOT / "Cargo.toml"),
+               str(build_load_target(args.output.resolve(), feature, index)), str(args.build_jobs)]
+    return command + (["mcp"] if feature == "mcp" else [])
+
+
+def build_load_target(output, feature, index):
+    return output / "overlap-build" / f"{feature}-{index}"
+
+
+def warm_build_load(probe, feature, args):
+    """Compile dependencies before any workload so a load pass recompiles only this crate."""
+    for index in range(args.build_slots):
+        command = ["cargo", "build", "--jobs", str(args.build_jobs), "--manifest-path", str(ROOT / "Cargo.toml"),
+                   "--target-dir", str(build_load_target(args.output.resolve(), feature, index))]
+        if feature == "mcp":
+            command += ["--features", "mcp"]
+        run = probe.start(f"warm-{feature}-{index}", command, "build-warm", args.build_timeout)
+        require_pass(run, probe.wait(run))
+
+
+def load_failed(role, result, run):
+    """A completed load must pass; test-binary loads must also report a nonempty pass."""
+    return result["outcome"] != "passed" or (role in SUMMARY_WORKLOADS and not test_passed(run.output()))
+
+
+def overlap_record(loads, focused, load_start, load_end):
+    """Which loads were live around one focused repetition, from supervisor-observed times."""
+    begin, finish = focused.started, focused.ended
+    commands = []
+    for load in loads:
+        if load.started < finish and (load.ended is None or load.ended > begin):
+            commands.append({"directory": load.directory.name, "role": load.record["role"],
+                             "started_utc": load.record["started_utc"],
+                             "ended_utc": load.record.get("ended_utc"),
+                             "overlap_seconds": min(finish, load.ended or finish) - max(begin, load.started)})
+    live = lambda moment: [load.directory.name for load in loads
+                           if load.started <= moment and (load.ended is None or load.ended > moment)]
+    return {"live_at_start": live(begin), "live_at_end": live(finish), "commands": commands,
+            "loadavg_start": load_start, "loadavg_end": load_end}
+
+
 def measure(probe, feature, binaries, args, summary):
     env = os.environ.copy()
     env["INSTA_WORKSPACE_ROOT"] = str(ROOT)
@@ -272,10 +342,14 @@ def measure(probe, feature, binaries, args, summary):
         env.pop(name, None)
     workers = []
     serial = 0
+    loads = []
     for index in range(args.cpu_workers):
         workers.append(probe.start(f"{feature}-cpu-{index}", [sys.executable, "-c", BURNER],
                                    "cpu", args.max_seconds))
+        loads.append(workers[-1])
     slots = [None] * args.concurrency
+    # Independent build load: one owned wrapper per slot, each with its own target directory.
+    build_slots = [None] * args.build_slots
     success = True
     capture = None
     try:
@@ -284,16 +358,23 @@ def measure(probe, feature, binaries, args, summary):
             for index in range(len(slots)):
                 if slots[index] is None:
                     serial += 1
-                    command = ([str(binaries["gwi"]), "--help"] if args.workload == "startup" else
-                               [str(binaries["cli_test"]), "--skip", TEST, "--nocapture",
-                                "--test-threads", str(args.harness_threads), "--color", "never"])
-                    slots[index] = probe.start(f"{feature}-workload-{serial}", command,
+                    slots[index] = probe.start(f"{feature}-workload-{serial}",
+                                              load_command(args.workload, binaries, args, feature, index),
                                               args.workload, args.workload_timeout, env)
+                    loads.append(slots[index])
+            for index in range(len(build_slots)):
+                if build_slots[index] is None:
+                    serial += 1
+                    build_slots[index] = probe.start(f"{feature}-build-{serial}",
+                                                    load_command("build-load", binaries, args, feature, index),
+                                                    "build-load", args.workload_timeout, env)
+                    loads.append(build_slots[index])
             name = f"{feature}-run-{repetition}"
             focused_env = env.copy()
             if args.capture_live:
                 focused_env["GWI_FOLLOW_PROBE_DIR"] = str(probe.output / name)
                 focused_env["GWI_FOLLOW_PROBE_DELAY"] = str(args.synthetic_delay)
+            load_start = list(os.getloadavg())
             run = probe.start(name,
                               [str(binaries["cli_test"]), TEST, "--exact", "--nocapture", "--color", "never"],
                               "focused", args.run_timeout, focused_env)
@@ -304,11 +385,21 @@ def measure(probe, feature, binaries, args, summary):
                 for index, worker in enumerate(slots):
                     result = worker.poll()
                     if result is not None:
-                        if result["outcome"] != "passed" or (args.workload == "harness" and not test_passed(worker.output())):
+                        if load_failed(args.workload, result, worker):
                             success = False
                         serial += 1
                         slots[index] = probe.start(f"{feature}-workload-{serial}", worker.record["command"],
                                                   args.workload, args.workload_timeout, env)
+                        loads.append(slots[index])
+                for index, worker in enumerate(build_slots):
+                    result = worker.poll()
+                    if result is not None:
+                        if load_failed("build-load", result, worker):
+                            success = False
+                        serial += 1
+                        build_slots[index] = probe.start(f"{feature}-build-{serial}", worker.record["command"],
+                                                        "build-load", args.workload_timeout, env)
+                        loads.append(build_slots[index])
                 for worker in workers:
                     if worker.poll() is not None:
                         success = False
@@ -321,7 +412,8 @@ def measure(probe, feature, binaries, args, summary):
             output = run.output()
             entry = {"feature": feature, "repetition": repetition,
                      "invocation": "first-focused" if repetition == 1 else "subsequent-focused",
-                     "directory": run.directory.name, **result, "phases": phases(output)}
+                     "directory": run.directory.name, **result, "phases": phases(output),
+                     "overlap": overlap_record(loads, run, load_start, list(os.getloadavg()))}
             entry["valid_selection"] = test_passed(output, expected=1) and len(entry["phases"]) == 6
             if result["outcome"] == "passed" and not entry["valid_selection"]:
                 entry["outcome"] = "invalid-output"
@@ -333,12 +425,13 @@ def measure(probe, feature, binaries, args, summary):
         if capture is not None:
             capture.finish()
         # Capture completed failures before intentionally stopping ongoing activity.
-        for worker in workers + [slot for slot in slots if slot is not None]:
+        for worker in workers + [slot for slot in slots + build_slots if slot is not None]:
             if not worker.done:
                 result = worker.poll()
                 if result is not None and result["outcome"] != "passed":
                     success = False
-                elif result is not None and args.workload == "harness" and worker in slots and not test_passed(worker.output()):
+                elif (result is not None and worker in slots and args.workload in SUMMARY_WORKLOADS
+                      and not test_passed(worker.output())):
                     success = False
                 worker.finish("stopped")
     return success
@@ -480,14 +573,17 @@ def arguments(argv):
     parser.add_argument("--capture-timeout", type=positive, default=2, help="shared process/sample budget")
     parser.add_argument("--synthetic-delay", type=float, default=0, help="opt-in stdout reader delay, at most 8s")
     parser.add_argument("--cpu-workers", type=count, default=0)
-    parser.add_argument("--workload", choices=("none", "startup", "harness"), default="none")
+    parser.add_argument("--workload", choices=("none", "startup", "harness", "lib"), default="none")
     parser.add_argument("--concurrency", type=count, default=0)
     parser.add_argument("--harness-threads", type=int, default=4)
+    parser.add_argument("--lib-threads", type=int, default=4, help="libtest threads per library-suite slot")
+    parser.add_argument("--build-slots", type=count, default=0, help="concurrent crate-recompile loads")
+    parser.add_argument("--build-jobs", type=int, default=4, help="cargo --jobs per build-load slot")
     for name, default in (("run-timeout", 60), ("workload-timeout", 300), ("build-timeout", 900), ("max-seconds", 2400)):
         parser.add_argument("--" + name, type=positive, default=default)
     args = parser.parse_args(argv)
-    if args.repetitions < 1 or args.harness_threads < 1:
-        parser.error("repetitions and harness-threads must be positive")
+    if min(args.repetitions, args.harness_threads, args.lib_threads, args.build_jobs) < 1:
+        parser.error("repetitions, harness-threads, lib-threads and build-jobs must be positive")
     if (args.workload == "none") != (args.concurrency == 0):
         parser.error("workload and positive concurrency must be specified together")
     if args.capture_after + args.capture_timeout > 8:
@@ -518,7 +614,11 @@ def main(argv=None):
     probe = Probe(output, args.max_seconds)
     summary = {"started_utc": datetime.now(timezone.utc).isoformat(), "platform": platform.platform(),
                "cpu_count": os.cpu_count(), "configuration": {**vars(args), "output": str(output)},
-               "repetitions": [], "cache_control": "none; first-focused is invocation order only"}
+               "repetitions": [], "cache_control": "none; first-focused is invocation order only",
+               "uncontrolled": ["host idleness and other processes", "CPU utilization beyond loadavg at "
+                                "focused start/end", "filesystem and compiler caches",
+                                "execution order of the original full suite (focused test is run --exact "
+                                "after loads start)"]}
     previous = {sig: signal.signal(sig, interrupted) for sig in (signal.SIGINT, signal.SIGTERM)}
     status = 1
     try:
@@ -531,7 +631,11 @@ def main(argv=None):
         write_json(output / "summary.json", summary)
         features = ("default", "mcp") if args.features == "both" else (args.features,)
         # Finish both isolated builds before any workload begins.
-        binaries = {feature: build(probe, feature, args.build_timeout) for feature in features}
+        binaries = {feature: build(probe, feature, args.build_timeout, lib=args.workload == "lib")
+                    for feature in features}
+        # Warm build-load targets too, so no compile of dependencies overlaps a measurement.
+        for feature in features:
+            warm_build_load(probe, feature, args)
         summary["binaries"] = {f: {k: str(v) for k, v in b.items()} for f, b in binaries.items()}
         success = True
         for feature in features:
