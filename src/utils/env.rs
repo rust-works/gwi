@@ -208,6 +208,33 @@ mod tests {
     }
 
     #[test]
+    fn reference_forwards_has_value_to_inner_source() {
+        /// Like `SystemEnv` for a value that is not valid Unicode: `var` cannot
+        /// read it, but the variable is set.
+        struct NonUnicode;
+        impl EnvSource for NonUnicode {
+            fn var(&self, _key: &str) -> Option<String> {
+                None
+            }
+            fn has_value(&self, _key: &str) -> bool {
+                true
+            }
+        }
+        fn read(src: &impl EnvSource, key: &str) -> bool {
+            src.has_value(key)
+        }
+        // `var` cannot read it, so the default, which goes through `var`, would
+        // answer false; &T must forward has_value to T's own override instead.
+        assert_eq!(NonUnicode.var("K"), None);
+        assert!(read(&&NonUnicode, "K"));
+        // And through a source with no override, the default's three cases.
+        let env = MapEnv::new().with("SET", "v").with("EMPTY", "");
+        assert!(read(&&env, "SET"));
+        assert!(!read(&&env, "EMPTY"), "an empty value is not a value");
+        assert!(!read(&&env, "MISSING"));
+    }
+
+    #[test]
     fn truthy_var_parses_truthy_and_falsy_values_case_insensitively() {
         for v in ["1", "true", "TRUE", "yes", "YES"] {
             assert!(truthy_var(&MapEnv::new().with("FLAG", v), "FLAG"), "{v:?}");
