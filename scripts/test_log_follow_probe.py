@@ -147,6 +147,161 @@ else:
             self.assertTrue(run.done)
             self.assertIsNotNone(run.child.returncode)
 
+    def artifacts(self, feature, entries):
+        lines = [json.dumps({'reason': 'compiler-artifact', 'target': {'name': name, 'kind': [kind]},
+                             'profile': {'test': is_test}, 'executable': str(binary)})
+                 for name, kind, is_test, binary in entries]
+        self.binary('cargo', f"print({chr(10).join(lines)!r})\n")
+
+    def test_lib_build_selects_library_test_executable_only_when_requested(self):
+        test = self.fake_test('build/default/cli_test')
+        cli = self.binary('build/default/gwi', 'pass\n')
+        lib = self.binary('build/default/lib_test', 'pass\n')
+        self.artifacts('default', [('cli_test', 'test', True, test), ('gwi', 'bin', False, cli),
+                                   ('gwi', 'lib', True, lib)])
+        with patch.dict(os.environ, {'PATH': str(self.root) + os.pathsep + os.environ['PATH']}):
+            binaries = runner.build(self.probe, 'default', 10, lib=True)
+            self.assertEqual(binaries, {'cli_test': test, 'gwi': cli, 'lib_test': lib})
+            self.assertIn('--lib', self.probe.runs[-2].record['command'])
+
+    def test_build_without_lib_request_omits_library_target(self):
+        test = self.fake_test('build/default/cli_test')
+        cli = self.binary('build/default/gwi', 'pass\n')
+        lib = self.binary('build/default/lib_test', 'pass\n')
+        self.artifacts('default', [('cli_test', 'test', True, test), ('gwi', 'bin', False, cli),
+                                   ('gwi', 'lib', True, lib)])
+        with patch.dict(os.environ, {'PATH': str(self.root) + os.pathsep + os.environ['PATH']}):
+            plain = runner.build(self.probe, 'default', 10)
+        self.assertEqual(set(plain), {'cli_test', 'gwi'})
+        self.assertNotIn('--lib', self.probe.runs[-2].record['command'])
+
+    def test_ambiguous_library_executables_fail(self):
+        test = self.fake_test('build/default/cli_test')
+        cli = self.binary('build/default/gwi', 'pass\n')
+        first = self.binary('build/default/lib_a', 'pass\n')
+        second = self.binary('build/default/lib_b', 'pass\n')
+        self.artifacts('default', [('cli_test', 'test', True, test), ('gwi', 'bin', False, cli),
+                                   ('gwi', 'lib', True, first), ('gwi', 'lib', True, second)])
+        with patch.dict(os.environ, {'PATH': str(self.root) + os.pathsep + os.environ['PATH']}):
+            with self.assertRaisesRegex(RuntimeError, 'Ambiguous default library test'):
+                runner.build(self.probe, 'default', 10, lib=True)
+
+    def test_build_load_uses_the_build_timeout_not_the_workload_timeout(self):
+        self.binary('cargo', 'import time\ntime.sleep(60)\n')
+        test = self.fake_test()
+        content = test.read_text().replace("else:\n", "else:\n    import time; time.sleep(0.5)\n")
+        test.write_text(content)
+        args = runner.arguments(['--output', str(self.root), '--repetitions', '1', '--build-slots', '1',
+                                 '--workload-timeout', '0.05', '--build-timeout', '60'])
+        with patch.dict(os.environ, {'PATH': str(self.root) + os.pathsep + os.environ['PATH']}):
+            with contextlib.redirect_stdout(io.StringIO()):
+                self.assertTrue(runner.measure(self.probe, 'default', {'cli_test': test}, args,
+                                               {'repetitions': []}))
+        slot = [r for r in self.probe.runs if r.record['role'] == 'build-load']
+        self.assertEqual(len(slot), 1)
+        self.assertEqual(slot[0].record['timeout_seconds'], 60)
+
+    def test_lib_build_without_library_executable_fails(self):
+        test = self.fake_test('build/default/cli_test')
+        cli = self.binary('build/default/gwi', 'pass\n')
+        self.artifacts('default', [('cli_test', 'test', True, test), ('gwi', 'bin', False, cli)])
+        with patch.dict(os.environ, {'PATH': str(self.root) + os.pathsep + os.environ['PATH']}):
+            with self.assertRaisesRegex(RuntimeError, 'Missing default Cargo executables'):
+                runner.build(self.probe, 'default', 10, lib=True)
+
+    def test_lib_workload_records_overlap_and_restarts_with_summary_check(self):
+        test = self.fake_test()
+        content = test.read_text().replace("else:\n", "else:\n    import time; time.sleep(0.3)\n")
+        test.write_text(content)
+        lib = self.binary('lib_test', "print('test result: ok. 5 passed; 0 failed; 0 ignored')\n")
+        args = runner.arguments(['--output', str(self.root), '--repetitions', '1', '--workload', 'lib',
+                                 '--concurrency', '2', '--lib-threads', '3'])
+        summary = {'repetitions': []}
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertTrue(runner.measure(self.probe, 'default', {'cli_test': test, 'lib_test': lib}, args,
+                                           summary))
+        loads = [r for r in self.probe.runs if r.record['role'] == 'lib']
+        self.assertGreater(len(loads), 2)  # restarted after exit
+        self.assertEqual(loads[0].record['command'], [str(lib), '--test-threads', '3', '--color', 'never'])
+        overlap = summary['repetitions'][0]['overlap']
+        self.assertEqual(len(overlap['live_at_start']), 2)
+        self.assertTrue(overlap['commands'])
+        self.assertTrue(all(c['role'] == 'lib' and c['overlap_seconds'] > 0 for c in overlap['commands']))
+        self.assertEqual(len(overlap['loadavg_start']), 3)
+        self.assertEqual(len(overlap['loadavg_end']), 3)
+        self.assertTrue(all(r.record.get('ended_utc') for r in self.probe.runs))
+
+    def test_lib_workload_without_passing_summary_fails(self):
+        test = self.fake_test()
+        content = test.read_text().replace("else:\n", "else:\n    import time; time.sleep(1.5)\n")
+        test.write_text(content)
+        lib = self.binary('lib_test', "print('test result: ok. 0 passed; 0 failed')\n")
+        args = runner.arguments(['--output', str(self.root), '--repetitions', '1', '--workload', 'lib',
+                                 '--concurrency', '1'])
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertFalse(runner.measure(self.probe, 'default', {'cli_test': test, 'lib_test': lib}, args,
+                                            {'repetitions': []}))
+
+    def test_overlap_excludes_loads_that_ended_before_the_focused_run(self):
+        class Load:
+            def __init__(self, name, started, ended):
+                self.directory, self.started, self.ended = Path(name), started, ended
+                self.record = {'role': 'lib', 'started_utc': 'u', 'ended_utc': None if ended is None else 'e'}
+        focused = type('F', (), {'started': 10.0, 'ended': 20.0})()
+        loads = [Load('before', 1, 9), Load('spans', 1, None), Load('inside', 12, 15), Load('after', 21, None)]
+        record = runner.overlap_record(loads, focused, [0, 0, 0], [1, 1, 1])
+        self.assertEqual([c['directory'] for c in record['commands']], ['spans', 'inside'])
+        self.assertEqual(record['live_at_start'], ['spans'])
+        self.assertEqual(record['live_at_end'], ['spans'])
+        self.assertEqual(record['commands'][1]['overlap_seconds'], 3)
+
+    def test_build_load_slots_are_owned_warmed_and_reaped_with_descendants(self):
+        for feature in ('default', 'mcp'):
+            self.binary('cargo', "import sys\nprint(' '.join(sys.argv[1:]))\n")
+            args = runner.arguments(['--output', str(self.root), '--build-slots', '2', '--build-jobs', '3'])
+            with patch.dict(os.environ, {'PATH': str(self.root) + os.pathsep + os.environ['PATH']}):
+                runner.warm_build_load(self.probe, feature, args)
+            warm = [r for r in self.probe.runs if r.record['role'] == 'build-warm'][-2:]
+            self.assertEqual([r.record['outcome'] for r in warm], ['passed', 'passed'])
+            commands = [r.record['command'] for r in warm]
+            self.assertEqual(len({c[c.index('--target-dir') + 1] for c in commands}), 2)
+            self.assertTrue(all(c[:5] == ['cargo', 'build', '--locked', '--jobs', '3'] for c in commands))
+            self.assertEqual(all('--features' in c for c in commands), feature == 'mcp')
+        # A TERM-ignoring cargo descendant must die with its slot's session.
+        pidfile = self.root / 'build-load.pid'
+        self.binary('cargo', f"""import os, pathlib, signal, time
+signal.signal(signal.SIGTERM, signal.SIG_IGN)
+pathlib.Path({str(pidfile)!r}).write_text(str(os.getpid()))
+time.sleep(60)
+""")
+        test = self.fake_test()
+        content = test.read_text().replace("else:\n", "else:\n    import time; time.sleep(0.5)\n")
+        test.write_text(content)
+        args = runner.arguments(['--output', str(self.root), '--repetitions', '1', '--build-slots', '1'])
+        summary = {'repetitions': []}
+        with patch.dict(os.environ, {'PATH': str(self.root) + os.pathsep + os.environ['PATH']}):
+            with contextlib.redirect_stdout(io.StringIO()):
+                self.assertTrue(runner.measure(self.probe, 'mcp', {'cli_test': test}, args, summary))
+        slot = [r for r in self.probe.runs if r.record['role'] == 'build-load'][0]
+        self.assertTrue(slot.done)
+        self.assertEqual(slot.record['outcome'], 'stopped')
+        self.assertIn('mcp', slot.record['command'])
+        self.assertIn(str(self.root / 'overlap-build' / 'mcp-0'), slot.record['command'])
+        self.assertTrue(pidfile.exists())
+        self.assert_not_running(int(pidfile.read_text()))
+        self.assertEqual([c['role'] for c in summary['repetitions'][0]['overlap']['commands']], ['build-load'])
+
+    def test_failed_build_load_fails_probe(self):
+        self.binary('cargo', 'import sys\nsys.exit(7)\n')
+        test = self.fake_test()
+        content = test.read_text().replace("else:\n", "else:\n    import time; time.sleep(1.5)\n")
+        test.write_text(content)
+        args = runner.arguments(['--output', str(self.root), '--repetitions', '1', '--build-slots', '1'])
+        with patch.dict(os.environ, {'PATH': str(self.root) + os.pathsep + os.environ['PATH']}):
+            with contextlib.redirect_stdout(io.StringIO()):
+                self.assertFalse(runner.measure(self.probe, 'default', {'cli_test': test}, args,
+                                                {'repetitions': []}))
+
     def test_workload_failure_fails_probe(self):
         test = self.fake_test()
         # Give the workload time to exit before the focused fake test.
@@ -547,7 +702,7 @@ time.sleep(60)
             driver = self.binary(f'driver-{sig}', f"""import importlib.util,pathlib,shutil,sys
 spec=importlib.util.spec_from_file_location('runner', {runner.__file__!r})
 r=importlib.util.module_from_spec(spec); spec.loader.exec_module(r)
-def build(probe, feature, timeout):
+def build(probe, feature, timeout, lib=False):
     return {{'cli_test': pathlib.Path({str(fixture)!r}), 'gwi': pathlib.Path({str(fixture)!r})}}
 r.build=build
 r.LiveCapture.command=lambda self,pid,stage: [{str(tool)!r}]
@@ -578,7 +733,9 @@ sys.exit(r.main(['--output', {str(output)!r}, '--features', 'default', '--repeti
         for options in (['--run-timeout', 'nan'], ['--max-seconds', 'inf'], ['--repetitions', '0'],
                         ['--cpu-workers', '-1'], ['--workload', 'startup'], ['--concurrency', '1'],
                         ['--synthetic-delay', '1'], ['--capture-live', '--synthetic-delay', 'nan'],
-                        ['--capture-after', '7'], ['--capture-timeout', '7']):
+                        ['--capture-after', '7'], ['--capture-timeout', '7'],
+                        ['--lib-threads', '0'], ['--build-jobs', '0'], ['--build-slots', '-1'],
+                        ['--workload', 'lib']):
             with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
                 runner.arguments(['--output', str(self.root), *options])
 
