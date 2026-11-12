@@ -729,6 +729,193 @@ sys.exit(r.main(['--output', {str(output)!r}, '--features', 'default', '--repeti
             finally:
                 self.cleanup_runner(child, output, pidfile)
 
+    def follower_writing_test(self, name, delayed_main=None):
+        """A fake focused test that publishes two final follower snapshots, like the fixture."""
+        events = '\n'.join(f'{phase} at 1ms: Ok((1ms, Ok("record")))' for phase in runner.PHASES)
+        return self.binary(name, f"""import json, os, pathlib, sys, time
+if '--list' in sys.argv:
+    print({(runner.TEST + ': test')!r})
+else:
+    directory = pathlib.Path(os.environ['GWI_FOLLOW_PROBE_DIR'])
+    assert 'GWI_STARTUP_MILESTONE_FILE' not in os.environ
+    now = time.time()
+    for index, split in enumerate((False, True)):
+        state = {{'pid': 9000 + index, 'harness_pid': os.getpid(), 'split_append': split,
+                 'spawn_requested_unix_seconds': now, 'spawned_unix_seconds': now + 0.5,
+                 'phase': 'malformed-line stderr', 'status': 'reaped',
+                 'receive_ended_by_phase': {{{runner.PHASES[0]!r}: now + (3.0 if not split else 0.1)}}}}
+        if {delayed_main!r} is not None and not split:
+            state['main_milestone'] = {{'pid': 9000, 'main_unix_seconds': now + {delayed_main or 0}}}
+        elif split:
+            state['main_milestone'] = {{'pid': 9001, 'main_unix_seconds': now + 0.05}}
+        (directory / ('follower-' + str(state['pid']) + '.json')).write_text(json.dumps(state))
+    print({events!r}, file=sys.stderr)
+    print({events!r}, file=sys.stderr)
+    print('test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out')
+""")
+
+    def test_follower_startup_separates_spawn_main_and_receive(self):
+        test = self.follower_writing_test('timed-test', delayed_main=2.5)
+        cli = self.binary('gwi', 'pass\n')
+        args = runner.arguments(['--output', str(self.root), '--repetitions', '1', '--capture-live'])
+        summary = {'repetitions': []}
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertTrue(runner.measure(self.probe, 'default', {'cli_test': test, 'gwi': cli}, args, summary))
+        first, second = summary['repetitions'][0]['followers']
+        self.assertFalse(first['split_append'])
+        self.assertAlmostEqual(first['spawn_call_seconds'], 0.5, places=3)
+        self.assertAlmostEqual(first['spawn_to_main_seconds'], 2.5, places=3)
+        self.assertAlmostEqual(first['main_to_initial_receive_seconds'], 0.5, places=3)
+        self.assertAlmostEqual(first['spawn_to_initial_receive_seconds'], 3.0, places=3)
+        self.assertAlmostEqual(first['before_main_share'], 2.5 / 3.0, places=3)
+        self.assertEqual(first['milestone'], 'present')
+        self.assertTrue(first['delayed'])
+        self.assertEqual(first['main_milestone']['pid'], 9000)
+        self.assertFalse(second['delayed'])
+        self.assertTrue(second['split_append'])
+
+    def test_missing_or_malformed_milestone_is_reported_not_inferred(self):
+        directory = self.root / 'snapshots'
+        directory.mkdir()
+        base = {'pid': 1, 'spawn_requested_unix_seconds': 10.0, 'spawned_unix_seconds': 10.1,
+                'receive_ended_by_phase': {runner.PHASES[0]: 15.0}}
+        (directory / 'follower-1.json').write_text(json.dumps(base))
+        (directory / 'follower-2.json').write_text(json.dumps({**base, 'pid': 2, 'main_milestone': {'unparseable': 'x'}}))
+        (directory / 'follower-3.json').write_text('{not json')
+        (directory / 'follower-4.json').write_text(json.dumps({**base, 'pid': 4, 'receive_ended_by_phase': {}}))
+        followers = {f['file']: f for f in runner.follower_startup(directory, 2)}
+        for name in ('follower-1.json', 'follower-2.json'):
+            self.assertEqual(followers[name]['milestone'], 'missing')
+            self.assertIsNone(followers[name]['spawn_to_main_seconds'])
+            self.assertIsNone(followers[name]['before_main_share'])
+            self.assertTrue(followers[name]['delayed'])
+        self.assertEqual(followers['follower-1.json']['main_milestone'], 'missing')
+        self.assertIn('error', followers['follower-3.json'])
+        self.assertIsNone(followers['follower-3.json']['delayed'])
+        # No initial receive timestamp: not delayed, because nothing is known.
+        self.assertFalse(followers['follower-4.json']['delayed'])
+        self.assertIsNone(followers['follower-4.json']['spawn_to_initial_receive_seconds'])
+
+    def test_warm_binary_runs_gwi_help_before_the_first_repetition(self):
+        order = self.root / 'order'
+        test = self.fake_test()
+        test.write_text(test.read_text().replace('import sys\n', f"import sys\nif '--exact' in sys.argv: open({str(order)!r}, 'a').write('focused\\n')\n", 1))
+        cli = self.binary('gwi', f"import sys\nopen({str(order)!r}, 'a').write(' '.join(sys.argv[1:]) + '\\n')\n")
+        args = runner.arguments(['--output', str(self.root), '--repetitions', '2', '--warm-binary'])
+        summary = {'repetitions': []}
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertTrue(runner.measure(self.probe, 'default', {'cli_test': test, 'gwi': cli}, args, summary))
+        self.assertEqual(order.read_text().split('\n')[:3], ['--help', 'focused', 'focused'])
+        self.assertEqual(summary['warmups'][0]['feature'], 'default')
+        self.assertEqual(summary['warmups'][0]['outcome'], 'passed')
+        history = [e['executable_history'] for e in summary['repetitions']]
+        self.assertEqual([h['gwi_launches_before_run'] for h in history], [1, 1])
+        self.assertEqual([h['first_execution'] for h in history], [False, False])
+        self.assertTrue(all(h['warm_binary'] for h in history))
+
+    def test_without_warm_binary_the_first_run_is_the_first_execution(self):
+        test = self.follower_writing_test('history-test')
+        cli = self.binary('gwi', 'pass\n')
+        args = runner.arguments(['--output', str(self.root), '--repetitions', '2', '--capture-live'])
+        summary = {'repetitions': []}
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertTrue(runner.measure(self.probe, 'default', {'cli_test': test, 'gwi': cli}, args, summary))
+        history = [e['executable_history'] for e in summary['repetitions']]
+        # Each run's two follower snapshots count as launches of the executable.
+        self.assertEqual([h['gwi_launches_before_run'] for h in history], [0, 2])
+        self.assertEqual([h['first_execution'] for h in history], [True, False])
+        self.assertNotIn('warmups', summary)
+
+    def test_startup_load_launches_count_toward_executable_history(self):
+        test = self.fake_test()
+        cli = self.binary('gwi', 'import time\ntime.sleep(0.05)\n')
+        args = runner.arguments(['--output', str(self.root), '--repetitions', '1',
+                                 '--workload', 'startup', '--concurrency', '2'])
+        summary = {'repetitions': []}
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertTrue(runner.measure(self.probe, 'default', {'cli_test': test, 'gwi': cli}, args, summary))
+        history = summary['repetitions'][0]['executable_history']
+        self.assertEqual(history['gwi_launches_before_run'], 2)
+        self.assertFalse(history['first_execution'])
+
+    def test_failed_or_missing_warm_binary_fails_before_measurement(self):
+        test = self.fake_test()
+        args = runner.arguments(['--output', str(self.root), '--repetitions', '1', '--warm-binary'])
+        summary = {'repetitions': []}
+        with self.assertRaisesRegex(RuntimeError, 'Missing default gwi executable'):
+            runner.measure(self.probe, 'default', {'cli_test': test}, args, summary)
+        broken = self.binary('broken-gwi', 'import sys\nsys.exit(3)\n')
+        with self.assertRaisesRegex(RuntimeError, 'warm-binary: failed'):
+            runner.measure(self.probe, 'mcp', {'cli_test': test, 'gwi': broken}, args, summary)
+        self.assertEqual(summary['warmups'][0]['returncode'], 3)
+        self.assertEqual(summary['repetitions'], [])
+        self.assertFalse(any(r.record['role'] == 'focused' for r in self.probe.runs))
+
+    def test_startup_milestone_variable_is_scrubbed_from_inherited_environment(self):
+        test = self.fake_test('milestone-env-test')
+        test.write_text(test.read_text().replace('import sys\n', "import sys, os\nassert 'GWI_STARTUP_MILESTONE_FILE' not in os.environ\n", 1))
+        args = runner.arguments(['--output', str(self.root), '--repetitions', '1'])
+        with patch.dict(os.environ, {'GWI_STARTUP_MILESTONE_FILE': '/absent'}), \
+                contextlib.redirect_stdout(io.StringIO()):
+            self.assertTrue(runner.measure(self.probe, 'default', {'cli_test': test}, args, {'repetitions': []}))
+
+    def test_capture_reads_the_milestone_file_not_the_stale_snapshot(self):
+        for index, written in enumerate((False, True)):
+            name = f'milestone-capture-{index}'
+            directory = self.root / name
+            fixture = self.binary(name + '-binary', f"""import json, os, pathlib, subprocess, sys, time
+child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)'])
+directory = pathlib.Path({str(directory)!r})
+if {written!r}:
+    (directory / 'main-immediate.json').write_text(json.dumps({{'pid': child.pid, 'main_unix_seconds': 5.5}}))
+state = {{'pid': child.pid, 'harness_pid': os.getpid(), 'phase': {runner.PHASES[0]!r},
+         'status': 'waiting', 'receive_started_unix_seconds': time.time(),
+         'receive_timeout_seconds': 10, 'split_append': False}}
+(directory / ('follower-' + str(child.pid) + '.json')).write_text(json.dumps(state))
+time.sleep(60)
+""")
+            run = self.probe.start(name, [str(fixture)], 'focused', 60)
+            deadline = time.monotonic() + 5
+            while not list(directory.glob('follower-*.json')) and time.monotonic() < deadline:
+                time.sleep(0.01)
+            args = runner.arguments(['--output', str(self.root), '--capture-live',
+                                     '--capture-after', '0.01', '--capture-timeout', '2'])
+            capture = runner.LiveCapture(self.probe, run, args)
+            tool = self.binary(f'milestone-tool-{index}', '')
+            tool.write_text('#!/bin/sh\ntrue\n')
+            with patch.object(capture, 'command', side_effect=lambda pid, stage: [str(tool)]), \
+                    patch.object(runner.sys, 'platform', 'linux'):
+                time.sleep(0.02)
+                self.drain_capture(capture)
+            record = next(iter(capture.records.values()))
+            # The snapshot never contains the milestone; the file is the evidence either way.
+            self.assertNotIn('main_milestone', record['fixture_at_capture'])
+            if written:
+                self.assertEqual(record['main_milestone_at_capture']['main_unix_seconds'], 5.5)
+            else:
+                self.assertEqual(record['main_milestone_at_capture'], 'absent')
+            capture.finish()
+            self.probe.cleanup()
+
+    def test_harness_workload_makes_first_execution_unknown(self):
+        test = self.fake_test()
+        args = runner.arguments(['--output', str(self.root), '--repetitions', '1',
+                                 '--workload', 'harness', '--concurrency', '1'])
+        summary = {'repetitions': []}
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertTrue(runner.measure(self.probe, 'default', {'cli_test': test}, args, summary))
+        history = summary['repetitions'][0]['executable_history']
+        self.assertIsNone(history['first_execution'])
+        self.assertTrue(history['launches_uncounted'])
+
+    def test_warm_binary_runs_without_inherited_probe_variables(self):
+        test = self.fake_test()
+        cli = self.binary('gwi', "import os, sys\nsys.exit(any(n.startswith('GWI_FOLLOW_PROBE') or n == 'GWI_STARTUP_MILESTONE_FILE' for n in os.environ))\n")
+        args = runner.arguments(['--output', str(self.root), '--repetitions', '1', '--warm-binary'])
+        with patch.dict(os.environ, {'GWI_STARTUP_MILESTONE_FILE': '/absent', 'GWI_FOLLOW_PROBE_DIR': '/absent'}), \
+                contextlib.redirect_stdout(io.StringIO()):
+            self.assertTrue(runner.measure(self.probe, 'default', {'cli_test': test, 'gwi': cli}, args, {'repetitions': []}))
+
     def test_argument_bounds(self):
         for options in (['--run-timeout', 'nan'], ['--max-seconds', 'inf'], ['--repetitions', '0'],
                         ['--cpu-workers', '-1'], ['--workload', 'startup'], ['--concurrency', '1'],

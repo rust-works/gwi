@@ -338,11 +338,74 @@ def overlap_record(loads, focused, load_start, load_end):
             "loadavg_start": load_start, "loadavg_end": load_end}
 
 
+def startup_timing(state, name, threshold):
+    """Spawn-to-main timing for one follower snapshot (#309), from raw fixture timestamps.
+
+    Every value is None when an input is missing; nothing is inferred. `delayed` means the
+    initial receive took longer than `threshold` seconds from the spawn request.
+    """
+    def number(value):
+        return value if isinstance(value, (int, float)) and not isinstance(value, bool) else None
+
+    def delta(begin, end):
+        return end - begin if begin is not None and end is not None else None
+
+    requested = number(state.get("spawn_requested_unix_seconds"))
+    returned = number(state.get("spawned_unix_seconds"))
+    ended_by_phase = state.get("receive_ended_by_phase")
+    ended = number(ended_by_phase.get(PHASES[0])) if isinstance(ended_by_phase, dict) else None
+    milestone = state.get("main_milestone")
+    main = number(milestone.get("main_unix_seconds")) if isinstance(milestone, dict) else None
+    total = delta(requested, ended)
+    before_main = delta(requested, main)
+    return {"file": name, "pid": state.get("pid"), "split_append": state.get("split_append"),
+            "spawn_requested_unix_seconds": requested,
+            "spawn_call_seconds": delta(requested, returned),
+            "spawn_to_main_seconds": before_main,
+            "main_to_initial_receive_seconds": delta(main, ended),
+            "spawn_to_initial_receive_seconds": total,
+            "before_main_share": before_main / total if before_main is not None and total else None,
+            "main_milestone": milestone if milestone is not None else "missing",
+            "milestone": "present" if main is not None else "missing",
+            "delayed": total is not None and total > threshold}
+
+
+def follower_startup(directory, threshold):
+    """Per-follower startup timing for one focused run, in spawn order."""
+    followers = []
+    for path in sorted(directory.glob("follower-*.json")):
+        try:
+            followers.append(startup_timing(json.loads(path.read_text()), path.name, threshold))
+        except (OSError, ValueError, AttributeError) as error:
+            followers.append({"file": path.name, "error": str(error), "milestone": "missing", "delayed": None})
+    return sorted(followers, key=lambda f: (f.get("spawn_requested_unix_seconds") is None,
+                                            f.get("spawn_requested_unix_seconds") or 0, f["file"]))
+
+
+def warm_binary(probe, feature, binaries, timeout, env, summary):
+    """Execute `gwi --help` once, so a later follower is not the binary's first execution."""
+    if "gwi" not in binaries:
+        raise RuntimeError(f"Missing {feature} gwi executable for --warm-binary")
+    run = probe.start(f"{feature}-warm-binary", [str(binaries["gwi"]), "--help"], "warmup", timeout, env)
+    result = probe.wait(run)
+    summary.setdefault("warmups", []).append({"feature": feature, "directory": run.directory.name, **result})
+    require_pass(run, result)
+
+
 def measure(probe, feature, binaries, args, summary):
     env = os.environ.copy()
     env["INSTA_WORKSPACE_ROOT"] = str(ROOT)
-    for name in ("GWI_FOLLOW_PROBE_DIR", "GWI_FOLLOW_PROBE_DELAY"):
+    for name in ("GWI_FOLLOW_PROBE_DIR", "GWI_FOLLOW_PROBE_DELAY", "GWI_STARTUP_MILESTONE_FILE"):
         env.pop(name, None)
+    # Launches of this feature's gwi that this runner can count: the warm-up, startup-load
+    # slots (when requested) and followers that published a snapshot. The target directory
+    # is new and Cargo does not run the binary, so this is its whole history except for the
+    # `harness` workload, whose CLI tests spawn gwi uncounted, and a follower that was
+    # spawned but never published a snapshot.
+    launches = 0
+    if args.warm_binary:
+        warm_binary(probe, feature, binaries, args.run_timeout, env, summary)
+        launches += 1
     workers = []
     loads = []
     for index in range(args.cpu_workers):
@@ -358,7 +421,7 @@ def measure(probe, feature, binaries, args, summary):
 
     def service_loads():
         """Record every load exit, including failures, and replenish the slots."""
-        nonlocal success, serial
+        nonlocal success, serial, launches
         for slots_, role, timeout, name in ((slots, args.workload, args.workload_timeout, "workload"),
                                             (build_slots, "build-load", args.build_timeout, "build")):
             for index, worker in enumerate(slots_):
@@ -373,6 +436,7 @@ def measure(probe, feature, binaries, args, summary):
                            else load_command(role, binaries, args, feature, index))
                 slots_[index] = probe.start(f"{feature}-{name}-{serial}", command, role, timeout, env)
                 loads.append(slots_[index])
+                launches += role == "startup"
 
     try:
         for repetition in range(1, args.repetitions + 1):
@@ -385,6 +449,12 @@ def measure(probe, feature, binaries, args, summary):
                 focused_env["GWI_FOLLOW_PROBE_DIR"] = str(probe.output / name)
                 focused_env["GWI_FOLLOW_PROBE_DELAY"] = str(args.synthetic_delay)
             load_start = list(os.getloadavg())
+            # The harness workload spawns gwi in many tests, so the count is only a lower
+            # bound and "first execution" is unknown (None) while it runs.
+            history = {"gwi_launches_before_run": launches,
+                       "first_execution": None if args.workload == "harness" else launches == 0,
+                       "launches_uncounted": args.workload == "harness",
+                       "warm_binary": args.warm_binary}
             run = probe.start(name,
                               [str(binaries["cli_test"]), TEST, "--exact", "--nocapture", "--color", "never"],
                               "focused", args.run_timeout, focused_env)
@@ -399,9 +469,12 @@ def measure(probe, feature, binaries, args, summary):
                     break
                 time.sleep(0.05)
             output = run.output()
+            followers = follower_startup(run.directory, args.capture_after)
+            launches += len(followers)
             entry = {"feature": feature, "repetition": repetition,
                      "invocation": "first-focused" if repetition == 1 else "subsequent-focused",
                      "directory": run.directory.name, **result, "phases": phases(output),
+                     "executable_history": history, "followers": followers,
                      "overlap": overlap_record(loads, run, load_start, list(os.getloadavg()))}
             entry["valid_selection"] = test_passed(output, expected=1) and len(entry["phases"]) == 6
             if result["outcome"] == "passed" and not entry["valid_selection"]:
@@ -439,6 +512,21 @@ class LiveCapture:
             if record.get("outcome") != "running" and "started_utc" in record:
                 record.setdefault("ended_utc", datetime.now(timezone.utc).isoformat())
         write_json(self.run.directory / "captures.json", list(self.records.values()))
+
+    def main_milestone(self, state):
+        """The follower's `main`-entry milestone as of now, read from the sink.
+
+        The fixture refreshes the milestone in its snapshots only when it publishes one, so the
+        snapshot read at capture time cannot say whether `main` was reached since. "absent"
+        means the file did not exist: the follower had not entered `main`.
+        """
+        path = self.run.directory / f"main-{'split' if state.get('split_append') else 'immediate'}.json"
+        try:
+            return json.loads(path.read_text())
+        except FileNotFoundError:
+            return "absent"
+        except (OSError, ValueError) as error:
+            return {"unreadable": str(error)}
 
     def command(self, pid, stage):
         if stage == "process":
@@ -505,6 +593,7 @@ class LiveCapture:
                     continue
                 remaining = state["receive_timeout_seconds"] - age - 1
                 record = {"pid": pid, "phase": PHASES[0], "fixture_at_capture": state,
+                          "main_milestone_at_capture": self.main_milestone(state),
                           "started_utc": datetime.now(timezone.utc).isoformat(),
                           "initial_receive_age_seconds": age,
                           "budget_seconds": min(self.args.capture_timeout, max(0, remaining))}
@@ -560,6 +649,8 @@ def arguments(argv):
     parser.add_argument("--capture-live", action="store_true", help="capture delayed initial receives")
     parser.add_argument("--capture-after", type=positive, default=2, help="initial receive age before capture")
     parser.add_argument("--capture-timeout", type=positive, default=2, help="shared process/sample budget")
+    parser.add_argument("--warm-binary", action="store_true",
+                        help="run `gwi --help` once per feature before measuring (pre-executed binary)")
     parser.add_argument("--synthetic-delay", type=float, default=0, help="opt-in stdout reader delay, at most 8s")
     parser.add_argument("--cpu-workers", type=count, default=0)
     parser.add_argument("--workload", choices=("none", "startup", "harness", "lib"), default="none")
@@ -603,7 +694,8 @@ def main(argv=None):
     probe = Probe(output, args.max_seconds)
     summary = {"started_utc": datetime.now(timezone.utc).isoformat(), "platform": platform.platform(),
                "cpu_count": os.cpu_count(), "configuration": {**vars(args), "output": str(output)},
-               "repetitions": [], "cache_control": "none; first-focused is invocation order only",
+               "repetitions": [], "cache_control": "none; first-focused is invocation order only "
+                                "(executable_history counts the runner's launches of gwi)",
                "uncontrolled": ["host idleness and other processes", "CPU utilization beyond loadavg at "
                                 "focused start/end", "filesystem and compiler caches",
                                 "execution order of the original full suite (focused test is run --exact "
