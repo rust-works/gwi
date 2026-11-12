@@ -85,7 +85,8 @@ pub(crate) fn legacy_env_warnings(env: &impl EnvSource) -> Vec<String> {
         .collect()
 }
 
-/// Prints [`legacy_env_warnings`] for the process environment to stderr, once per call.
+/// Prints a warning to stderr for each legacy variable set in the process environment, once
+/// per call.
 ///
 /// Written straight to stderr rather than through `tracing`, so `RUST_LOG=error` cannot hide
 /// it. A write error (stderr closed, a broken pipe) is ignored: a warning must never be the
