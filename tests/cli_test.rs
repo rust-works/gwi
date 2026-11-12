@@ -1151,6 +1151,26 @@ fn publish_follow_probe(directory: Option<&Path>, pid: u32, state: &serde_json::
     }
 }
 
+/// Copies the follower's `main`-entry milestone into the snapshot once it exists.
+///
+/// Absent until the follower reaches `main`: a snapshot taken while the initial
+/// receive is pending therefore shows whether the delay is still before `main`.
+/// An unreadable or malformed file is reported as such, never guessed at.
+fn read_main_milestone(milestone: Option<&Path>, state: &mut serde_json::Value) {
+    let Some(milestone) = milestone else { return };
+    match std::fs::read_to_string(milestone) {
+        Ok(text) => {
+            state["main_milestone"] = serde_json::from_str(&text).unwrap_or_else(
+                |error| serde_json::json!({"unparseable": error.to_string(), "text": text}),
+            );
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => {
+            state["main_milestone"] = serde_json::json!({"unreadable": error.to_string()});
+        }
+    }
+}
+
 type FollowEvent = (std::time::Duration, std::io::Result<String>);
 
 /// Reads both pipes independently and preserves I/O failures and event timestamps.
@@ -1202,14 +1222,26 @@ fn check_log_follow_recovery(
     // Longer than a follow poll: exercise a line left incomplete across polls.
     const PARTIAL_WAIT: Duration = Duration::from_millis(500);
 
+    // The follower writes a timestamp on entering `main` (#309), so the probe can
+    // separate exec/loader delay from everything after it. Only with a sink.
+    let milestone = probe.directory.as_ref().map(|directory| {
+        directory.join(format!(
+            "main-{}.json",
+            if split_append { "split" } else { "immediate" }
+        ))
+    });
     let started = Instant::now();
     let mut command = Command::new(env!("CARGO_BIN_EXE_gwi"));
-    let mut child = common::isolate(&mut command, path.parent().unwrap())
+    common::isolate(&mut command, path.parent().unwrap())
         .args(["log", "--follow", "-o", "json"])
         .env("GWI_LOG_FILE", path)
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()?;
+        .stderr(Stdio::piped());
+    if let Some(milestone) = &milestone {
+        command.env("GWI_STARTUP_MILESTONE_FILE", milestone);
+    }
+    let spawn_requested = follow_probe_timestamp();
+    let mut child = command.spawn()?;
     let pid = child.id();
     // A held reader makes the timeout regression independent of child startup speed.
     let (release_stdout, stdout_gate) = std::sync::mpsc::channel();
@@ -1223,9 +1255,10 @@ fn check_log_follow_recovery(
         log_follow_reader(child.stderr.take().unwrap(), started, None, Duration::ZERO);
     let mut state = serde_json::json!({
         "pid": pid, "harness_pid": std::process::id(), "split_append": split_append,
+        "spawn_requested_unix_seconds": spawn_requested,
         "spawned_unix_seconds": follow_probe_timestamp(),
         "synthetic_reader_delay_seconds": probe.reader_delay.as_secs_f64(),
-        "events": [],
+        "events": [], "receive_ended_by_phase": {},
     });
     let mut events = Vec::new();
     let mut receive = |receiver: &std::sync::mpsc::Receiver<FollowEvent>, phase, expected: &str| {
@@ -1234,13 +1267,17 @@ fn check_log_follow_recovery(
         state["status"] = serde_json::json!("waiting");
         state["receive_started_unix_seconds"] = serde_json::json!(follow_probe_timestamp());
         state["receive_timeout_seconds"] = serde_json::json!(receive_timeout.as_secs_f64());
+        read_main_milestone(milestone.as_deref(), &mut state);
         publish_follow_probe(probe.directory.as_deref(), pid, &state);
         let event =
             receiver.recv_timeout(receive_deadline.saturating_duration_since(Instant::now()));
         events.push(format!("{phase} at {:?}: {event:?}", started.elapsed()));
         state["status"] = serde_json::json!("received");
         state["events"] = serde_json::json!(events);
-        state["receive_ended_unix_seconds"] = serde_json::json!(follow_probe_timestamp());
+        let ended = follow_probe_timestamp();
+        state["receive_ended_unix_seconds"] = serde_json::json!(ended);
+        state["receive_ended_by_phase"][phase] = serde_json::json!(ended);
+        read_main_milestone(milestone.as_deref(), &mut state);
         publish_follow_probe(probe.directory.as_deref(), pid, &state);
         let (_, line) = event.with_context(|| format!("Failed to receive {phase}"))?;
         let line = line.with_context(|| format!("Failed to read {phase}"))?;
@@ -1281,6 +1318,7 @@ fn check_log_follow_recovery(
     })();
     state["status"] = serde_json::json!("cleanup");
     state["cleanup_started_unix_seconds"] = serde_json::json!(follow_probe_timestamp());
+    read_main_milestone(milestone.as_deref(), &mut state);
     let before_kill = child.try_wait();
     // Reap and join BOTH readers before reporting even a timeout or write failure.
     let killed = child.kill();
@@ -1413,10 +1451,27 @@ fn log_follow_probe_retains_phase_and_cleanup_evidence() {
         &probe,
     )
     .unwrap();
-    let files: Vec<_> = std::fs::read_dir(sink.path()).unwrap().collect();
-    assert_eq!(files.len(), 1);
+    let mut names: Vec<_> = std::fs::read_dir(sink.path())
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name().into_string().unwrap())
+        .collect();
+    names.sort();
+    // One follower snapshot, plus the milestone the follower wrote on entering `main`.
+    assert_eq!(names.len(), 2, "{names:?}");
+    assert_eq!(names[1], "main-immediate.json");
     let state: serde_json::Value =
-        serde_json::from_slice(&std::fs::read(files[0].as_ref().unwrap().path()).unwrap()).unwrap();
+        serde_json::from_slice(&std::fs::read(sink.path().join(&names[0])).unwrap()).unwrap();
+    assert!(names[0].starts_with("follower-"), "{names:?}");
+    // The milestone separates the spawn request, entry to `main` and the first output.
+    let main = &state["main_milestone"];
+    assert_eq!(main["pid"], state["pid"]);
+    let requested = state["spawn_requested_unix_seconds"].as_f64().unwrap();
+    let entered = main["main_unix_seconds"].as_f64().unwrap();
+    let received = state["receive_ended_by_phase"]["initial backlog stdout"]
+        .as_f64()
+        .unwrap();
+    assert!(requested <= state["spawned_unix_seconds"].as_f64().unwrap());
+    assert!(requested <= entered && entered <= received, "{state}");
     assert_eq!(state["status"], "reaped");
     assert_eq!(state["harness_pid"], std::process::id());
     assert_eq!(state["events"].as_array().unwrap().len(), 3);

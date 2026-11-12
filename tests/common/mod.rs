@@ -7,9 +7,10 @@ use std::process::Command;
 /// logging, timeouts and leases. Tests remove these so their results do not
 /// depend on the developer's shell (issues #62 and #120). `src/gmail/test_support.rs` and
 /// `src/drive/test_support.rs` keep the in-process equivalent.
-const AMBIENT_ENV: [&str; 44] = [
+const AMBIENT_ENV: [&str; 45] = [
     "GWI_LOG_FILE",
     "GWI_LOG_DISABLE",
+    "GWI_STARTUP_MILESTONE_FILE",
     "GWI_AUDIT_LOG_FILE",
     "GWI_LOG_MAX_SIZE",
     "GWI_LOG_KEEP_FILES",
