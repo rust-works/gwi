@@ -12,6 +12,9 @@ use rmcp::transport::stdio;
 
 #[tokio::main]
 async fn main() {
+    // `OMNI_DEV_*` names set in the MCP client's launcher config are ignored; say so.
+    gwi::utils::legacy_env::warn_legacy_env();
+
     // MCP defaults from `settings.json`: the log level seeds the tracing filter's
     // fallback, but `RUST_LOG` still wins when set.
     let mcp_settings = Settings::load_mcp();

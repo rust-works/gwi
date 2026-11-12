@@ -517,6 +517,34 @@ async fn the_binary_serves_the_tools_over_stdio() -> Result<()> {
     Ok(())
 }
 
+/// `gwi-mcp` reports a legacy `OMNI_DEV_*` variable on stderr at startup. Stdin is closed, so
+/// the server ends at once and the test only reads what it printed.
+#[test]
+fn the_binary_warns_about_a_legacy_omni_dev_variable() {
+    let home = tempfile::tempdir().unwrap();
+    let mut command = std::process::Command::new(env!("CARGO_BIN_EXE_gwi-mcp"));
+    common::isolate(&mut command, home.path())
+        .env("OMNI_DEV_DRIVE_LEASE_ALLOW_HEADLESS", "SENTINEL-legacy")
+        .current_dir(home.path())
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped());
+    let output = command.output().unwrap();
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(
+        stderr
+            .matches("OMNI_DEV_DRIVE_LEASE_ALLOW_HEADLESS")
+            .count(),
+        1,
+        "{stderr}"
+    );
+    assert!(
+        stderr.contains("GWI_DRIVE_LEASE_ALLOW_HEADLESS"),
+        "{stderr}"
+    );
+    assert!(!stderr.contains("SENTINEL"), "{stderr}");
+}
+
 /// Close stdin and wait for a normal exit so LLVM can flush the child's profile.
 async fn shutdown_binary(client: Client, mut child: tokio::process::Child) -> Result<()> {
     let status = tokio::time::timeout(Duration::from_secs(20), async {

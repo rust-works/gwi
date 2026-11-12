@@ -9,6 +9,7 @@ pub mod env;
 pub mod fs;
 pub mod http;
 pub(crate) mod json_payload;
+pub mod legacy_env;
 pub mod multipart;
 pub mod path;
 pub mod rate_limit;

@@ -30,6 +30,16 @@ pub trait EnvSource {
     /// process environment, not valid Unicode).
     fn var(&self, key: &str) -> Option<String>;
 
+    /// Whether `key` is set to a non-empty value.
+    ///
+    /// For callers that only need to know a variable is present, such as the warning about
+    /// legacy names that gwi ignores: they never use the value. The default goes through
+    /// [`var`](Self::var); [`SystemEnv`] overrides it so a value that is not valid
+    /// Unicode still counts as set.
+    fn has_value(&self, key: &str) -> bool {
+        self.var(key).is_some_and(|value| !value.is_empty())
+    }
+
     /// Returns the first set value among `keys`, in order.
     fn var_any(&self, keys: &[&str]) -> Option<String> {
         keys.iter().find_map(|k| self.var(k))
@@ -60,6 +70,10 @@ impl EnvSource for SystemEnv {
     fn var(&self, key: &str) -> Option<String> {
         std::env::var(key).ok()
     }
+
+    fn has_value(&self, key: &str) -> bool {
+        std::env::var_os(key).is_some_and(|value| !value.is_empty())
+    }
 }
 
 /// `&T` is an `EnvSource` whenever `T` is, so callers can pass `&SystemEnv`
@@ -67,6 +81,10 @@ impl EnvSource for SystemEnv {
 impl<T: EnvSource + ?Sized> EnvSource for &T {
     fn var(&self, key: &str) -> Option<String> {
         (**self).var(key)
+    }
+
+    fn has_value(&self, key: &str) -> bool {
+        (**self).has_value(key)
     }
 
     fn var_triple(&self, key: &str, file_key: &str, command_key: &str) -> SecretTriple {
@@ -187,6 +205,33 @@ mod tests {
                 Some("c".to_string())
             )
         );
+    }
+
+    #[test]
+    fn reference_forwards_has_value_to_inner_source() {
+        /// Like `SystemEnv` for a value that is not valid Unicode: `var` cannot
+        /// read it, but the variable is set.
+        struct NonUnicode;
+        impl EnvSource for NonUnicode {
+            fn var(&self, _key: &str) -> Option<String> {
+                None
+            }
+            fn has_value(&self, _key: &str) -> bool {
+                true
+            }
+        }
+        fn read(src: &impl EnvSource, key: &str) -> bool {
+            src.has_value(key)
+        }
+        // `var` cannot read it, so the default, which goes through `var`, would
+        // answer false; &T must forward has_value to T's own override instead.
+        assert_eq!(NonUnicode.var("K"), None);
+        assert!(read(&&NonUnicode, "K"));
+        // And through a source with no override, the default's three cases.
+        let env = MapEnv::new().with("SET", "v").with("EMPTY", "");
+        assert!(read(&&env, "SET"));
+        assert!(!read(&&env, "EMPTY"), "an empty value is not a value");
+        assert!(!read(&&env, "MISSING"));
     }
 
     #[test]
