@@ -1471,7 +1471,11 @@ fn log_follow_probe_retains_phase_and_cleanup_evidence() {
         .as_f64()
         .unwrap();
     assert!(requested <= state["spawned_unix_seconds"].as_f64().unwrap());
-    assert!(requested <= entered && entered <= received, "{state}");
+    // Two processes' wall clocks: allow a second for a clock step rather than flake on one.
+    assert!(
+        requested - 1.0 <= entered && entered <= received + 1.0,
+        "{state}"
+    );
     assert_eq!(state["status"], "reaped");
     assert_eq!(state["harness_pid"], std::process::id());
     assert_eq!(state["events"].as_array().unwrap().len(), 3);

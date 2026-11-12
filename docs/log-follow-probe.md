@@ -190,7 +190,8 @@ runs attributable, but retained evidence is local until explicitly shared.
 
 With a fixture sink (`--capture-live`) each follower's `gwi` also writes a timestamp on
 entering `main`, through the opt-in `GWI_STARTUP_MILESTONE_FILE` (#309), the first
-statement of `main`; unset, nothing is written and nothing else changes. Each repetition
+statement of `main`; unset, nothing is written and nothing else changes (do not export it
+in a shell: every `gwi` it reaches would overwrite that path). Each repetition
 then records `followers`, one entry per follower in spawn order:
 `spawn_call_seconds` (the `spawn()` call itself), `spawn_to_main_seconds` (spawn request to
 `main` entry: exec, loader and runtime start-up), `main_to_initial_receive_seconds` (`main`
@@ -728,8 +729,7 @@ warmed). Every `spawn()` call itself returned in 2-5 ms.
 - **The delay is before `main`, and is essentially all of the delay.** In the four delayed
   followers (the first spawn of each feature in the two first-execution invocations),
   99.0-99.7 % of the initial receive was spawn-to-`main`; `main` to the first record took
-  14-23 ms, like every other follower. At the two-second live capture none of the four had
-  written its milestone, so each was still before `main` then. The `spawn()` call returned in
+  14-23 ms, like every other follower. The `spawn()` call returned in
   milliseconds, so the wait is after the process was created: the exec or loader stage that
   the earlier `sample` showed at `_dyld_start` and `dyld4::prepare`.
 - **It is the executable's first execution, not a property of every start.** The follower
@@ -766,6 +766,12 @@ that could separate exec from loader did not complete (below).
 
 ### Limits
 
+- **No live-capture milestone.** These runs did not record whether `main` had been reached
+  at the two-second capture: the snapshot the capture reads is refreshed only when the test
+  publishes one, so it cannot show that. The conclusion above rests on the final
+  spawn-to-`main` and `main`-to-record timings. The runner now also reads the milestone file
+  itself at capture time (`main_milestone_at_capture`, `absent` until `main` is entered); that
+  field was added after these runs.
 - **Samples did not complete.** The four delayed followers' `sample` commands started at
   about two seconds and were killed by the capture watchdog after 1.9-2.0 s while
   symbolicating (their output ends at "Sampling completed, processing symbols..."), so no
@@ -777,8 +783,11 @@ that could separate exec from loader did not complete (below).
   system services, including any first-use assessment of new executables, were not
   controlled.
 - The library-suite load was partial, as in #300: the slots were stopped, not completed.
-- `executable_history` counts only this runner's launches. Cargo does not run `gwi`, so this
-  is the whole history here, but the field cannot see another process executing the path.
+- `executable_history` counts only this runner's launches: the warm-up, startup-load slots
+  and followers that published a snapshot (a follower that never published is missed). Cargo
+  does not run `gwi`, so this is the whole history in these runs, none of which used the
+  harness workload; with `--workload harness`, whose tests spawn `gwi` uncounted,
+  `first_execution` is null. The field cannot see another process executing the path.
 - Windows and Linux were not run. No follow code, receive deadline or retry changed; the only
   production change is the inert, opt-in `main`-entry milestone.
 

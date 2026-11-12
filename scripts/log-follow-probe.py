@@ -382,11 +382,11 @@ def follower_startup(directory, threshold):
                                             f.get("spawn_requested_unix_seconds") or 0, f["file"]))
 
 
-def warm_binary(probe, feature, binaries, timeout, summary):
+def warm_binary(probe, feature, binaries, timeout, env, summary):
     """Execute `gwi --help` once, so a later follower is not the binary's first execution."""
     if "gwi" not in binaries:
         raise RuntimeError(f"Missing {feature} gwi executable for --warm-binary")
-    run = probe.start(f"{feature}-warm-binary", [str(binaries["gwi"]), "--help"], "warmup", timeout)
+    run = probe.start(f"{feature}-warm-binary", [str(binaries["gwi"]), "--help"], "warmup", timeout, env)
     result = probe.wait(run)
     summary.setdefault("warmups", []).append({"feature": feature, "directory": run.directory.name, **result})
     require_pass(run, result)
@@ -397,12 +397,14 @@ def measure(probe, feature, binaries, args, summary):
     env["INSTA_WORKSPACE_ROOT"] = str(ROOT)
     for name in ("GWI_FOLLOW_PROBE_DIR", "GWI_FOLLOW_PROBE_DELAY", "GWI_STARTUP_MILESTONE_FILE"):
         env.pop(name, None)
-    # Launches of this feature's gwi by this runner. The target directory is new and Cargo
-    # does not run the binary, so this is its whole execution history (a launch counts when
-    # requested, not when the process first ran).
+    # Launches of this feature's gwi that this runner can count: the warm-up, startup-load
+    # slots (when requested) and followers that published a snapshot. The target directory
+    # is new and Cargo does not run the binary, so this is its whole history except for the
+    # `harness` workload, whose CLI tests spawn gwi uncounted, and a follower that was
+    # spawned but never published a snapshot.
     launches = 0
     if args.warm_binary:
-        warm_binary(probe, feature, binaries, args.run_timeout, summary)
+        warm_binary(probe, feature, binaries, args.run_timeout, env, summary)
         launches += 1
     workers = []
     loads = []
@@ -447,7 +449,11 @@ def measure(probe, feature, binaries, args, summary):
                 focused_env["GWI_FOLLOW_PROBE_DIR"] = str(probe.output / name)
                 focused_env["GWI_FOLLOW_PROBE_DELAY"] = str(args.synthetic_delay)
             load_start = list(os.getloadavg())
-            history = {"gwi_launches_before_run": launches, "first_execution": launches == 0,
+            # The harness workload spawns gwi in many tests, so the count is only a lower
+            # bound and "first execution" is unknown (None) while it runs.
+            history = {"gwi_launches_before_run": launches,
+                       "first_execution": None if args.workload == "harness" else launches == 0,
+                       "launches_uncounted": args.workload == "harness",
                        "warm_binary": args.warm_binary}
             run = probe.start(name,
                               [str(binaries["cli_test"]), TEST, "--exact", "--nocapture", "--color", "never"],
@@ -506,6 +512,21 @@ class LiveCapture:
             if record.get("outcome") != "running" and "started_utc" in record:
                 record.setdefault("ended_utc", datetime.now(timezone.utc).isoformat())
         write_json(self.run.directory / "captures.json", list(self.records.values()))
+
+    def main_milestone(self, state):
+        """The follower's `main`-entry milestone as of now, read from the sink.
+
+        The fixture refreshes the milestone in its snapshots only when it publishes one, so the
+        snapshot read at capture time cannot say whether `main` was reached since. "absent"
+        means the file did not exist: the follower had not entered `main`.
+        """
+        path = self.run.directory / f"main-{'split' if state.get('split_append') else 'immediate'}.json"
+        try:
+            return json.loads(path.read_text())
+        except FileNotFoundError:
+            return "absent"
+        except (OSError, ValueError) as error:
+            return {"unreadable": str(error)}
 
     def command(self, pid, stage):
         if stage == "process":
@@ -572,6 +593,7 @@ class LiveCapture:
                     continue
                 remaining = state["receive_timeout_seconds"] - age - 1
                 record = {"pid": pid, "phase": PHASES[0], "fixture_at_capture": state,
+                          "main_milestone_at_capture": self.main_milestone(state),
                           "started_utc": datetime.now(timezone.utc).isoformat(),
                           "initial_receive_age_seconds": age,
                           "budget_seconds": min(self.args.capture_timeout, max(0, remaining))}

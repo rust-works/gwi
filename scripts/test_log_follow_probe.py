@@ -859,6 +859,63 @@ else:
                 contextlib.redirect_stdout(io.StringIO()):
             self.assertTrue(runner.measure(self.probe, 'default', {'cli_test': test}, args, {'repetitions': []}))
 
+    def test_capture_reads_the_milestone_file_not_the_stale_snapshot(self):
+        for index, written in enumerate((False, True)):
+            name = f'milestone-capture-{index}'
+            directory = self.root / name
+            fixture = self.binary(name + '-binary', f"""import json, os, pathlib, subprocess, sys, time
+child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)'])
+directory = pathlib.Path({str(directory)!r})
+if {written!r}:
+    (directory / 'main-immediate.json').write_text(json.dumps({{'pid': child.pid, 'main_unix_seconds': 5.5}}))
+state = {{'pid': child.pid, 'harness_pid': os.getpid(), 'phase': {runner.PHASES[0]!r},
+         'status': 'waiting', 'receive_started_unix_seconds': time.time(),
+         'receive_timeout_seconds': 10, 'split_append': False}}
+(directory / ('follower-' + str(child.pid) + '.json')).write_text(json.dumps(state))
+time.sleep(60)
+""")
+            run = self.probe.start(name, [str(fixture)], 'focused', 60)
+            deadline = time.monotonic() + 5
+            while not list(directory.glob('follower-*.json')) and time.monotonic() < deadline:
+                time.sleep(0.01)
+            args = runner.arguments(['--output', str(self.root), '--capture-live',
+                                     '--capture-after', '0.01', '--capture-timeout', '2'])
+            capture = runner.LiveCapture(self.probe, run, args)
+            tool = self.binary(f'milestone-tool-{index}', '')
+            tool.write_text('#!/bin/sh\ntrue\n')
+            with patch.object(capture, 'command', side_effect=lambda pid, stage: [str(tool)]), \
+                    patch.object(runner.sys, 'platform', 'linux'):
+                time.sleep(0.02)
+                self.drain_capture(capture)
+            record = next(iter(capture.records.values()))
+            # The snapshot never contains the milestone; the file is the evidence either way.
+            self.assertNotIn('main_milestone', record['fixture_at_capture'])
+            if written:
+                self.assertEqual(record['main_milestone_at_capture']['main_unix_seconds'], 5.5)
+            else:
+                self.assertEqual(record['main_milestone_at_capture'], 'absent')
+            capture.finish()
+            self.probe.cleanup()
+
+    def test_harness_workload_makes_first_execution_unknown(self):
+        test = self.fake_test()
+        args = runner.arguments(['--output', str(self.root), '--repetitions', '1',
+                                 '--workload', 'harness', '--concurrency', '1'])
+        summary = {'repetitions': []}
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertTrue(runner.measure(self.probe, 'default', {'cli_test': test}, args, summary))
+        history = summary['repetitions'][0]['executable_history']
+        self.assertIsNone(history['first_execution'])
+        self.assertTrue(history['launches_uncounted'])
+
+    def test_warm_binary_runs_without_inherited_probe_variables(self):
+        test = self.fake_test()
+        cli = self.binary('gwi', "import os, sys\nsys.exit(any(n.startswith('GWI_FOLLOW_PROBE') or n == 'GWI_STARTUP_MILESTONE_FILE' for n in os.environ))\n")
+        args = runner.arguments(['--output', str(self.root), '--repetitions', '1', '--warm-binary'])
+        with patch.dict(os.environ, {'GWI_STARTUP_MILESTONE_FILE': '/absent', 'GWI_FOLLOW_PROBE_DIR': '/absent'}), \
+                contextlib.redirect_stdout(io.StringIO()):
+            self.assertTrue(runner.measure(self.probe, 'default', {'cli_test': test, 'gwi': cli}, args, {'repetitions': []}))
+
     def test_argument_bounds(self):
         for options in (['--run-timeout', 'nan'], ['--max-seconds', 'inf'], ['--repetitions', '0'],
                         ['--cpu-workers', '-1'], ['--workload', 'startup'], ['--concurrency', '1'],
