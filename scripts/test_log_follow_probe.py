@@ -3,6 +3,7 @@
 
 import contextlib
 import importlib.util
+import inspect
 import io
 import json
 import os
@@ -14,6 +15,25 @@ import tempfile
 import time
 import unittest
 from unittest.mock import patch
+
+# Upper bound for fixtures to come up and publish files. Python start-up alone can take
+# many seconds on a host loaded far beyond its CPU count; a hang still fails here.
+READY_TIMEOUT = 60
+
+
+def publish(path, text):
+    """Write `path` atomically so a concurrent reader never sees a partial file."""
+    import os
+    import pathlib
+    path = pathlib.Path(path)
+    tmp = path.with_name('.' + path.name + '.tmp')
+    tmp.write_text(text)
+    os.replace(tmp, path)
+
+
+# Fixture programs are source strings run by a separate interpreter; they embed the
+# same function rather than a second copy of it.
+PUBLISH = inspect.getsource(publish)
 
 spec = importlib.util.spec_from_file_location("log_follow_probe", Path(__file__).with_name("log-follow-probe.py"))
 runner = importlib.util.module_from_spec(spec)
@@ -28,6 +48,26 @@ class ProbeTest(unittest.TestCase):
         self.root = Path(self.temp.name).resolve()
         self.probe = runner.Probe(self.root, 60)
         self.addCleanup(self.probe.cleanup)
+
+    def wait_for(self, ready, what, timeout=READY_TIMEOUT):
+        """Poll `ready()` until it returns something truthy; fail, naming `what`, on timeout."""
+        deadline = time.monotonic() + timeout
+        while True:
+            value = ready()
+            if value:
+                return value
+            if time.monotonic() >= deadline:
+                self.fail(f'timed out after {timeout}s waiting for {what}')
+            time.sleep(0.01)
+
+    def wait_for_pid(self, pidfile):
+        """Wait for a pidfile that exists *and* holds a complete pid, and return the pid."""
+        def pid():
+            try:
+                return int(pidfile.read_text())
+            except (FileNotFoundError, ValueError):
+                return None
+        return self.wait_for(pid, f'{pidfile.name} to hold a pid')
 
     def binary(self, name, code):
         path = self.root / name
@@ -271,7 +311,8 @@ else:
         pidfile = self.root / 'build-load.pid'
         self.binary('cargo', f"""import os, pathlib, signal, time
 signal.signal(signal.SIGTERM, signal.SIG_IGN)
-pathlib.Path({str(pidfile)!r}).write_text(str(os.getpid()))
+{PUBLISH}
+publish({str(pidfile)!r}, str(os.getpid()))
 time.sleep(60)
 """)
         test = self.fake_test()
@@ -287,8 +328,7 @@ time.sleep(60)
         self.assertEqual(slot.record['outcome'], 'stopped')
         self.assertIn('mcp', slot.record['command'])
         self.assertIn(str(self.root / 'overlap-build' / 'mcp-0'), slot.record['command'])
-        self.assertTrue(pidfile.exists())
-        self.assert_not_running(int(pidfile.read_text()))
+        self.assert_not_running(self.wait_for_pid(pidfile))
         self.assertEqual([c['role'] for c in summary['repetitions'][0]['overlap']['commands']], ['build-load'])
 
     def test_failed_build_load_fails_probe(self):
@@ -339,10 +379,7 @@ time.sleep({0.1 if immediate_exit else 60})
         for immediate in (False, True):
             parent, pidfile = self.descendant(immediate)
             run = self.probe.start(f'parent-{immediate}', [str(parent)], 'focused', 10)
-            deadline = time.monotonic() + 5
-            while not pidfile.exists() and time.monotonic() < deadline:
-                time.sleep(0.01)
-            self.assertTrue(pidfile.exists())
+            self.wait_for_pid(pidfile)
             if not immediate:
                 run.timeout = time.monotonic() - run.started + 0.4
             result = self.probe.wait(run)
@@ -355,9 +392,7 @@ time.sleep({0.1 if immediate_exit else 60})
         for cause in (KeyboardInterrupt, RuntimeError):
             parent, pidfile = self.descendant()
             run = self.probe.start(f'interrupt-{cause.__name__}', [str(parent)], 'focused', 60)
-            deadline = time.monotonic() + 5
-            while not pidfile.exists() and time.monotonic() < deadline:
-                time.sleep(0.01)
+            self.wait_for_pid(pidfile)
             with patch.object(self.probe, 'check_deadline', side_effect=cause('stop')):
                 with self.assertRaises(cause):
                     try:
@@ -371,7 +406,7 @@ time.sleep({0.1 if immediate_exit else 60})
         if child.poll() is None:
             child.terminate()
             try:
-                child.wait(timeout=3)
+                child.wait(timeout=READY_TIMEOUT)
             except subprocess.TimeoutExpired:
                 pass
         groups = set()
@@ -394,11 +429,11 @@ time.sleep({0.1 if immediate_exit else 60})
         finally:
             if child.poll() is None:
                 child.kill()
-            child.wait(timeout=3)
-        deadline = time.monotonic() + 3
+            child.wait(timeout=READY_TIMEOUT)
+        deadline = time.monotonic() + READY_TIMEOUT
         while groups:
             snapshot = subprocess.run(['ps', '-axo', 'pgid=,stat='], capture_output=True,
-                                      text=True, check=True, timeout=5)
+                                      text=True, check=True, timeout=READY_TIMEOUT)
             live = {int(group) for group, state in (line.split() for line in snapshot.stdout.splitlines())
                     if not state.startswith('Z')}
             groups &= live
@@ -415,18 +450,15 @@ time.sleep({0.1 if immediate_exit else 60})
         command_dir.mkdir(parents=True)
         broken = self.binary('broken-probe', f"""import json,pathlib,subprocess,time
 child = subprocess.Popen([{str(parent)!r}], start_new_session=True)
-pathlib.Path({str(command_dir / 'command.json')!r}).write_text(json.dumps({{'pid': child.pid}}))
+{PUBLISH}
+publish({str(command_dir / 'command.json')!r}, json.dumps({{'pid': child.pid}}))
 time.sleep(60)
 """)
         child = subprocess.Popen([str(broken)])
         try:
-            deadline = time.monotonic() + 10
-            while not pidfile.exists() and time.monotonic() < deadline:
-                time.sleep(0.01)
-            self.assertTrue(pidfile.exists())
-            descendant = int(pidfile.read_text())
+            descendant = self.wait_for_pid(pidfile)
             child.kill()
-            child.wait(timeout=3)
+            child.wait(timeout=READY_TIMEOUT)
             self.cleanup_runner(child, output, pidfile)
             self.assert_not_running(descendant)
         finally:
@@ -443,13 +475,10 @@ time.sleep(60)
             child = subprocess.Popen([sys.executable, str(Path(runner.__file__)), '--output', str(output)],
                                      env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             try:
-                deadline = time.monotonic() + 10
-                while not pidfile.exists() and time.monotonic() < deadline:
-                    time.sleep(0.01)
-                self.assertTrue(pidfile.exists())
+                pid = self.wait_for_pid(pidfile)
                 child.send_signal(sig)
-                self.assertEqual(child.wait(timeout=10), 130)
-                self.assert_not_running(int(pidfile.read_text()))
+                self.assertEqual(child.wait(timeout=READY_TIMEOUT), 130)
+                self.assert_not_running(pid)
                 summary = json.loads((output / 'summary.json').read_text())
                 self.assertEqual(summary['status'], 130)
                 self.assertEqual(summary['commands'][-1]['outcome'], 'stopped')
@@ -468,7 +497,7 @@ time.sleep(60)
 
     def test_permission_denial_is_suppressed_only_for_absent_live_group(self):
         run = self.probe.start('exited', [sys.executable, '-c', 'pass'], 'focused', 10)
-        run.child.wait(timeout=10)
+        run.child.wait(timeout=READY_TIMEOUT)
         with patch.object(runner.os, 'killpg', side_effect=PermissionError('denied')):
             self.assertEqual(run.finish('passed')['outcome'], 'passed')
         self.assertTrue(run.record['cleanup_notes'])
@@ -507,7 +536,7 @@ time.sleep(60)
         readiness = f"""    import pathlib, time
     marker = pathlib.Path({str(marker)!r})
     if focused:
-        deadline = time.monotonic() + 5
+        deadline = time.monotonic() + {READY_TIMEOUT}
         while not marker.exists() and time.monotonic() < deadline:
             time.sleep(0.01)
         assert marker.exists()
@@ -529,14 +558,12 @@ child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)'])
 state = {{'pid': child.pid, 'harness_pid': os.getpid(), 'phase': {runner.PHASES[0]!r},
          'status': 'waiting', 'receive_started_unix_seconds': time.time(),
          'receive_timeout_seconds': 10}}
-pathlib.Path({str(directory)!r}, 'follower-' + str(child.pid) + '.json').write_text(json.dumps(state))
+{PUBLISH}
+publish(pathlib.Path({str(directory)!r}, 'follower-' + str(child.pid) + '.json'), json.dumps(state))
 time.sleep(60)
 """)
         run = self.probe.start(name, [str(fixture)], 'focused', 60)
-        deadline = time.monotonic() + 5
-        while not list(directory.glob('follower-*.json')) and time.monotonic() < deadline:
-            time.sleep(0.01)
-        paths = list(directory.glob('follower-*.json'))
+        paths = self.wait_for(lambda: list(directory.glob('follower-*.json')), f'{name} to publish its follower state')
         self.assertEqual(len(paths), 1)
         state = json.loads(paths[0].read_text())
         args = runner.arguments(['--output', str(self.root), '--capture-live',
@@ -544,7 +571,7 @@ time.sleep(60)
         return run, paths[0], state, runner.LiveCapture(self.probe, run, args)
 
     def drain_capture(self, capture):
-        deadline = time.monotonic() + 5
+        deadline = time.monotonic() + READY_TIMEOUT
         while time.monotonic() < deadline:
             capture.tick()
             if capture.records and not capture.active:
@@ -612,7 +639,7 @@ time.sleep(60)
                 capture.tick()
                 if changed:
                     state['status'] = 'received'
-                    path.write_text(json.dumps(state))
+                    publish(path, json.dumps(state))
                 self.drain_capture(capture)
             record = capture.records[state['pid']]
             self.assertEqual(record['outcome'], 'late-or-exited' if changed else 'timeout')
@@ -668,7 +695,7 @@ time.sleep(60)
             state.update(changes)
             target = path.with_name('follower-' + str(state['pid']) + '.json')
             path.unlink()
-            target.write_text(json.dumps(state))
+            publish(target, json.dumps(state))
             with patch.object(capture, 'command') as command:
                 time.sleep(0.02)
                 capture.tick()
@@ -683,6 +710,7 @@ time.sleep(60)
             output = self.root / f'capture-signal-{sig}'
             pidfile = self.root / f'capture-worker-{sig}.pid'
             fixture = self.binary(f'signal-test-{sig}', """import json,os,pathlib,subprocess,sys,time
+""" + PUBLISH + """
 if '--list' in sys.argv:
     print(""" + repr(runner.TEST + ': test') + """ )
 else:
@@ -690,13 +718,14 @@ else:
     directory = pathlib.Path(os.environ['GWI_FOLLOW_PROBE_DIR'])
     state = {'pid': child.pid, 'harness_pid': os.getpid(), 'phase': 'initial backlog stdout',
              'status': 'waiting', 'receive_started_unix_seconds': time.time(), 'receive_timeout_seconds': 10}
-    (directory / ('follower-' + str(child.pid) + '.json')).write_text(json.dumps(state))
+    publish(directory / ('follower-' + str(child.pid) + '.json'), json.dumps(state))
     time.sleep(60)
 """)
             tool = self.binary(f'signal-tool-{sig}', f"""import os,pathlib,signal,subprocess,sys,time
 signal.signal(signal.SIGTERM, signal.SIG_IGN)
 child = subprocess.Popen([sys.executable, '-c', 'import signal,time; signal.signal(signal.SIGTERM, signal.SIG_IGN); time.sleep(60)'])
-pathlib.Path({str(pidfile)!r}).write_text(str(child.pid))
+{PUBLISH}
+publish({str(pidfile)!r}, str(child.pid))
 time.sleep(60)
 """)
             driver = self.binary(f'driver-{sig}', f"""import importlib.util,pathlib,shutil,sys
@@ -711,14 +740,11 @@ sys.exit(r.main(['--output', {str(output)!r}, '--features', 'default', '--repeti
 """)
             child = subprocess.Popen([str(driver)], stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
             try:
-                deadline = time.monotonic() + 10
-                while not pidfile.exists() and time.monotonic() < deadline:
-                    time.sleep(0.01)
-                self.assertTrue(pidfile.exists())
+                pid = self.wait_for_pid(pidfile)
                 child.send_signal(sig)
-                _, stderr = child.communicate(timeout=10)
+                _, stderr = child.communicate(timeout=READY_TIMEOUT)
                 self.assertEqual(child.returncode, 130, stderr.decode())
-                self.assert_not_running(int(pidfile.read_text()))
+                self.assert_not_running(pid)
                 summary = json.loads((output / 'summary.json').read_text())
                 self.assertEqual(summary['status'], 130)
                 captures = json.loads((output / 'default-run-1/captures.json').read_text())
