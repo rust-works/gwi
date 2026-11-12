@@ -19,10 +19,17 @@ from unittest.mock import patch
 # Upper bound for fixtures to come up and publish files. Python start-up alone can take
 # many seconds on a host loaded far beyond its CPU count; a hang still fails here.
 READY_TIMEOUT = 60
+# Shared process/sample capture budget (seconds; the probe allows up to 7.99) for tests
+# that expect their commands to finish inside it, so loaded start-up cannot expire it.
+LOADED_CAPTURE_BUDGET = 6
 
 
 def publish(path, text):
-    """Write `path` atomically so a concurrent reader never sees a partial file."""
+    """Write `path` atomically so a concurrent reader never sees a partial file.
+
+    Self-contained and brace-free on purpose: its source is spliced verbatim (see
+    PUBLISH) into fixture programs, including f-strings, that run in another interpreter.
+    """
     import os
     import pathlib
     path = pathlib.Path(path)
@@ -359,9 +366,8 @@ time.sleep(60)
         pidfile = self.root / 'descendant.pid'
         pidfile.unlink(missing_ok=True)
         child_code = (
-            "import os,pathlib,signal,time; signal.signal(signal.SIGTERM, signal.SIG_IGN); "
-            f"p=pathlib.Path({str(pidfile)!r}); t=p.with_suffix('.tmp'); "
-            "t.write_text(str(os.getpid())); t.replace(p); time.sleep(60)"
+            "import os,pathlib,signal,time; signal.signal(signal.SIGTERM, signal.SIG_IGN)\n"
+            + PUBLISH + f"publish({str(pidfile)!r}, str(os.getpid())); time.sleep(60)"
         )
         parent = self.binary('parent', f"""import pathlib, subprocess, sys, time
 child = subprocess.Popen([sys.executable, '-c', {child_code!r}])
@@ -477,7 +483,7 @@ time.sleep(60)
             try:
                 pid = self.wait_for_pid(pidfile)
                 child.send_signal(sig)
-                self.assertEqual(child.wait(timeout=READY_TIMEOUT), 130)
+                self.assertEqual(child.wait(timeout=10), 130)
                 self.assert_not_running(pid)
                 summary = json.loads((output / 'summary.json').read_text())
                 self.assertEqual(summary['status'], 130)
@@ -551,7 +557,7 @@ time.sleep(60)
         self.assertEqual(summary['repetitions'][0]['capture_evidence'], 'missing-fixture-state')
         self.assertEqual(marker.read_text(), 'checked')
 
-    def live_fixture(self, name='live-fixture'):
+    def live_fixture(self, name='live-fixture', capture_timeout=2):
         directory = self.root / name
         fixture = self.binary(name + '-binary', f"""import json, os, pathlib, subprocess, sys, time
 child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)'])
@@ -567,7 +573,7 @@ time.sleep(60)
         self.assertEqual(len(paths), 1)
         state = json.loads(paths[0].read_text())
         args = runner.arguments(['--output', str(self.root), '--capture-live',
-                                 '--capture-after', '0.01', '--capture-timeout', '2'])
+                                 '--capture-after', '0.01', '--capture-timeout', str(capture_timeout)])
         return run, paths[0], state, runner.LiveCapture(self.probe, run, args)
 
     def drain_capture(self, capture):
@@ -580,7 +586,8 @@ time.sleep(60)
         self.fail('capture did not finish within test bound')
 
     def test_capture_targets_live_follower_and_retains_raw_results(self):
-        run, path, state, capture = self.live_fixture()
+        # The budget only has to outlast starting two trivial commands on a loaded host.
+        run, path, state, capture = self.live_fixture(capture_timeout=LOADED_CAPTURE_BUDGET)
         tool = self.binary('capture-tool', '')
         tool.write_text('#!/bin/sh\nprintf "target %s\\n" "$1"\n')
         with patch.object(capture, 'command', side_effect=lambda pid, stage: [str(tool), str(pid)]), \
@@ -604,7 +611,10 @@ time.sleep(60)
                 ('failed', 'import sys; sys.exit(7)\n', 'failed'),
                 ('missing', None, 'unavailable'),
                 ('hung', 'import signal,time; signal.signal(signal.SIGTERM, signal.SIG_IGN); time.sleep(60)\n', 'timeout')):
-            run, path, state, capture = self.live_fixture(name)
+            # 'hung' must expire the budget, so it keeps the short one; the others only
+            # need their command to finish inside it.
+            run, path, state, capture = self.live_fixture(
+                name, capture_timeout=2 if name == 'hung' else LOADED_CAPTURE_BUDGET)
             tool = self.root / 'absent' if code is None else self.binary('tool-' + name, code)
             if name == 'failed':
                 tool.write_text('#!/bin/sh\nexit 7\n')
@@ -627,7 +637,8 @@ time.sleep(60)
 
     def test_sample_shares_process_budget_and_revalidates_phase(self):
         for changed in (False, True):
-            run, path, state, capture = self.live_fixture('shared-' + str(changed))
+            budget = LOADED_CAPTURE_BUDGET
+            run, path, state, capture = self.live_fixture('shared-' + str(changed), capture_timeout=budget)
             process = self.binary('slow-process-' + str(changed), '')
             process.write_text('#!/bin/sh\nsleep 0.15\n')
             sample = self.binary('hung-sample-' + str(changed), 'import time; time.sleep(60)\n')
@@ -643,10 +654,11 @@ time.sleep(60)
                 self.drain_capture(capture)
             record = capture.records[state['pid']]
             self.assertEqual(record['outcome'], 'late-or-exited' if changed else 'timeout')
-            self.assertLess(time.monotonic() - started, 4)
+            self.assertLess(time.monotonic() - started, budget + 2)
             self.assertEqual(len(record['commands']), 1 if changed else 2)
             if not changed:
-                self.assertLess(record['results'][1]['timeout_seconds'], 1.9)
+                # The sample stage gets only what the 0.15 s process stage left of the budget.
+                self.assertLess(record['results'][1]['timeout_seconds'], budget - 0.1)
             capture.finish()
         self.probe.cleanup()
 
@@ -742,7 +754,7 @@ sys.exit(r.main(['--output', {str(output)!r}, '--features', 'default', '--repeti
             try:
                 pid = self.wait_for_pid(pidfile)
                 child.send_signal(sig)
-                _, stderr = child.communicate(timeout=READY_TIMEOUT)
+                _, stderr = child.communicate(timeout=10)
                 self.assertEqual(child.returncode, 130, stderr.decode())
                 self.assert_not_running(pid)
                 summary = json.loads((output / 'summary.json').read_text())

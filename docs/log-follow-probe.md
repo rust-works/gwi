@@ -191,23 +191,25 @@ SIGINT/SIGTERM of the actual runner.
 
 The suite must also pass on a host that is heavily loaded, as a developer machine with
 several builds running is. To check that, saturate the CPUs and repeat the suite
-(bash or zsh; the subshell's `trap` stops the load when it ends):
+(bash; the subshell's `trap` stops the load when it ends):
 
 ```sh
 (
+  trap 'kill $(jobs -p)' EXIT
   for _ in $(seq $(( $(getconf _NPROCESSORS_ONLN) * 2 ))); do
     sh -c 'while :; do :; done' &
   done
-  trap 'kill $(jobs -p)' EXIT
   for _ in $(seq 20); do python3 scripts/test_log_follow_probe.py || exit 1; done
 )
 ```
 
 Fixtures publish files atomically (write a temporary file, then rename) and the tests
 wait up to `READY_TIMEOUT` (60 s) for a fixture's state file or pidfile to be complete,
-not for a fixed few seconds. The bound is only for start-up: every lifecycle assertion
-and its own timing check is unchanged, and a fixture that never comes up still fails
-with a message naming what it was waiting for.
+not for a fixed few seconds. Only waits for test fixtures to start, and the test
+harness's own cleanup polling, use that bound. Assertions about the runner under test,
+including how quickly it exits after a signal or reaps a timed-out command, keep their
+original limits, and a fixture that never comes up still fails with a message naming
+what it was waiting for.
 
 The `Log Follow Probe Lifecycle` workflow runs this suite on Linux and macOS for
 pull requests, merge queue entries and main pushes. Each matrix job has a
