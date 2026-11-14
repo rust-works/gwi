@@ -13,6 +13,9 @@ use gwi::request_log::{self, InvocationOutcome, RequestLogContext, Source};
 use gwi::Cli;
 
 fn main() {
+    // Before anything else, so the timestamp is as close to process entry as Rust allows.
+    record_startup_milestone();
+
     // Capture argv before clap consumes it, so the invocation record can log the
     // full command line and the resolved subcommand path.
     let argv: Vec<String> = std::env::args().collect();
@@ -63,6 +66,44 @@ fn main() {
     }
 }
 
+/// Environment variable naming a file that receives a timestamp at entry to `main`.
+///
+/// Opt-in diagnostic for the log-follow probe (#309): the probe compares it with
+/// its own spawn time to separate exec/loader delay from everything after `main`.
+/// Unset, which is every ordinary run, nothing is written.
+const STARTUP_MILESTONE_ENV: &str = "GWI_STARTUP_MILESTONE_FILE";
+
+/// Writes the `main`-entry milestone to the file named by [`STARTUP_MILESTONE_ENV`].
+fn record_startup_milestone() {
+    if let Some(path) = std::env::var_os(STARTUP_MILESTONE_ENV) {
+        write_startup_milestone(std::path::Path::new(&path));
+    }
+}
+
+/// Atomically writes `{"pid":…,"main_unix_seconds":…}` to `path`.
+///
+/// Best effort: a diagnostic must never change stdout, stderr or the exit code,
+/// so every failure is ignored. The write is a temporary file renamed into place,
+/// so a reader never sees a partial milestone.
+fn write_startup_milestone(path: &std::path::Path) {
+    let seconds = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0.0, |elapsed| elapsed.as_secs_f64());
+    let mut temporary = path.as_os_str().to_owned();
+    temporary.push(format!(".{}.tmp", process::id()));
+    let temporary = std::path::PathBuf::from(temporary);
+    let body = format!(
+        "{{\"pid\":{},\"main_unix_seconds\":{seconds:.6}}}\n",
+        process::id()
+    );
+    if std::fs::write(&temporary, body)
+        .and_then(|()| std::fs::rename(&temporary, path))
+        .is_err()
+    {
+        let _ = std::fs::remove_file(&temporary);
+    }
+}
+
 /// Resolves the clap subcommand path (e.g. `["gmail","search"]`) by re-deriving
 /// matches from argv and walking the subcommand chain. Generic, so it stays
 /// correct as subcommands are added, and returns an empty path if re-parsing
@@ -105,6 +146,7 @@ fn die(e: &anyhow::Error) -> ! {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)] // Tests assert on fixtures they create themselves.
 mod tests {
     use super::*;
 
@@ -130,6 +172,33 @@ mod tests {
             ])),
             ["gmail", "label", "list"]
         );
+    }
+
+    #[test]
+    fn the_startup_milestone_records_pid_and_time() {
+        let before = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs_f64();
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("main.json");
+
+        write_startup_milestone(&path);
+
+        let value: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(value["pid"], process::id());
+        assert!(value["main_unix_seconds"].as_f64().unwrap() >= before - 0.001);
+        // The temporary file is renamed away, leaving only the milestone.
+        assert_eq!(std::fs::read_dir(directory.path()).unwrap().count(), 1);
+    }
+
+    #[test]
+    fn an_unwritable_startup_milestone_is_ignored() {
+        let directory = tempfile::tempdir().unwrap();
+        // The parent directory does not exist: nothing is written and nothing panics.
+        write_startup_milestone(&directory.path().join("missing").join("main.json"));
+        assert_eq!(std::fs::read_dir(directory.path()).unwrap().count(), 0);
     }
 
     #[test]

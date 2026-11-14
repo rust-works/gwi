@@ -8,7 +8,9 @@ import os
 from pathlib import Path
 import platform
 import re
+import shutil
 import signal
+import statistics
 import subprocess
 import sys
 import threading
@@ -33,6 +35,11 @@ BUILD_LOAD = (
 SUMMARY_WORKLOADS = ("harness", "lib")
 GRACE = 0.3
 EXIT_GRACE = 2
+# The follow fixture's initial-receive deadline (`from_secs(10)` in tests/cli_test.rs).
+FOLLOW_RECEIVE_DEADLINE = 10.0
+# Bounds on a first-spawn batch: each process holds two log files and a command directory.
+MAX_FIRST_SPAWNS = 256
+MAX_FIRST_SPAWN_COPIES = 10
 INTERRUPTED = None
 
 
@@ -57,6 +64,8 @@ class CommandRun:
         self.capture_lock = threading.Lock()
         self.capture_timer = None
         self.capture_expired = False
+        # Wall-clock stamps comparable with a child's own timestamps (the #313 first-spawn batch).
+        self.record["spawn_requested_unix_seconds"] = time.time()
         try:
             self.child = subprocess.Popen(command, cwd=ROOT, env=env, start_new_session=True,
                                           stdout=self.files[0], stderr=self.files[1])
@@ -67,6 +76,7 @@ class CommandRun:
                                elapsed_seconds=time.monotonic() - self.started)
             write_json(directory / "command.json", self.record)
             raise
+        self.record["spawned_unix_seconds"] = time.time()
         self.record["pid"] = self.child.pid
 
     def start_capture_watchdog(self):
@@ -338,11 +348,196 @@ def overlap_record(loads, focused, load_start, load_end):
             "loadavg_start": load_start, "loadavg_end": load_end}
 
 
+def startup_timing(state, name, threshold):
+    """Spawn-to-main timing for one follower snapshot (#309), from raw fixture timestamps.
+
+    Every value is None when an input is missing; nothing is inferred. `delayed` means the
+    initial receive took longer than `threshold` seconds from the spawn request.
+    """
+    def number(value):
+        return value if isinstance(value, (int, float)) and not isinstance(value, bool) else None
+
+    def delta(begin, end):
+        return end - begin if begin is not None and end is not None else None
+
+    requested = number(state.get("spawn_requested_unix_seconds"))
+    returned = number(state.get("spawned_unix_seconds"))
+    ended_by_phase = state.get("receive_ended_by_phase")
+    ended = number(ended_by_phase.get(PHASES[0])) if isinstance(ended_by_phase, dict) else None
+    milestone = state.get("main_milestone")
+    main = number(milestone.get("main_unix_seconds")) if isinstance(milestone, dict) else None
+    total = delta(requested, ended)
+    before_main = delta(requested, main)
+    return {"file": name, "pid": state.get("pid"), "split_append": state.get("split_append"),
+            "spawn_requested_unix_seconds": requested,
+            "spawn_call_seconds": delta(requested, returned),
+            "spawn_to_main_seconds": before_main,
+            "main_to_initial_receive_seconds": delta(main, ended),
+            "spawn_to_initial_receive_seconds": total,
+            "before_main_share": before_main / total if before_main is not None and total else None,
+            "main_milestone": milestone if milestone is not None else "missing",
+            "milestone": "present" if main is not None else "missing",
+            "delayed": total is not None and total > threshold}
+
+
+def follower_startup(directory, threshold):
+    """Per-follower startup timing for one focused run, in spawn order."""
+    followers = []
+    for path in sorted(directory.glob("follower-*.json")):
+        try:
+            followers.append(startup_timing(json.loads(path.read_text()), path.name, threshold))
+        except (OSError, ValueError, AttributeError) as error:
+            followers.append({"file": path.name, "error": str(error), "milestone": "missing", "delayed": None})
+    return sorted(followers, key=lambda f: (f.get("spawn_requested_unix_seconds") is None,
+                                            f.get("spawn_requested_unix_seconds") or 0, f["file"]))
+
+
+def warm_binary(probe, feature, binaries, timeout, env, summary):
+    """Execute `gwi --help` once, so a later follower is not the binary's first execution."""
+    if "gwi" not in binaries:
+        raise RuntimeError(f"Missing {feature} gwi executable for --warm-binary")
+    run = probe.start(f"{feature}-warm-binary", [str(binaries["gwi"]), "--help"], "warmup", timeout, env)
+    result = probe.wait(run)
+    summary.setdefault("warmups", []).append({"feature": feature, "directory": run.directory.name, **result})
+    require_pass(run, result)
+
+
+def first_spawn_timing(run, deadline):
+    """Spawn-to-`main` timing for one `gwi --help` of a first-spawn batch (#313).
+
+    Every value is None when an input is missing; nothing is inferred. The milestone is the
+    file `gwi` wrote at entry to `main` (`main.json` in the command's directory).
+    """
+    requested = run.record.get("spawn_requested_unix_seconds")
+    returned = run.record.get("spawned_unix_seconds")
+    try:
+        main = json.loads((run.directory / "main.json").read_text()).get("main_unix_seconds")
+        main = (main if isinstance(main, (int, float)) and not isinstance(main, bool)
+                and math.isfinite(main) else None)
+    except (OSError, ValueError, AttributeError):
+        main = None
+    before_main = main - requested if main is not None and requested is not None else None
+    return {"directory": run.directory.name, "pid": run.record.get("pid"),
+            "outcome": run.record.get("outcome"), "returncode": run.record.get("returncode"),
+            "spawn_requested_unix_seconds": requested, "main_unix_seconds": main,
+            "spawn_call_seconds": returned - requested if returned is not None and requested is not None else None,
+            "spawn_to_main_seconds": before_main,
+            "milestone": "present" if main is not None else "missing",
+            "reached_deadline": None if before_main is None else before_main >= deadline}
+
+
+def first_spawn_summary(processes, deadline):
+    """Aggregate one batch so shared, summed and queued delays can be told apart.
+
+    Shared: every process reaches `main` at about the same time (small `main_spread_seconds`,
+    maximum about one delay). Summed or queued: `main` times are staggered over a span near the
+    sum of the delays (large spread, maximum well above a single process's delay).
+    """
+    delays = sorted(p["spawn_to_main_seconds"] for p in processes if p["spawn_to_main_seconds"] is not None)
+    requested = [p["spawn_requested_unix_seconds"] for p in processes
+                 if p["spawn_requested_unix_seconds"] is not None]
+    mains = [p["main_unix_seconds"] for p in processes if p["main_unix_seconds"] is not None]
+    summary = {"processes": len(processes), "with_milestone": len(delays),
+               "missing_milestone": len(processes) - len(delays), "deadline_seconds": deadline,
+               "spawn_window_seconds": max(requested) - min(requested) if requested else None,
+               "main_spread_seconds": max(mains) - min(mains) if mains else None}
+    if delays:
+        summary.update(min_spawn_to_main_seconds=delays[0], median_spawn_to_main_seconds=statistics.median(delays),
+                       max_spawn_to_main_seconds=delays[-1], sum_spawn_to_main_seconds=sum(delays),
+                       at_or_over_deadline=sum(d >= deadline for d in delays),
+                       over_half_deadline=sum(d >= deadline / 2 for d in delays))
+    return summary
+
+
+def first_spawn_batch(probe, feature, label, executable, count, args, env):
+    """Start `count` `gwi --help` processes of one executable together; return their record."""
+    barrier = threading.Barrier(count)
+    runs = [None] * count
+    errors = []
+
+    def launch(index):
+        name = f"{feature}-first-spawn-{label}-{index:02d}"
+        child_env = dict(env, GWI_STARTUP_MILESTONE_FILE=str(probe.output / name / "main.json"))
+        try:
+            barrier.wait(timeout=30)
+            runs[index] = probe.start(name, [str(executable), "--help"], "first-spawn",
+                                      args.run_timeout, child_env)
+        except BaseException as error:  # reported in the supervisor thread, after every launch ends
+            barrier.abort()
+            errors.append(error)
+
+    threads = [threading.Thread(target=launch, args=(index,)) for index in range(count)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    if errors:
+        # Surface an interruption as itself, else the first real failure rather than the
+        # BrokenBarrierError that aborting the barrier caused in the other launchers.
+        raise next((e for e in errors if isinstance(e, KeyboardInterrupt)),
+                   next((e for e in errors if not isinstance(e, threading.BrokenBarrierError)), errors[0]))
+    results = [probe.wait(run) for run in runs]
+    processes = sorted((first_spawn_timing(run, FOLLOW_RECEIVE_DEADLINE) for run in runs),
+                       key=lambda p: (p["spawn_requested_unix_seconds"] is None,
+                                      p["spawn_requested_unix_seconds"] or 0, p["directory"]))
+    origin = min((p["spawn_requested_unix_seconds"] for p in processes
+                  if p["spawn_requested_unix_seconds"] is not None), default=None)
+    for process in processes:
+        main = process["main_unix_seconds"]
+        process["main_after_batch_start_seconds"] = main - origin if main is not None and origin is not None else None
+    return {"feature": feature, "batch": label, "executable": str(executable), "count": count,
+            "processes": processes, "summary": first_spawn_summary(processes, FOLLOW_RECEIVE_DEADLINE),
+            "passed": all(r["outcome"] == "passed" for r in results)
+                      and all(p["milestone"] == "present" for p in processes)}
+
+
+def concurrent_first_spawns(probe, feature, binaries, args, summary):
+    """Concurrent first executions of one fresh `gwi` (#313); True when every process passed.
+
+    The first batch runs the Cargo-built executable, which nothing has executed (unless
+    `--warm-binary`, which makes it a warmed control). Each further batch runs a new copy of it
+    at a new path, so it needs no rebuild; whether a copy repeats the first-execution delay is
+    itself measured, not assumed.
+    """
+    if "gwi" not in binaries:
+        raise RuntimeError(f"Missing {feature} gwi executable for --first-spawns")
+    env = os.environ.copy()
+    for name in ("GWI_FOLLOW_PROBE_DIR", "GWI_FOLLOW_PROBE_DELAY", "GWI_STARTUP_MILESTONE_FILE"):
+        env.pop(name, None)
+    if args.warm_binary:
+        warm_binary(probe, feature, binaries, args.run_timeout, env, summary)
+    success = True
+    for batch in range(args.first_spawn_copies + 1):
+        if batch == 0:
+            label, executable = "built", binaries["gwi"]
+        else:
+            label = f"copy{batch}"
+            executable = probe.output / "first-spawn-copies" / f"{feature}-{label}" / "gwi"
+            executable.parent.mkdir(parents=True)
+            shutil.copy(binaries["gwi"], executable)
+        record = first_spawn_batch(probe, feature, label, executable, args.first_spawns, args, env)
+        # Only the Cargo-built executable is what `--warm-binary` ran; a copy is a new file.
+        record["warm_binary"] = args.warm_binary and batch == 0
+        summary.setdefault("first_spawns", []).append(record)
+        write_json(probe.output / "summary.json", summary)
+        success = record["passed"] and success
+    return success
+
+
 def measure(probe, feature, binaries, args, summary):
     env = os.environ.copy()
     env["INSTA_WORKSPACE_ROOT"] = str(ROOT)
-    for name in ("GWI_FOLLOW_PROBE_DIR", "GWI_FOLLOW_PROBE_DELAY"):
+    for name in ("GWI_FOLLOW_PROBE_DIR", "GWI_FOLLOW_PROBE_DELAY", "GWI_STARTUP_MILESTONE_FILE"):
         env.pop(name, None)
+    # Launches of this feature's gwi that this runner can count: the warm-up, startup-load
+    # slots (when requested) and followers that published a snapshot. The target directory
+    # is new and Cargo does not run the binary, so this is its whole history except for the
+    # `harness` workload, whose CLI tests spawn gwi uncounted, and a follower that was
+    # spawned but never published a snapshot.
+    launches = 0
+    if args.warm_binary:
+        warm_binary(probe, feature, binaries, args.run_timeout, env, summary)
+        launches += 1
     workers = []
     loads = []
     for index in range(args.cpu_workers):
@@ -358,7 +553,7 @@ def measure(probe, feature, binaries, args, summary):
 
     def service_loads():
         """Record every load exit, including failures, and replenish the slots."""
-        nonlocal success, serial
+        nonlocal success, serial, launches
         for slots_, role, timeout, name in ((slots, args.workload, args.workload_timeout, "workload"),
                                             (build_slots, "build-load", args.build_timeout, "build")):
             for index, worker in enumerate(slots_):
@@ -373,6 +568,7 @@ def measure(probe, feature, binaries, args, summary):
                            else load_command(role, binaries, args, feature, index))
                 slots_[index] = probe.start(f"{feature}-{name}-{serial}", command, role, timeout, env)
                 loads.append(slots_[index])
+                launches += role == "startup"
 
     try:
         for repetition in range(1, args.repetitions + 1):
@@ -385,6 +581,12 @@ def measure(probe, feature, binaries, args, summary):
                 focused_env["GWI_FOLLOW_PROBE_DIR"] = str(probe.output / name)
                 focused_env["GWI_FOLLOW_PROBE_DELAY"] = str(args.synthetic_delay)
             load_start = list(os.getloadavg())
+            # The harness workload spawns gwi in many tests, so the count is only a lower
+            # bound and "first execution" is unknown (None) while it runs.
+            history = {"gwi_launches_before_run": launches,
+                       "first_execution": None if args.workload == "harness" else launches == 0,
+                       "launches_uncounted": args.workload == "harness",
+                       "warm_binary": args.warm_binary}
             run = probe.start(name,
                               [str(binaries["cli_test"]), TEST, "--exact", "--nocapture", "--color", "never"],
                               "focused", args.run_timeout, focused_env)
@@ -399,9 +601,12 @@ def measure(probe, feature, binaries, args, summary):
                     break
                 time.sleep(0.05)
             output = run.output()
+            followers = follower_startup(run.directory, args.capture_after)
+            launches += len(followers)
             entry = {"feature": feature, "repetition": repetition,
                      "invocation": "first-focused" if repetition == 1 else "subsequent-focused",
                      "directory": run.directory.name, **result, "phases": phases(output),
+                     "executable_history": history, "followers": followers,
                      "overlap": overlap_record(loads, run, load_start, list(os.getloadavg()))}
             entry["valid_selection"] = test_passed(output, expected=1) and len(entry["phases"]) == 6
             if result["outcome"] == "passed" and not entry["valid_selection"]:
@@ -439,6 +644,21 @@ class LiveCapture:
             if record.get("outcome") != "running" and "started_utc" in record:
                 record.setdefault("ended_utc", datetime.now(timezone.utc).isoformat())
         write_json(self.run.directory / "captures.json", list(self.records.values()))
+
+    def main_milestone(self, state):
+        """The follower's `main`-entry milestone as of now, read from the sink.
+
+        The fixture refreshes the milestone in its snapshots only when it publishes one, so the
+        snapshot read at capture time cannot say whether `main` was reached since. "absent"
+        means the file did not exist: the follower had not entered `main`.
+        """
+        path = self.run.directory / f"main-{'split' if state.get('split_append') else 'immediate'}.json"
+        try:
+            return json.loads(path.read_text())
+        except FileNotFoundError:
+            return "absent"
+        except (OSError, ValueError) as error:
+            return {"unreadable": str(error)}
 
     def command(self, pid, stage):
         if stage == "process":
@@ -505,6 +725,7 @@ class LiveCapture:
                     continue
                 remaining = state["receive_timeout_seconds"] - age - 1
                 record = {"pid": pid, "phase": PHASES[0], "fixture_at_capture": state,
+                          "main_milestone_at_capture": self.main_milestone(state),
                           "started_utc": datetime.now(timezone.utc).isoformat(),
                           "initial_receive_age_seconds": age,
                           "budget_seconds": min(self.args.capture_timeout, max(0, remaining))}
@@ -560,6 +781,12 @@ def arguments(argv):
     parser.add_argument("--capture-live", action="store_true", help="capture delayed initial receives")
     parser.add_argument("--capture-after", type=positive, default=2, help="initial receive age before capture")
     parser.add_argument("--capture-timeout", type=positive, default=2, help="shared process/sample budget")
+    parser.add_argument("--warm-binary", action="store_true",
+                        help="run `gwi --help` once per feature before measuring (pre-executed binary)")
+    parser.add_argument("--first-spawns", type=count, default=0,
+                        help="instead of the follow test, start N `gwi --help` together on a fresh binary (#313)")
+    parser.add_argument("--first-spawn-copies", type=count, default=0,
+                        help="extra --first-spawns batches, each on a new copy of the executable")
     parser.add_argument("--synthetic-delay", type=float, default=0, help="opt-in stdout reader delay, at most 8s")
     parser.add_argument("--cpu-workers", type=count, default=0)
     parser.add_argument("--workload", choices=("none", "startup", "harness", "lib"), default="none")
@@ -581,6 +808,14 @@ def arguments(argv):
         parser.error("synthetic-delay must be finite and between zero and eight seconds")
     if args.synthetic_delay and not args.capture_live:
         parser.error("synthetic-delay requires capture-live")
+    if args.first_spawns > MAX_FIRST_SPAWNS or args.first_spawn_copies > MAX_FIRST_SPAWN_COPIES:
+        parser.error(f"first-spawns is at most {MAX_FIRST_SPAWNS} and first-spawn-copies at most "
+                     f"{MAX_FIRST_SPAWN_COPIES}")
+    if args.first_spawn_copies and not args.first_spawns:
+        parser.error("first-spawn-copies requires first-spawns")
+    if args.first_spawns and (args.workload != "none" or args.cpu_workers or args.build_slots
+                              or args.capture_live or args.synthetic_delay):
+        parser.error("first-spawns measures an unloaded fresh binary; it excludes loads and capture")
     return args
 
 
@@ -603,7 +838,8 @@ def main(argv=None):
     probe = Probe(output, args.max_seconds)
     summary = {"started_utc": datetime.now(timezone.utc).isoformat(), "platform": platform.platform(),
                "cpu_count": os.cpu_count(), "configuration": {**vars(args), "output": str(output)},
-               "repetitions": [], "cache_control": "none; first-focused is invocation order only",
+               "repetitions": [], "cache_control": "none; first-focused is invocation order only "
+                                "(executable_history counts the runner's launches of gwi)",
                "uncontrolled": ["host idleness and other processes", "CPU utilization beyond loadavg at "
                                 "focused start/end", "filesystem and compiler caches",
                                 "execution order of the original full suite (focused test is run --exact "
@@ -628,7 +864,10 @@ def main(argv=None):
         summary["binaries"] = {f: {k: str(v) for k, v in b.items()} for f, b in binaries.items()}
         success = True
         for feature in features:
-            success = measure(probe, feature, binaries[feature], args, summary) and success
+            if args.first_spawns:
+                success = concurrent_first_spawns(probe, feature, binaries[feature], args, summary) and success
+            else:
+                success = measure(probe, feature, binaries[feature], args, summary) and success
         probe.check_deadline()
         status = 0 if success else 1
     except (OSError, RuntimeError, ValueError, KeyError, subprocess.SubprocessError, KeyboardInterrupt) as error:
