@@ -71,6 +71,17 @@ invocations, with and without the flag, compare a first execution of the freshly
 Cargo does not run the binary, so without the flag the first follower spawn is the
 executable's first execution.
 
+[Issue #313](https://github.com/rust-works/gwi/issues/313) adds `--first-spawns N`, which
+replaces the follow test with a batch: after the isolated builds the runner starts N
+`gwi --help` processes at once (threads released by a barrier), each an owned `first-spawn`
+command with its own `GWI_STARTUP_MILESTONE_FILE`, and records every process's spawn-to-`main`
+time plus a batch summary (minimum, median, maximum, sum, the spread of the `main` times, and
+the counts at or over the follow fixture's ten-second receive deadline and over half of it).
+`--warm-binary` makes the batch a warmed control; `--first-spawn-copies C` repeats the batch
+C more times, each on a new copy of the executable at a new path, without rebuilding. The mode
+excludes loads, capture and synthetic delay. It is bounded like every other run
+(`--run-timeout` per command, `--max-seconds` in total) and retries nothing.
+
 ## Bounds and cleanup
 
 The default total deadline is 2,400 seconds, including builds, with 900 seconds per
@@ -758,7 +769,7 @@ freshly built tree the long-running harness need not have executed it yet.
 Not shown: that this causes the historical ten-second stalls (#285, #294). The largest delay
 measured is 5.5 s, below the deadline. A full suite starts many test threads at once, and
 whether concurrent first spawns of one executable add up or wait on each other was not
-tested. The #285 comparison, whose first focused runs had startup workloads running and
+tested here (it is measured in the "Concurrent first spawns (#313)" section below). The #285 comparison, whose first focused runs had startup workloads running and
 still showed the delay, is consistent with a shared one-off cost but does not demonstrate it.
 Why the first execution is slow (for example first-use assessment of a new executable) is
 also unestablished: the milestone separates before-`main` from after-`main`, and the samples
@@ -794,3 +805,101 @@ that could separate exec from loader did not complete (below).
 Raw evidence remains local (4.3-6.7 GiB each, mostly Cargo targets) in
 `/private/tmp/gwi-309-baseline-first`, `-baseline-warm`, `-lib-first` and `-lib-warm`. After
 the runs, a process audit found no live process referencing those directories.
+
+## Concurrent first spawns (#313)
+
+[Issue #313](https://github.com/rust-works/gwi/issues/313) asked whether many concurrent first
+spawns of one new executable, as in a full `cargo test` with many test threads, share the
+first-execution delay of the #309 section, add up, or queue, and whether any reaches the
+follow fixture's ten-second receive deadline. Run on 15 November 2026 (Australia/Sydney),
+macOS 26.5.2 arm64, 18 logical CPUs, Python 3.15.0, Rust 1.99.0, revision `d2fc354ecf5e` with a
+clean tree (`git_status` empty in all four summaries). Bounds were fixed beforehand and not
+tuned: both features, 60 seconds per command, 1,500 per build, 3,000 total, no loads, nothing
+retried or replaced. N is 18 (this host's logical CPUs, so libtest's default thread count), 64
+(more spawners than CPUs) and 1 (a single-spawn baseline on the same host).
+
+```sh
+COMMON="--features both --run-timeout 60 --build-timeout 1500 --max-seconds 3000"
+python3 scripts/log-follow-probe.py --output /private/tmp/gwi-313-A-first-18 $COMMON \
+  --first-spawns 18 --first-spawn-copies 2
+python3 scripts/log-follow-probe.py --output /private/tmp/gwi-313-B-warm-18 $COMMON \
+  --first-spawns 18 --warm-binary
+python3 scripts/log-follow-probe.py --output /private/tmp/gwi-313-C-single $COMMON \
+  --first-spawns 1 --first-spawn-copies 2
+python3 scripts/log-follow-probe.py --output /private/tmp/gwi-313-D-first-64 $COMMON \
+  --first-spawns 64
+```
+
+All four exited zero; every one of the 278 measured processes exited zero and wrote its `main`
+milestone, and none reached the deadline. Seconds from the spawn request to `main`, per batch. "built" is the Cargo-built
+executable, which nothing had run (the runner counts its launches; Cargo does not run `gwi`);
+"copy" is a new copy of it at a new path.
+
+| Batch | N | Features | Min | Median | Max | Spread of `main` times | Spawn window |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| built | 18 | default | 1.408 | 1.418 | 1.428 | 0.002 | 0.020 |
+| built | 18 | mcp | 1.191 | 1.203 | 1.213 | 0.002 | 0.020 |
+| copy 1 | 18 | default / mcp | 0.599 / 0.546 | 0.612 / 0.558 | 0.623 / 0.571 | 0.002 / 0.003 | 0.024 / 0.026 |
+| copy 2 | 18 | default / mcp | 0.630 / 0.530 | 0.641 / 0.541 | 0.651 / 0.552 | 0.002 / 0.001 | 0.021 / 0.022 |
+| built | 64 | default | 1.144 | 1.185 | 1.238 | 0.033 | 0.078 |
+| built | 64 | mcp | 1.172 | 1.228 | 1.276 | 0.035 | 0.082 |
+| built | 1 | default / mcp | 1.157 / 1.283 | | | 0 | 0 |
+| copy 1 | 1 | default / mcp | 0.601 / 0.570 | | | 0 | 0 |
+| copy 2 | 1 | default / mcp | 0.560 / 0.554 | | | 0 | 0 |
+| warmed control | 18 | default | 0.005 | 0.005 | 0.007 | 0.023 | 0.025 |
+| warmed control | 18 | mcp | 0.005 | 0.005 | 0.007 | 0.024 | 0.026 |
+
+"Spawn window" is the span of the processes' spawn requests; "spread" is the span of their
+`main` times. The warmed control's warm-up `gwi --help` itself took 1.29 s (default) and
+1.24 s (mcp). Host load average before the runs was about 11-19; other sessions shared the host.
+
+### What this shows
+
+- **Concurrent first spawns share one delay.** Eighteen processes started within 20-26 ms
+  reached `main` within 1-3 ms of each other, and the slowest took what the single-spawn
+  baseline took (1.19-1.43 s against 1.16-1.28 s). Sixty-four processes behaved the same
+  (spread 33-35 ms, maximum 1.24-1.28 s). They did not add up (the sum of the delays was
+  21-79 s, which no process experienced) and did not queue (a queue would stagger the `main`
+  times over a span near that sum). The processes
+  appear to wait on one event and are released together.
+- **The delay is not near the deadline here.** The largest spawn-to-`main` of any of the
+  278 processes was 1.43 s, 14 % of the ten-second deadline; none reached half of it. This does not contradict #309's 2.2-5.5 s: those were single spawns on a
+  much busier host (load averages 44-160), and it shows the size of the delay varies several-fold
+  between runs of the same measurement, which these runs did not control.
+- **A copy still pays, but less.** A new copy at a new path took 0.53-0.65 s to reach `main` for
+  one spawn or eighteen, against 1.16-1.43 s for the built executable and 5 ms for a warmed
+  one. So the cost is not only per file path or per fresh build, and a copy is not a free
+  stand-in for a rebuilt binary: later batches here are a repeat on a related but different
+  executable.
+- **The delay is after the process exists.** Each `Popen` of the batch returned in 3-33 ms, so
+  the wait is before `main`, as in #309, not in creating the process.
+
+### Decision on a test-side mitigation
+
+**Not warranted on this evidence.** Concurrent first spawns do not add up, so a full
+`cargo test` with many threads does not multiply the delay by the thread count, and the delay
+measured here is a small fraction of the follow test's ten-second deadline. Executing `gwi`
+once before the follow fixture's timed receive would only move the delay onto that first
+execution (as the #309 warm-up showed: it took 1.2-2.6 s itself) and hide a cost that is
+already shared. Nothing here is a reason to raise the deadline or change follow code. Revisit
+it if a stall recurs with a startup milestone recorded, or if a future measurement under heavy
+load shows a shared delay approaching the deadline.
+
+### What this does not establish
+
+- **Heavy load.** These runs had no designed load and moderate host load; #309's larger delays
+  came with load averages of 44-160. Whether a shared delay of 5.5 s or more also stays shared
+  under load, or becomes longer under many concurrent spawns, was not measured.
+- **The historical ten-second stalls (#285, #294)** are not explained: nothing here approaches
+  the deadline, and a full suite's mix of different commands, library tests and a build was not
+  reproduced. N `gwi --help` isolates the exec and load stage; it is not the CLI harness.
+- **Why the first execution is slow** is still unknown. No stack was taken: the optional third
+  item of the issue, a `sample` with a longer symbolication budget, was not attempted. The
+  existing capture budget is tied to the fixture's own deadline.
+- One macOS host, one batch per cell, and a Cargo-built binary that the runner's launch count
+  shows nothing ran (it cannot see another process executing the path). Windows and Linux were
+  not run. No follow code, receive deadline or retry changed.
+
+Raw evidence remains local (4.4-4.7 GiB each, mostly Cargo targets) in
+`/private/tmp/gwi-313-A-first-18`, `-B-warm-18`, `-C-single` and `-D-first-64`. After the runs
+a process audit found no live process referencing those directories.
