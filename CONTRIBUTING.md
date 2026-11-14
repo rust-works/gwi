@@ -8,7 +8,10 @@ now is to comment on the design in
 
 1. Fork and branch from `main`.
 2. Keep changes focused. Run `cargo fmt --all`, `cargo clippy --all-targets -- -D warnings`
-   and `cargo test`.
+   and `cargo test`, then the two doc builds CI's `Docs` job runs. They deny every rustdoc
+   warning, including a public doc link to a private item:
+   `RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --document-private-items --features mcp` and
+   `RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --features mcp`.
 3. Use [conventional commits](https://www.conventionalcommits.org/); see
    [.omni-dev/commit-guidelines.md](.omni-dev/commit-guidelines.md) and
    [docs/STYLE_GUIDE.md](docs/STYLE_GUIDE.md).
