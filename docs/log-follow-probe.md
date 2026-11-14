@@ -80,7 +80,9 @@ the counts at or over the follow fixture's ten-second receive deadline and over 
 `--warm-binary` makes the batch a warmed control; `--first-spawn-copies C` repeats the batch
 C more times, each on a new copy of the executable at a new path, without rebuilding. The mode
 excludes loads, capture and synthetic delay. It is bounded like every other run
-(`--run-timeout` per command, `--max-seconds` in total) and retries nothing.
+(`--run-timeout` per command, `--max-seconds` in total, at most 256 processes per batch and
+10 copies) and retries nothing. Options that only shape the follow test, such as
+`--repetitions`, are ignored in this mode.
 
 ## Bounds and cleanup
 
@@ -769,8 +771,9 @@ freshly built tree the long-running harness need not have executed it yet.
 Not shown: that this causes the historical ten-second stalls (#285, #294). The largest delay
 measured is 5.5 s, below the deadline. A full suite starts many test threads at once, and
 whether concurrent first spawns of one executable add up or wait on each other was not
-tested here (it is measured in the "Concurrent first spawns (#313)" section below). The #285 comparison, whose first focused runs had startup workloads running and
-still showed the delay, is consistent with a shared one-off cost but does not demonstrate it.
+tested here (the "Concurrent first spawns (#313)" section below measures it). The #285
+comparison, whose first focused runs had startup workloads running and still showed the
+delay, is consistent with a shared one-off cost but does not demonstrate it.
 Why the first execution is slow (for example first-use assessment of a new executable) is
 also unestablished: the milestone separates before-`main` from after-`main`, and the samples
 that could separate exec from loader did not complete (below).
@@ -858,9 +861,9 @@ executable, which nothing had run (the runner counts its launches; Cargo does no
 - **Concurrent first spawns share one delay.** Eighteen processes started within 20-26 ms
   reached `main` within 1-3 ms of each other, and the slowest took what the single-spawn
   baseline took (1.19-1.43 s against 1.16-1.28 s). Sixty-four processes behaved the same
-  (spread 33-35 ms, maximum 1.24-1.28 s). They did not add up (the sum of the delays was
-  21-79 s, which no process experienced) and did not queue (a queue would stagger the `main`
-  times over a span near that sum). The processes
+  (spread 33-35 ms, maximum 1.24-1.28 s). They did not add up (summed over a batch the delays
+  were 21.6-25.5 s at 18 processes and 75.9-78.6 s at 64, which no process experienced) and did
+  not queue (a queue would stagger the `main` times over a span near that sum). The processes
   appear to wait on one event and are released together.
 - **The delay is not near the deadline here.** The largest spawn-to-`main` of any of the
   278 processes was 1.43 s, 14 % of the ten-second deadline; none reached half of it. This does not contradict #309's 2.2-5.5 s: those were single spawns on a
@@ -871,18 +874,20 @@ executable, which nothing had run (the runner counts its launches; Cargo does no
   one. So the cost is not only per file path or per fresh build, and a copy is not a free
   stand-in for a rebuilt binary: later batches here are a repeat on a related but different
   executable.
-- **The delay is after the process exists.** Each `Popen` of the batch returned in 3-33 ms, so
+- **The delay is after the process exists.** Each `Popen` of the 278 processes returned in
+  1-51 ms (`spawn_call_seconds` in each summary), so
   the wait is before `main`, as in #309, not in creating the process.
 
 ### Decision on a test-side mitigation
 
-**Not warranted on this evidence.** Concurrent first spawns do not add up, so a full
+**Not warranted on this evidence, which is light-load only.** Concurrent first spawns do not add up, so a full
 `cargo test` with many threads does not multiply the delay by the thread count, and the delay
 measured here is a small fraction of the follow test's ten-second deadline. Executing `gwi`
 once before the follow fixture's timed receive would only move the delay onto that first
 execution (as the #309 warm-up showed: it took 1.2-2.6 s itself) and hide a cost that is
-already shared. Nothing here is a reason to raise the deadline or change follow code. Revisit
-it if a stall recurs with a startup milestone recorded, or if a future measurement under heavy
+already shared. Nothing here is a reason to raise the deadline or change follow code. The heavy-load case
+below was not measured, so this is a decision not to act yet, not a finding that it cannot
+matter. Revisit it if a stall recurs with a startup milestone recorded, or if a future measurement under heavy
 load shows a shared delay approaching the deadline.
 
 ### What this does not establish

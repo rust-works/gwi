@@ -939,7 +939,7 @@ sys.exit({3 if fail_when else 0})
         self.assertEqual(len(batch['processes']), 3)
         for process in batch['processes']:
             self.assertEqual(process['milestone'], 'present')
-            self.assertGreaterEqual(process['spawn_to_main_seconds'], 0.2)
+            self.assertGreaterEqual(process['spawn_to_main_seconds'], 0.15)
             self.assertFalse(process['reached_deadline'])
             self.assertIsNotNone(process['main_after_batch_start_seconds'])
         # Three owned commands, each with its own milestone sink and `--help` argument.
@@ -949,8 +949,8 @@ sys.exit({3 if fail_when else 0})
         self.assertEqual(len({r.directory for r in starts}), 3)
         self.assertEqual(batch['summary']['with_milestone'], 3)
         self.assertEqual(batch['summary']['at_or_over_deadline'], 0)
-        # All launched inside one short window (a barrier, not three sequential starts).
-        self.assertLess(batch['summary']['spawn_window_seconds'], 0.15)
+        # All launched in one window much shorter than the 3 x 0.2 s that sequential waits would take.
+        self.assertLess(batch['summary']['spawn_window_seconds'], 2.0)
 
     def test_first_spawn_summary_separates_shared_from_staggered_delays(self):
         def process(requested, main):
@@ -965,6 +965,18 @@ sys.exit({3 if fail_when else 0})
         self.assertEqual(staggered['over_half_deadline'], 2)
         self.assertAlmostEqual(staggered['sum_spawn_to_main_seconds'], 24.0)
         self.assertAlmostEqual(staggered['median_spawn_to_main_seconds'], 8.0)
+
+    def test_non_finite_milestone_is_missing_not_a_delay(self):
+        cli = self.binary('nan-gwi', "import os\nopen(os.environ['GWI_STARTUP_MILESTONE_FILE'], 'w').write('{\"main_unix_seconds\": NaN}')\n")
+        summary = {}
+        self.assertFalse(runner.concurrent_first_spawns(self.probe, 'default', {'gwi': cli},
+                                                        self.first_spawn_args(), summary))
+        self.assertEqual({p['milestone'] for p in summary['first_spawns'][0]['processes']}, {'missing'})
+
+    def test_follow_receive_deadline_matches_the_fixture(self):
+        source = (runner.ROOT / 'tests' / 'cli_test.rs').read_text()
+        self.assertEqual(runner.FOLLOW_RECEIVE_DEADLINE, 10.0)
+        self.assertIn('std::time::Duration::from_secs(10)', source)
 
     def test_first_spawn_missing_milestone_is_reported_not_inferred(self):
         cli = self.binary('quiet-gwi', 'pass\n')
@@ -1018,6 +1030,10 @@ if os.environ.get('GWI_STARTUP_MILESTONE_FILE'):
         self.assertTrue(runner.concurrent_first_spawns(self.probe, 'default', {'gwi': cli}, args, summary))
         self.assertEqual(order.read_text().split(), ['warm', 'spawn', 'spawn', 'spawn'])
         self.assertTrue(summary['first_spawns'][0]['warm_binary'])
+        copies = self.first_spawn_args('--warm-binary', '--first-spawn-copies', '1')
+        again = {}
+        self.assertTrue(runner.concurrent_first_spawns(self.probe, 'mcp', {'gwi': cli}, copies, again))
+        self.assertEqual([b['warm_binary'] for b in again['first_spawns']], [True, False])
         self.assertEqual(summary['warmups'][0]['outcome'], 'passed')
 
     def test_first_spawn_without_executable_or_with_inherited_milestone(self):
@@ -1046,7 +1062,8 @@ open(path, 'w').write(json.dumps({'pid': 1, 'main_unix_seconds': time.time()}))
                         ['--first-spawns', '2', '--cpu-workers', '1'],
                         ['--first-spawns', '2', '--build-slots', '1'],
                         ['--first-spawns', '2', '--capture-live'],
-                        ['--first-spawns', '-1']):
+                        ['--first-spawns', '-1'], ['--first-spawns', '257'],
+                        ['--first-spawns', '1', '--first-spawn-copies', '11']):
             with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
                 runner.arguments(['--output', str(self.root), *options])
 

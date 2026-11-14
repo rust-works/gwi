@@ -37,6 +37,9 @@ GRACE = 0.3
 EXIT_GRACE = 2
 # The follow fixture's initial-receive deadline (`from_secs(10)` in tests/cli_test.rs).
 FOLLOW_RECEIVE_DEADLINE = 10.0
+# Bounds on a first-spawn batch: each process holds two log files and a command directory.
+MAX_FIRST_SPAWNS = 256
+MAX_FIRST_SPAWN_COPIES = 10
 INTERRUPTED = None
 
 
@@ -409,7 +412,8 @@ def first_spawn_timing(run, deadline):
     returned = run.record.get("spawned_unix_seconds")
     try:
         main = json.loads((run.directory / "main.json").read_text()).get("main_unix_seconds")
-        main = main if isinstance(main, (int, float)) and not isinstance(main, bool) else None
+        main = (main if isinstance(main, (int, float)) and not isinstance(main, bool)
+                and math.isfinite(main) else None)
     except (OSError, ValueError, AttributeError):
         main = None
     before_main = main - requested if main is not None and requested is not None else None
@@ -512,7 +516,8 @@ def concurrent_first_spawns(probe, feature, binaries, args, summary):
             executable.parent.mkdir(parents=True)
             shutil.copy(binaries["gwi"], executable)
         record = first_spawn_batch(probe, feature, label, executable, args.first_spawns, args, env)
-        record["warm_binary"] = args.warm_binary
+        # Only the Cargo-built executable is what `--warm-binary` ran; a copy is a new file.
+        record["warm_binary"] = args.warm_binary and batch == 0
         summary.setdefault("first_spawns", []).append(record)
         write_json(probe.output / "summary.json", summary)
         success = record["passed"] and success
@@ -803,6 +808,9 @@ def arguments(argv):
         parser.error("synthetic-delay must be finite and between zero and eight seconds")
     if args.synthetic_delay and not args.capture_live:
         parser.error("synthetic-delay requires capture-live")
+    if args.first_spawns > MAX_FIRST_SPAWNS or args.first_spawn_copies > MAX_FIRST_SPAWN_COPIES:
+        parser.error(f"first-spawns is at most {MAX_FIRST_SPAWNS} and first-spawn-copies at most "
+                     f"{MAX_FIRST_SPAWN_COPIES}")
     if args.first_spawn_copies and not args.first_spawns:
         parser.error("first-spawn-copies requires first-spawns")
     if args.first_spawns and (args.workload != "none" or args.cpu_workers or args.build_slots
