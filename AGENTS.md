@@ -17,7 +17,15 @@ strategy (Phase 1) is undecided, so do not copy modules from omni-dev ad hoc.
 - Commits use conventional format, enforced by `commit-lint.yml`. Scopes live in
   `.omni-dev/scopes.yaml`; check locally with `omni-dev git commit message lint origin/main..HEAD`.
 - Before a commit run `cargo fmt --all -- --check`, `cargo clippy --all-targets -- -D warnings`
-  and `cargo test`.
+  and `cargo test`. Also run both doc builds that CI's `Docs` job runs, because a public doc
+  comment that links to a private item passes those three and fails there. Run both: the
+  public-only build is the one that catches it.
+
+  ```bash
+  RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --document-private-items --features mcp
+  RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --features mcp
+  ```
+
 - `main` is protected and merges with a **merge commit** through a merge queue (set by the
   queue's ruleset; rebase merging stays enabled on the repo but the queue does not use it).
   Open a pull request and run `gh pr merge`, never `--admin`. If a non-required check is
