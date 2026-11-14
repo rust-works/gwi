@@ -187,7 +187,8 @@ jobs:
     - uses: Swatinem/rust-cache@v2
     # Matches omni-dev's docs job, but denies every rustdoc warning (private intra-doc links,
     # redundant explicit links, bare `<ID>` read as an HTML tag) so doc bugs fail here rather
-    # than accumulating.
+    # than accumulating. Keep these two commands in step with the pre-commit checklist in
+    # CLAUDE.md, AGENTS.md and CONTRIBUTING.md (#312).
     - run: cargo doc --no-deps --document-private-items --features mcp
       env:
         RUSTDOCFLAGS: -D warnings
