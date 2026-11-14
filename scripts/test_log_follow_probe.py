@@ -916,6 +916,154 @@ time.sleep(60)
                 contextlib.redirect_stdout(io.StringIO()):
             self.assertTrue(runner.measure(self.probe, 'default', {'cli_test': test, 'gwi': cli}, args, {'repetitions': []}))
 
+    def milestone_gwi(self, name='gwi', delay=0.0, fail_when=None):
+        """A fake `gwi`: sleeps `delay`, then writes the milestone as the real one does at `main`."""
+        return self.binary(name, f"""import json, os, sys, time
+time.sleep({delay})
+path = os.environ.get('GWI_STARTUP_MILESTONE_FILE')
+if path:
+    open(path, 'w').write(json.dumps({{'pid': os.getpid(), 'main_unix_seconds': time.time()}}))
+sys.exit({3 if fail_when else 0})
+""")
+
+    def first_spawn_args(self, *extra):
+        return runner.arguments(['--output', str(self.root), '--first-spawns', '3', *extra])
+
+    def test_first_spawns_start_together_and_record_spawn_to_main(self):
+        cli = self.milestone_gwi(delay=0.2)
+        summary = {}
+        args = self.first_spawn_args()
+        self.assertTrue(runner.concurrent_first_spawns(self.probe, 'default', {'gwi': cli}, args, summary))
+        batch, = summary['first_spawns']
+        self.assertEqual((batch['batch'], batch['count'], batch['passed']), ('built', 3, True))
+        self.assertEqual(len(batch['processes']), 3)
+        for process in batch['processes']:
+            self.assertEqual(process['milestone'], 'present')
+            self.assertGreaterEqual(process['spawn_to_main_seconds'], 0.2)
+            self.assertFalse(process['reached_deadline'])
+            self.assertIsNotNone(process['main_after_batch_start_seconds'])
+        # Three owned commands, each with its own milestone sink and `--help` argument.
+        starts = [r for r in self.probe.runs if r.record['role'] == 'first-spawn']
+        self.assertEqual(len(starts), 3)
+        self.assertTrue(all(r.record['command'][1:] == ['--help'] for r in starts))
+        self.assertEqual(len({r.directory for r in starts}), 3)
+        self.assertEqual(batch['summary']['with_milestone'], 3)
+        self.assertEqual(batch['summary']['at_or_over_deadline'], 0)
+        # All launched inside one short window (a barrier, not three sequential starts).
+        self.assertLess(batch['summary']['spawn_window_seconds'], 0.15)
+
+    def test_first_spawn_summary_separates_shared_from_staggered_delays(self):
+        def process(requested, main):
+            return {'spawn_requested_unix_seconds': requested, 'main_unix_seconds': main,
+                    'spawn_to_main_seconds': None if main is None else main - requested}
+        shared = runner.first_spawn_summary([process(0, 4.0), process(0.01, 4.01), process(0.02, 4.02)], 10)
+        self.assertAlmostEqual(shared['main_spread_seconds'], 0.02)
+        self.assertAlmostEqual(shared['max_spawn_to_main_seconds'], 4.0)
+        staggered = runner.first_spawn_summary([process(0, 4.0), process(0, 8.0), process(0, 12.0)], 10)
+        self.assertAlmostEqual(staggered['main_spread_seconds'], 8.0)
+        self.assertEqual(staggered['at_or_over_deadline'], 1)
+        self.assertEqual(staggered['over_half_deadline'], 2)
+        self.assertAlmostEqual(staggered['sum_spawn_to_main_seconds'], 24.0)
+        self.assertAlmostEqual(staggered['median_spawn_to_main_seconds'], 8.0)
+
+    def test_first_spawn_missing_milestone_is_reported_not_inferred(self):
+        cli = self.binary('quiet-gwi', 'pass\n')
+        summary = {}
+        self.assertFalse(runner.concurrent_first_spawns(self.probe, 'default', {'gwi': cli},
+                                                        self.first_spawn_args(), summary))
+        batch, = summary['first_spawns']
+        self.assertFalse(batch['passed'])
+        self.assertTrue(all(p['milestone'] == 'missing' and p['spawn_to_main_seconds'] is None
+                            and p['reached_deadline'] is None for p in batch['processes']))
+        self.assertEqual(batch['summary']['missing_milestone'], 3)
+        self.assertNotIn('max_spawn_to_main_seconds', batch['summary'])
+
+    def test_first_spawn_failed_command_fails_the_batch(self):
+        cli = self.milestone_gwi(fail_when=True)
+        summary = {}
+        self.assertFalse(runner.concurrent_first_spawns(self.probe, 'default', {'gwi': cli},
+                                                        self.first_spawn_args(), summary))
+        self.assertEqual({p['returncode'] for p in summary['first_spawns'][0]['processes']}, {3})
+
+    def test_first_spawn_timeout_is_retained(self):
+        cli = self.binary('hung-gwi', 'import time\ntime.sleep(60)\n')
+        summary = {}
+        args = self.first_spawn_args('--run-timeout', '0.3')
+        self.assertFalse(runner.concurrent_first_spawns(self.probe, 'default', {'gwi': cli}, args, summary))
+        self.assertEqual({p['outcome'] for p in summary['first_spawns'][0]['processes']}, {'timeout'})
+
+    def test_first_spawn_copies_run_new_executables_at_new_paths(self):
+        cli = self.milestone_gwi()
+        summary = {}
+        args = self.first_spawn_args('--first-spawn-copies', '2')
+        self.assertTrue(runner.concurrent_first_spawns(self.probe, 'default', {'gwi': cli}, args, summary))
+        batches = summary['first_spawns']
+        self.assertEqual([b['batch'] for b in batches], ['built', 'copy1', 'copy2'])
+        self.assertEqual(batches[0]['executable'], str(cli))
+        self.assertEqual(len({b['executable'] for b in batches}), 3)
+        for batch in batches[1:]:
+            self.assertTrue(Path(batch['executable']).is_file())
+            self.assertTrue(os.access(batch['executable'], os.X_OK))
+        self.assertEqual(json.loads((self.root / 'summary.json').read_text())['first_spawns'][2]['batch'], 'copy2')
+
+    def test_first_spawn_warm_binary_runs_first_and_marks_the_control(self):
+        order = self.root / 'order'
+        cli = self.binary('ordered-gwi', f"""import json, os, sys, time
+open({str(order)!r}, 'a').write(os.environ.get('GWI_STARTUP_MILESTONE_FILE') and 'spawn\\n' or 'warm\\n')
+if os.environ.get('GWI_STARTUP_MILESTONE_FILE'):
+    open(os.environ['GWI_STARTUP_MILESTONE_FILE'], 'w').write(json.dumps({{'pid': 1, 'main_unix_seconds': time.time()}}))
+""")
+        summary = {}
+        args = self.first_spawn_args('--warm-binary')
+        self.assertTrue(runner.concurrent_first_spawns(self.probe, 'default', {'gwi': cli}, args, summary))
+        self.assertEqual(order.read_text().split(), ['warm', 'spawn', 'spawn', 'spawn'])
+        self.assertTrue(summary['first_spawns'][0]['warm_binary'])
+        self.assertEqual(summary['warmups'][0]['outcome'], 'passed')
+
+    def test_first_spawn_without_executable_or_with_inherited_milestone(self):
+        with self.assertRaisesRegex(RuntimeError, 'Missing default gwi executable'):
+            runner.concurrent_first_spawns(self.probe, 'default', {}, self.first_spawn_args(), {})
+        cli = self.binary('scrub-gwi', """import json, os, sys, time
+if os.environ.get('GWI_FOLLOW_PROBE_DIR'):
+    sys.exit(9)
+path = os.environ['GWI_STARTUP_MILESTONE_FILE']
+assert path.endswith('main.json') and 'first-spawn' in path
+open(path, 'w').write(json.dumps({'pid': 1, 'main_unix_seconds': time.time()}))
+""")
+        with patch.dict(os.environ, {'GWI_STARTUP_MILESTONE_FILE': '/absent', 'GWI_FOLLOW_PROBE_DIR': '/absent'}):
+            self.assertTrue(runner.concurrent_first_spawns(self.probe, 'default', {'gwi': cli},
+                                                           self.first_spawn_args(), {}))
+
+    def test_first_spawn_launch_failure_is_not_masked_by_the_barrier(self):
+        missing = self.root / 'no-such-gwi'
+        with self.assertRaises(FileNotFoundError):
+            runner.concurrent_first_spawns(self.probe, 'default', {'gwi': missing}, self.first_spawn_args(), {})
+
+    def test_first_spawn_arguments_are_bounded_and_exclusive(self):
+        self.assertEqual(self.first_spawn_args().first_spawns, 3)
+        for options in (['--first-spawn-copies', '1'],
+                        ['--first-spawns', '2', '--workload', 'startup', '--concurrency', '1'],
+                        ['--first-spawns', '2', '--cpu-workers', '1'],
+                        ['--first-spawns', '2', '--build-slots', '1'],
+                        ['--first-spawns', '2', '--capture-live'],
+                        ['--first-spawns', '-1']):
+            with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+                runner.arguments(['--output', str(self.root), *options])
+
+    def test_main_runs_first_spawns_instead_of_the_follow_test(self):
+        test = self.fake_test('main-test')
+        cli = self.milestone_gwi('main-gwi')
+        # build() requires binaries under its own target directory; stand in for it.
+        with patch.object(runner, 'build', return_value={'cli_test': test, 'gwi': cli}), \
+                contextlib.redirect_stdout(io.StringIO()):
+            output = self.root / 'main-out'
+            status = runner.main(['--output', str(output), '--features', 'default', '--first-spawns', '2'])
+        self.assertEqual(status, 0)
+        summary = json.loads((output / 'summary.json').read_text())
+        self.assertEqual(len(summary['first_spawns']), 1)
+        self.assertEqual(summary['repetitions'], [])
+        self.assertFalse(any(r['role'] == 'focused' for r in summary['commands']))
+
     def test_argument_bounds(self):
         for options in (['--run-timeout', 'nan'], ['--max-seconds', 'inf'], ['--repetitions', '0'],
                         ['--cpu-workers', '-1'], ['--workload', 'startup'], ['--concurrency', '1'],
